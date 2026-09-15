@@ -1,0 +1,19 @@
+[package]
+name = "spice-route"
+version = "0.3.1"
+description = "Verified, recoverable Codex handoffs through your cloud drive"
+authors = ["Spice Route"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "spice_route_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+spice-route-core = { path = "core" }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
