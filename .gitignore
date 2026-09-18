@@ -47,6 +47,8 @@ artifacts/*
 !artifacts/Spice-Route-1.4.1-windows-x64-setup.exe.sha256
 !artifacts/Spice-Route-1.4.2-windows-x64-setup.exe
 !artifacts/Spice-Route-1.4.2-windows-x64-setup.exe.sha256
+!artifacts/Spice-Route-1.4.3-windows-x64-setup.exe
+!artifacts/Spice-Route-1.4.3-windows-x64-setup.exe.sha256
 !artifacts/README.md
 
 # Visual QA output is reproducible; curated README screenshots live separately

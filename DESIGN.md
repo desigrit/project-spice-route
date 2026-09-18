@@ -2,6 +2,8 @@
 
 Approved direction: **B, Workspace**, selected by the user on September 18, 2026.
 
+Approved brand icon: **C, sweeping sail**, selected by the user on September 18, 2026. Use the simplified ship in flat navy and warm ivory across the app and installer.
+
 The Windows interface uses actual WinUI 3 controls through Windows App SDK. The Rust sync engine remains reusable. The existing Tauri maintenance build is a separate release and must not be represented as WinUI.
 
 ## Composition
@@ -15,7 +17,7 @@ Review occupies a full page. Files, Attention, and Notes use separate tabs. A pr
 - Remove Open Codex controls throughout the application.
 - Label the review action **Push**, retaining its up-arrow icon. Codex closure remains an execution check; the button does not need to explain that implementation detail.
 - Preserve the selected Workspace arrangement. Keep the native hamburger toggle at the top of the navigation rail and the ship icon in the title bar.
-- Simplify the ship into flat navy and ivory shapes. Present options for selection before replacing installed brand assets.
+- Apply the selected **C, sweeping sail** icon in flat navy and ivory. Preserve the current Workspace arrangement and application behavior.
 - Do not use em dashes in public content.
 
 ## Behavior

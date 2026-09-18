@@ -32,11 +32,11 @@ Google Drive, OneDrive, or iCloud Drive manages authentication and delivery. Use
 
 ## Brand Commitments
 
-Project Spice Route uses the supplied spice-trade ship icon, navy, and warm ivory. The Windows app should feel native, calm, compact, and clear. Never use em dashes in public content.
+Project Spice Route uses the user-selected **C, sweeping sail** icon in flat navy and warm ivory. This brand update preserves the current Workspace interface and transfer behavior. The Windows app should feel native, calm, compact, and clear. Never use em dashes in public content.
 
 ## Evidence on Hand
 
-The repository contains the React interface, Rust engine, automated tests, installer artifacts, screenshots, and the supplied ship icon. The user's September 18 screenshots show the current Overview and cramped review dialog.
+The repository contains the React interface, Rust engine, automated tests, installer artifacts, screenshots, and the selected sweeping-sail icon. The user's September 18 screenshots show the current Overview and cramped review dialog.
 
 ## Product Principles
 

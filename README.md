@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/assets/boat-mark.png" alt="Spice Route ship icon in navy and ivory" width="88">
+  <img src="src/assets/boat-mark.png" alt="Spice Route sweeping-sail icon in navy and ivory" width="88">
 </p>
 
 # Project Spice Route
@@ -10,15 +10,15 @@ Sometimes you start something at your desk and want to pick it up on your laptop
 
 Spice Route is a Windows desktop app that transfers selected Codex chats and project workspaces through a folder managed by **Google Drive, OneDrive, or iCloud Drive**. Choose what travels, push from one computer, and pull on the other. Your existing cloud client handles sign-in and delivery.
 
-[Windows installer](artifacts/Spice-Route-1.4.2-windows-x64-setup.exe) · [Getting started](#getting-started) · [Build from source](#build-from-source) · [Report an issue](https://github.com/desigrit/project-spice-route/issues)
+[Windows installer](artifacts/Spice-Route-1.4.3-windows-x64-setup.exe) · [Getting started](#getting-started) · [Build from source](#build-from-source) · [Report an issue](https://github.com/desigrit/project-spice-route/issues)
 
 ![Spice Route Overview in light mode, showing Push and Pull actions and the latest visible snapshot](docs/images/native-overview-light.png)
 
-*Overview and What to sync show the actual WinUI 3 interface in version 1.4.2, captured with fabricated sample data. No personal conversations are shown.*
+*Overview and What to sync show the actual WinUI 3 interface in version 1.4.3, captured with fabricated sample data. No personal conversations are shown.*
 
 ## A little context before you begin
 
-**The current Windows version is 1.4.2.** Its shared Rust engine has automated coverage for selected-history transfer, compatibility, conflicts, Git restoration, and rollback. The WinUI interface compiles and its engine connection has headless contract tests. Interactive testing and a live transfer between devices remain validation steps. This is still an early testing release, so keep an independent backup of work you cannot replace.
+**The current Windows version is 1.4.3.** This release applies the selected sweeping-sail icon and preserves the Workspace interface and shared Rust engine behavior. The engine has automated coverage for selected-history transfer, compatibility, conflicts, Git restoration, and rollback. The WinUI interface compiles and its engine connection has headless contract tests. Interactive testing and a live transfer between devices remain validation steps. This is still an early testing release, so keep an independent backup of work you cannot replace.
 
 The Workspace interface uses actual WinUI 3 navigation, menus, folder pickers, and virtualized lists. Review has separate Files, Attention, and Notes tabs, with project filters and large files first. Push and Pull stay in a consistent action row, while timestamped handoff labels make snapshots easier to match across computers.
 
@@ -45,17 +45,17 @@ Recognized dependencies, caches, and build outputs are excluded by default, incl
 
 ### 1. Install the desktop app
 
-Download the [Windows x64 installer](artifacts/Spice-Route-1.4.2-windows-x64-setup.exe) on each computer. It installs for your Windows user and bundles its .NET, Windows App SDK, and C++ runtimes. You do not need Node.js, Rust, or the development scripts to use it.
+Download the [Windows x64 installer](artifacts/Spice-Route-1.4.3-windows-x64-setup.exe) on each computer. It installs for your Windows user and bundles its .NET, Windows App SDK, and C++ runtimes. You do not need Node.js, Rust, or the development scripts to use it.
 
-The installer is not code-signed, so Windows may show a SmartScreen warning. A [SHA-256 checksum](artifacts/Spice-Route-1.4.2-windows-x64-setup.exe.sha256) is included alongside the download. Check your copy in PowerShell:
+The installer is not code-signed, so Windows may show a SmartScreen warning. A [SHA-256 checksum](artifacts/Spice-Route-1.4.3-windows-x64-setup.exe.sha256) is included alongside the download. Check your copy in PowerShell:
 
 ```powershell
-Get-FileHash .\Spice-Route-1.4.2-windows-x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Spice-Route-1.4.3-windows-x64-setup.exe -Algorithm SHA256
 ```
 
 You will also need Codex and an installed cloud drive client. Git must be available when transferring Git repositories. The native interface does not use WebView2.
 
-Version 1.4.2 updates earlier WinUI installations in place and uses the same local Spice Route profile. The earlier Tauri app can remain installed, but close it before opening this one. Your saved device identity, folder choices, and recovery history remain in place. Do not run both interfaces against the same profile at once.
+Version 1.4.3 updates earlier WinUI installations in place and uses the same local Spice Route profile. The earlier Tauri app can remain installed, but close it before opening this one. Your saved device identity, folder choices, and recovery history remain in place. Do not run both interfaces against the same profile at once.
 
 ### 2. Connect a cloud folder
 
@@ -152,7 +152,7 @@ Spice Route checks both the runtime and the database structure before allowing w
 
 Transfers keep the destination's own database schema. Older records can move into the supported newer profile. A transfer in the reverse direction is blocked if it contains newer fields the older profile cannot represent. Those values are never silently discarded.
 
-See the [compatibility design](docs/compatibility-plan.md) and [Windows testing notes](docs/testing-1.4.2.md) for the exact boundaries. The current automated suite has **92 Rust tests, 11 headless native engine-client contract checks, and 24 Tauri frontend tests**. Real-device history display, continuation, and cloud-client behavior remain part of manual acceptance.
+See the [compatibility design](docs/compatibility-plan.md) and [Windows testing notes](docs/testing-1.4.3.md) for the exact boundaries. The current automated suite has **92 Rust tests, 11 headless native engine-client contract checks, and 24 Tauri frontend tests**. Real-device history display, continuation, and cloud-client behavior remain part of manual acceptance.
 
 ## Build from source
 
@@ -169,7 +169,7 @@ rustup toolchain install stable-x86_64-pc-windows-msvc
 ./scripts/build-native-windows.ps1
 ```
 
-The script produces `artifacts/Spice-Route-1.4.2-windows-x64-setup.exe` and its checksum. It builds and packages the application without opening it. See the [Windows verification guide](docs/testing-1.4.2.md) for the engine-client tests and interactive acceptance checks.
+The script produces `artifacts/Spice-Route-1.4.3-windows-x64-setup.exe` and its checksum. It builds and packages the application without opening it. See the [Windows verification guide](docs/testing-1.4.3.md) for the engine-client tests and interactive acceptance checks.
 
 ### Earlier Tauri interface
 
