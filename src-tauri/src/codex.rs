@@ -24,6 +24,8 @@ const LOCAL_ONLY_THREAD_COLUMNS: &[&str] = &["sandbox_policy", "approval_mode", 
 const SAFE_IMPORTED_SANDBOX_POLICY: &str =
     r#"{"type":"managed","file_system":{"type":"restricted","entries":[]},"network":"restricted"}"#;
 const SAFE_IMPORTED_APPROVAL_MODE: &str = "on-request";
+const DISPLAY_TITLE_LIMIT: usize = 160;
+const DISPLAY_PREVIEW_LIMIT: usize = 320;
 
 const STATE_THREAD_TABLES: &[(&str, &str)] = &[
     ("threads", "id"),
@@ -378,8 +380,8 @@ pub fn list_content(home: &Path) -> Result<ContentCatalog> {
                     projectless: project_id.is_none(),
                     estimated_bytes: rollout_size + history_sizes.get(&id).copied().unwrap_or(0),
                     id,
-                    title: row.get(1)?,
-                    preview: row.get(2)?,
+                    title: display_thread_title(&row.get::<_, String>(1)?),
+                    preview: display_label(&row.get::<_, String>(2)?, DISPLAY_PREVIEW_LIMIT),
                     cwd: row.get(3)?,
                     project_id,
                     archived: row.get::<_, i64>(5)? != 0,
@@ -389,6 +391,7 @@ pub fn list_content(home: &Path) -> Result<ContentCatalog> {
             threads = mapped.collect::<std::result::Result<Vec<_>, _>>()?;
         }
     }
+    omit_internal_threads(&state, &mut threads)?;
     inherit_parent_projects(&state, &associations, &mut threads)?;
     let mut projects = read_projects(&state, &threads)?;
     for project in &mut projects {
@@ -427,13 +430,115 @@ pub fn list_content(home: &Path) -> Result<ContentCatalog> {
     })
 }
 
+/// These are presentation labels only. Database names, titles, and history are
+/// exported unchanged, even when Codex used an entire first message as a title.
+pub fn display_thread_title(value: &str) -> String {
+    let title = display_label(value, DISPLAY_TITLE_LIMIT);
+    if title.is_empty() {
+        "Untitled chat".into()
+    } else {
+        title
+    }
+}
+
+fn display_label(value: &str, limit: usize) -> String {
+    let mut label = String::new();
+    let mut characters = 0;
+    let mut preceding_space = true;
+    for character in value.chars() {
+        // Bidi formatting controls should not reorder a review label. Historical
+        // text is left intact in the exported database rows.
+        if matches!(character, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}')
+        {
+            continue;
+        }
+        let character = if character.is_whitespace() || character.is_control() {
+            ' '
+        } else if character == '\u{2014}' {
+            '-'
+        } else {
+            character
+        };
+        if character == ' ' && preceding_space {
+            continue;
+        }
+        if characters == limit {
+            label.pop();
+            label.push('…');
+            break;
+        }
+        label.push(character);
+        characters += 1;
+        preceding_space = character == ' ';
+    }
+    label.trim_end().to_string()
+}
+
+fn is_internal_source(source: &str) -> bool {
+    serde_json::from_str::<JsonValue>(source)
+        .ok()
+        .and_then(|value| {
+            value
+                .pointer("/subagent/other")
+                .and_then(JsonValue::as_str)
+                .map(|kind| kind == "guardian")
+        })
+        .unwrap_or(false)
+}
+
+/// Codex's guardian records are internal approval assessments, not user tasks.
+/// Match explicit source metadata only, never conversation text or task names.
+pub fn is_internal_thread(thread: &ThreadExport) -> bool {
+    thread
+        .state_rows
+        .get("threads")
+        .into_iter()
+        .flatten()
+        .any(|row| row_string(row, "source").is_some_and(is_internal_source))
+}
+
+fn omit_internal_threads(state: &Connection, threads: &mut Vec<ThreadSummary>) -> Result<()> {
+    if !table_exists(state, "threads")
+        || !table_columns(state, "threads")?
+            .iter()
+            .any(|column| column == "source")
+    {
+        return Ok(());
+    }
+    let mut statement =
+        state.prepare("SELECT id, source FROM threads WHERE source LIKE '%guardian%'")?;
+    let mut internal = HashSet::new();
+    for result in statement.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })? {
+        let (id, source) = result?;
+        if is_internal_source(&source) {
+            internal.insert(id);
+        }
+    }
+    let parents = thread_parents(state)?;
+    loop {
+        let children: Vec<_> = parents
+            .iter()
+            .filter(|(child, parent)| !internal.contains(*child) && internal.contains(*parent))
+            .map(|(child, _)| child.clone())
+            .collect();
+        if children.is_empty() {
+            break;
+        }
+        internal.extend(children);
+    }
+    threads.retain(|thread| !internal.contains(&thread.id));
+    Ok(())
+}
+
 fn history_sizes(home: &Path) -> Result<HashMap<String, u64>> {
     let connection = open_read_only(&home.join("thread_history_1.sqlite"))?;
     if !table_exists(&connection, "thread_items") {
         return Ok(HashMap::new());
     }
     let mut statement = connection
-        .prepare("SELECT thread_id, sum(length(item_json)) FROM thread_items GROUP BY thread_id")?;
+        .prepare("SELECT thread_id, sum(length(CAST(item_json AS BLOB))) FROM thread_items GROUP BY thread_id")?;
     let rows = statement.query_map([], |row| {
         Ok((
             row.get::<_, String>(0)?,
@@ -650,7 +755,8 @@ pub fn selection_excluded_thread_ids(
     let mut excluded: HashSet<_> = selection.excluded_thread_ids.iter().cloned().collect();
     let mut parents = HashMap::new();
     for thread in threads {
-        if (thread.archived && !selection.include_archived)
+        if is_internal_thread(thread)
+            || (thread.archived && !selection.include_archived)
             || thread
                 .project_id
                 .as_deref()
@@ -970,7 +1076,7 @@ fn list_content_from_paths(
     let mut sizes = HashMap::new();
     if table_exists(&history, "thread_items") {
         let mut statement = history.prepare(
-            "SELECT thread_id, sum(length(item_json)) FROM thread_items GROUP BY thread_id",
+            "SELECT thread_id, sum(length(CAST(item_json AS BLOB))) FROM thread_items GROUP BY thread_id",
         )?;
         for row in statement.query_map([], |row| {
             Ok((
@@ -995,8 +1101,8 @@ fn list_content_from_paths(
                 estimated_bytes: sizes.get(&id).copied().unwrap_or(0)
                     + fs::metadata(rollout).map(|meta| meta.len()).unwrap_or(0),
                 id,
-                title: row.get(1)?,
-                preview: row.get(2)?,
+                title: display_thread_title(&row.get::<_, String>(1)?),
+                preview: display_label(&row.get::<_, String>(2)?, DISPLAY_PREVIEW_LIMIT),
                 cwd: row.get(3)?,
                 project_id,
                 archived: row.get::<_, i64>(5)? != 0,
@@ -1004,6 +1110,7 @@ fn list_content_from_paths(
             })
         })?
         .collect::<std::result::Result<Vec<_>, _>>()?;
+    omit_internal_threads(&state, &mut threads)?;
     inherit_parent_projects(&state, &associations, &mut threads)?;
     let projects = read_projects(&state, &threads)?;
     Ok(ContentCatalog {
@@ -2693,11 +2800,14 @@ mod tests {
             object.kind,
             crate::models::ObjectKind::Artifact
         ) && object.owner_id == "chat-project"));
+        assert!(manifest
+            .objects
+            .iter()
+            .any(|object| object.logical_path.ends_with(".env")));
         assert!(!manifest
             .objects
             .iter()
-            .any(|object| object.logical_path.ends_with(".env")
-                || object.logical_path.contains("history-only.txt")
+            .any(|object| object.logical_path.contains("history-only.txt")
                 || object.owner_id == "chat-individual"));
 
         let local_root = destination.path().join("Local workspace");
@@ -3033,6 +3143,174 @@ mod tests {
         }
         let result = inspect(dir.path()).unwrap();
         assert!(!result.supported);
+    }
+
+    #[test]
+    fn quick_inventory_keeps_mapped_projects_and_counts_without_workspace_sizes() {
+        let directory = tempdir().unwrap();
+        let home = directory.path().join("codex");
+        let original = directory.path().join("original-project");
+        let mapped = directory.path().join("mapped-project");
+        create_fixture_schema(&home);
+        fs::create_dir_all(&mapped).unwrap();
+        fs::write(mapped.join("notes.txt"), b"project contents").unwrap();
+        insert_project(&home, "project", "Project", &original, 0);
+        insert_thread(&home, "task", "Task", &original, Some("project"), "{}");
+        let mut config = crate::settings::default_config();
+        config.codex_home = home.to_string_lossy().into_owned();
+        config.projectless_root = directory
+            .path()
+            .join("projectless")
+            .to_string_lossy()
+            .into_owned();
+        config.cloud_root = directory
+            .path()
+            .join("cloud")
+            .to_string_lossy()
+            .into_owned();
+        config.projects_root.clear();
+        config
+            .source_roots
+            .insert("project:0".into(), mapped.to_string_lossy().into_owned());
+        let engine = crate::engine::Engine::new(directory.path().join("app-data")).unwrap();
+        let quick = engine.list_content_quick(&config).unwrap();
+        let detailed = engine.list_content(&config).unwrap();
+        assert_eq!(quick.threads.len(), 1);
+        assert_eq!(quick.projects[0].thread_count, 1);
+        assert_eq!(
+            quick.projects[0].local_roots,
+            detailed.projects[0].local_roots
+        );
+        assert_eq!(
+            quick.projects[0].local_roots,
+            vec![mapped.to_string_lossy().into_owned()]
+        );
+        assert_eq!(quick.projects[0].estimated_bytes, 0);
+        assert_eq!(
+            detailed.projects[0].estimated_bytes,
+            b"project contents".len() as u64
+        );
+    }
+
+    #[test]
+    fn internal_guardian_records_are_omitted_without_losing_user_or_helper_history() {
+        let home = tempdir().unwrap();
+        create_fixture_schema(home.path());
+        for (id, title) in [
+            ("parent", "Investigate guardian behavior"),
+            ("helper", "Review recent changes"),
+            ("guardian", "Internal approval fixture"),
+            ("guardian-child", "Internal child fixture"),
+            ("unknown", "A future kind of task"),
+        ] {
+            insert_thread(home.path(), id, title, home.path(), None, "{}");
+        }
+        let selection = crate::settings::default_config().selection;
+        let mut old_export =
+            export_selected(home.path(), home.path(), &selection, home.path()).unwrap();
+        let state = Connection::open(home.path().join("state_5.sqlite")).unwrap();
+        for (id, source) in [
+            ("guardian", r#"{"subagent":{"other":"guardian"}}"#),
+            (
+                "guardian-child",
+                r#"{"subagent":{"thread_spawn":{"parent_thread_id":"guardian"}}}"#,
+            ),
+            (
+                "helper",
+                r#"{"subagent":{"thread_spawn":{"parent_thread_id":"parent"}}}"#,
+            ),
+            ("unknown", r#"{"subagent":{"other":"guardian_helper"}}"#),
+        ] {
+            state
+                .execute("UPDATE threads SET source=?1 WHERE id=?2", [source, id])
+                .unwrap();
+            let row = old_export
+                .threads
+                .iter_mut()
+                .find(|thread| thread.id == id)
+                .unwrap()
+                .state_rows
+                .get_mut("threads")
+                .unwrap()
+                .first_mut()
+                .unwrap();
+            row.values
+                .insert("source".into(), SqlValue::Text(source.into()));
+        }
+        let expected = HashSet::from(["parent", "helper", "unknown"]);
+        let catalog = list_content(home.path()).unwrap();
+        assert_eq!(
+            catalog
+                .threads
+                .iter()
+                .map(|thread| thread.id.as_str())
+                .collect::<HashSet<_>>(),
+            expected
+        );
+        let export = export_selected(home.path(), home.path(), &selection, home.path()).unwrap();
+        assert_eq!(
+            export
+                .threads
+                .iter()
+                .map(|thread| thread.id.as_str())
+                .collect::<HashSet<_>>(),
+            expected
+        );
+        assert!(export
+            .pending_files
+            .iter()
+            .all(|file| expected.contains(file.owner_id.as_str())));
+        // Older snapshots must treat these records as outside the transfer selection,
+        // not as source deletions when a subsequent snapshot stops exporting them.
+        assert_eq!(
+            selection_excluded_thread_ids(&selection, &old_export.threads),
+            HashSet::from(["guardian".into(), "guardian-child".into()])
+        );
+        assert_eq!(
+            state
+                .query_row("SELECT count(*) FROM threads", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            5
+        );
+        assert!(!is_internal_source("guardian"));
+        assert!(!is_internal_source(
+            r#"{"subagent":{"other":"guardian_helper"}}"#
+        ));
+        assert!(!is_internal_source(r#"{"source":"guardian"}"#));
+    }
+
+    #[test]
+    fn long_display_labels_are_bounded_while_database_titles_remain_lossless() {
+        let home = tempdir().unwrap();
+        create_fixture_schema(home.path());
+        let original = format!("  Long title\n\t{}", "界".repeat(400));
+        insert_thread(home.path(), "long", &original, home.path(), None, "{}");
+        let catalog = list_content(home.path()).unwrap();
+        let task = &catalog.threads[0];
+        assert_eq!(task.title.chars().count(), DISPLAY_TITLE_LIMIT);
+        assert_eq!(task.preview.chars().count(), DISPLAY_PREVIEW_LIMIT);
+        assert!(task.title.starts_with("Long title "));
+        assert!(task.title.ends_with('…'));
+        assert!(!task.title.contains('\n'));
+        assert_eq!(display_thread_title(" \n\t"), "Untitled chat");
+        assert_eq!(display_thread_title("A\u{202e}B\u{2014}C"), "AB-C");
+        let export = export_selected(
+            home.path(),
+            home.path(),
+            &crate::settings::default_config().selection,
+            home.path(),
+        )
+        .unwrap();
+        assert_eq!(export.threads[0].title, task.title);
+        assert_eq!(
+            row_string(&export.threads[0].state_rows["threads"][0], "title"),
+            Some(original.as_str())
+        );
+        assert_eq!(
+            row_string(&export.threads[0].state_rows["threads"][0], "name"),
+            Some(original.as_str())
+        );
     }
 
     #[test]

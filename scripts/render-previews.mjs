@@ -122,7 +122,7 @@ try {
         : page === 'mapping' ? h(PreviewDialog, { preview: mappingPreview, onCancel: noop, onExecute: noop, onSaveMappings: noop }) : null;
       const markup = renderToStaticMarkup(h(RendererProvider, { renderer }, h(AppTheme, { mode: theme }, shell(overlay ? 'overview' : page, content, overlay))));
       const styles = renderToStaticMarkup(h(React.Fragment, null, ...renderToStyleElements(renderer)));
-      const html = `<!doctype html><html lang="en" data-theme="${theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Spice Route — static ${page} preview</title>${styles}<style>${css}</style></head><body><div id="root">${markup.replaceAll('/src/assets/boat-mark.png', boat)}</div></body></html>`;
+      const html = `<!doctype html><html lang="en" data-theme="${theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Spice Route | static ${page} preview</title>${styles}<style>${css}</style></head><body><div id="root">${markup.replaceAll('/src/assets/boat-mark.png', boat)}</div></body></html>`;
       await fs.writeFile(path.join(output, `ui-${page}-${theme}.html`), html);
       for (const viewport of [{ width: 1180, height: 820 }, { width: 920, height: 620 }]) {
         const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });

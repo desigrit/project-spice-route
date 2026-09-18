@@ -37,7 +37,7 @@ pub fn default_config() -> AppConfig {
             excluded_thread_ids: Vec::new(),
             include_archived: true,
             include_build_outputs: false,
-            include_sensitive_files: false,
+            include_sensitive_files: true,
             extra_exclude_patterns: Vec::new(),
         },
     }

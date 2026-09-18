@@ -125,6 +125,20 @@ impl Engine {
     }
 
     pub fn list_content(&self, config: &AppConfig) -> Result<ContentCatalog> {
+        self.list_content_with_sizes(config, true)
+    }
+
+    /// Counts and associations for startup, without walking every working tree.
+    /// The selection page can request detailed workspace estimates separately.
+    pub fn list_content_quick(&self, config: &AppConfig) -> Result<ContentCatalog> {
+        self.list_content_with_sizes(config, false)
+    }
+
+    fn list_content_with_sizes(
+        &self,
+        config: &AppConfig,
+        include_workspace_sizes: bool,
+    ) -> Result<ContentCatalog> {
         settings::validate_config(config)?;
         let mut catalog = codex::list_content(Path::new(&config.codex_home))?;
         for project in &mut catalog.projects {
@@ -142,15 +156,17 @@ impl Engine {
                 })
                 .collect();
             project.estimated_bytes = 0;
-            for root in &project.local_roots {
-                match snapshot::estimate_workspace_bytes(Path::new(root), &config.selection) {
-                    Ok(bytes) => {
-                        project.estimated_bytes = project.estimated_bytes.saturating_add(bytes);
+            if include_workspace_sizes {
+                for root in &project.local_roots {
+                    match snapshot::estimate_workspace_bytes(Path::new(root), &config.selection) {
+                        Ok(bytes) => {
+                            project.estimated_bytes = project.estimated_bytes.saturating_add(bytes);
+                        }
+                        Err(error) => catalog.warnings.push(format!(
+                            "{} has an incomplete workspace size estimate: {error}",
+                            project.name
+                        )),
                     }
-                    Err(error) => catalog.warnings.push(format!(
-                        "{} has an incomplete workspace size estimate: {error}",
-                        project.name
-                    )),
                 }
             }
             project.git_repository = project
@@ -487,79 +503,100 @@ impl Engine {
             1,
         )?;
         platform::assert_codex_closed()?;
-        self.ensure_heads(config, &prepared.expected_head_ids)?;
-        let final_stage = self.preview_directory(&format!("{}-final", operation_id))?;
-        set_progress(
-            &prepared,
-            OperationPhase::Capturing,
-            "Capturing a consistent Codex and workspace snapshot…",
-            2,
-        )?;
-        let mut manifest = self.capture_local_cancellable(
-            config,
-            &final_stage,
-            prepared.expected_latest.clone(),
-            Some(&prepared.cancel),
-            true,
-            true,
-        )?;
-        manifest.additional_parent_ids = prepared.additional_parent_ids.clone();
-        if snapshot::manifest_fingerprint(&manifest)? != prepared.local_fingerprint {
-            return Err(SpiceError::User("Codex or a selected project changed after the preview. Review a fresh Push preview before publishing.".to_string()));
-        }
-        check_cancel(&prepared.cancel)?;
-        set_progress(
-            &prepared,
-            OperationPhase::Verifying,
-            "Checking hashes and available cloud-folder space…",
-            3,
-        )?;
-        let store = ObjectStore::new(final_stage.join("objects"))?;
-        let cloud_store = ObjectStore::new(settings::cloud_store_root(config).join("objects"))?;
-        let additional_cloud_bytes = manifest
-            .objects
-            .iter()
-            .filter(|object| {
-                cloud_store
-                    .object_path(&object.hash)
-                    .map(|path| !path.is_file())
-                    .unwrap_or(true)
+        let writer_monitor = platform::WriterMonitor::start(prepared.cancel.clone())?;
+        let result = (|| -> Result<OperationResult> {
+            self.ensure_heads(config, &prepared.expected_head_ids)?;
+            let final_stage = self.preview_directory(&format!("{}-final", operation_id))?;
+            let store = ObjectStore::with_reuse(
+                final_stage.join("objects"),
+                settings::cloud_store_root(config).join("objects"),
+            )?;
+            set_progress(
+                &prepared,
+                OperationPhase::Capturing,
+                "Capturing a consistent Codex and workspace snapshot…",
+                2,
+            )?;
+            let mut manifest = self.capture_local_using_store(
+                config,
+                &final_stage,
+                prepared.expected_latest.clone(),
+                Some(&prepared.cancel),
+                &store,
+                true,
+            )?;
+            manifest.additional_parent_ids = prepared.additional_parent_ids.clone();
+            if snapshot::manifest_fingerprint(&manifest)? != prepared.local_fingerprint {
+                return Err(SpiceError::User("Codex or a selected project changed after the preview. Review a fresh Push preview before publishing.".to_string()));
+            }
+            check_cancel(&prepared.cancel)?;
+            set_progress(
+                &prepared,
+                OperationPhase::Verifying,
+                "Checking hashes and available cloud-folder space…",
+                3,
+            )?;
+            let cloud_store = ObjectStore::new(settings::cloud_store_root(config).join("objects"))?;
+            let additional_cloud_bytes = manifest
+                .objects
+                .iter()
+                .filter(|object| {
+                    cloud_store
+                        .object_path(&object.hash)
+                        .map(|path| !path.is_file())
+                        .unwrap_or(true)
+                })
+                .map(|object| object.stored_size)
+                .sum::<u64>();
+            ensure_disk_space(
+                &settings::cloud_store_root(config),
+                additional_cloud_bytes.saturating_add(MIN_OPERATION_HEADROOM),
+                "publish this snapshot",
+            )?;
+            snapshot::validate_push_source_roots(config, &manifest.projects)?;
+            set_progress(
+                &prepared,
+                OperationPhase::Publishing,
+                "Saving content objects, then publishing the completion manifest…",
+                4,
+            )?;
+            writer_monitor.check()?;
+            platform::assert_codex_closed()?;
+            let summary = snapshot::publish_with_progress(
+                config,
+                &store,
+                &manifest,
+                Some(&prepared.cancel),
+                &mut |progress| {
+                    set_progress(
+                        &prepared,
+                        OperationPhase::Publishing,
+                        &content_progress_message(progress, "Checking and saving content"),
+                        4,
+                    )
+                },
+            )?;
+            let mut state = settings::load_local_state(&self.data_dir)?;
+            state.last_applied_snapshot_id = Some(manifest.id.clone());
+            state.last_pushed_snapshot_id = Some(manifest.id.clone());
+            state.last_selection_revision = Some(config.selection.revision.clone());
+            state.pending_merge_parent_ids.clear();
+            settings::save_local_state(&self.data_dir, &state)?;
+            set_progress(
+                &prepared,
+                OperationPhase::Complete,
+                "Snapshot saved to the sync folder.",
+                5,
+            )?;
+            self.finish_operation(operation_id, &[prepared.stage_dir, final_stage])?;
+            Ok(OperationResult {
+                snapshot: summary,
+                warnings: manifest.warnings,
+                recovery_id: None,
+                status_message: "Snapshot saved to the sync folder.".to_string(),
             })
-            .map(|object| object.stored_size)
-            .sum::<u64>();
-        ensure_disk_space(
-            &settings::cloud_store_root(config),
-            additional_cloud_bytes.saturating_add(MIN_OPERATION_HEADROOM),
-            "publish this snapshot",
-        )?;
-        snapshot::validate_push_source_roots(config, &manifest.projects)?;
-        set_progress(
-            &prepared,
-            OperationPhase::Publishing,
-            "Saving content objects, then publishing the completion manifest…",
-            4,
-        )?;
-        let summary =
-            snapshot::publish_cancellable(config, &store, &manifest, Some(&prepared.cancel))?;
-        let mut state = settings::load_local_state(&self.data_dir)?;
-        state.last_applied_snapshot_id = Some(manifest.id.clone());
-        state.last_pushed_snapshot_id = Some(manifest.id.clone());
-        state.last_selection_revision = Some(config.selection.revision.clone());
-        state.pending_merge_parent_ids.clear();
-        settings::save_local_state(&self.data_dir, &state)?;
-        set_progress(
-            &prepared,
-            OperationPhase::Complete,
-            "Snapshot saved to the sync folder.",
-            5,
-        )?;
-        self.finish_operation(operation_id, &[prepared.stage_dir, final_stage])?;
-        Ok(OperationResult {
-            snapshot: summary,
-            warnings: manifest.warnings,
-            recovery_id: None,
-            status_message: "Snapshot saved to the sync folder.".to_string(),
-        })
+        })();
+        result.map_err(|error| writer_monitor.explain_error(error))
     }
 
     pub fn execute_pull(
@@ -579,91 +616,106 @@ impl Engine {
             1,
         )?;
         platform::assert_codex_closed()?;
-        self.ensure_heads(config, &prepared.expected_head_ids)?;
-        let incoming_id = prepared
-            .expected_latest
-            .as_deref()
-            .ok_or_else(|| SpiceError::User("Pull preview has no snapshot.".to_string()))?;
-        let incoming = snapshot::load_manifest(config, incoming_id)?;
-        codex::validate_snapshot_source(&incoming)?;
-        set_progress(
-            &prepared,
-            OperationPhase::Verifying,
-            "Verifying every required cloud object…",
-            2,
-        )?;
-        let summary =
-            snapshot::verify_manifest_cancellable(config, &incoming, Some(&prepared.cancel))?;
-        let recovery_estimate = incoming
-            .objects
-            .iter()
-            .map(|object| object.raw_size)
-            .sum::<u64>();
-        ensure_disk_space(
-            &self.data_dir,
-            recovery_estimate.saturating_add(MIN_OPERATION_HEADROOM),
-            "stage and protect this Pull",
-        )?;
-        let resolution_map: HashMap<_, _> = resolutions
-            .iter()
-            .map(|resolution| (resolution.key.as_str(), &resolution.choice))
-            .collect();
-        for conflict in prepared
-            .preview
-            .changes
-            .iter()
-            .filter(|change| change.action == ChangeAction::Conflict)
-        {
-            if !resolution_map.contains_key(conflict.key.as_str()) {
-                return Err(SpiceError::User(format!(
-                    "Choose which version to keep for {}.",
-                    conflict.label
-                )));
-            }
-        }
-        if !required_mappings(config, &incoming).is_empty() {
-            return Err(SpiceError::User("Choose a destination for every incoming project root, save it, and preview Pull again.".to_string()));
-        }
-        let recheck_stage = self.preview_directory(&format!("{}-recheck", operation_id))?;
-        set_progress(
-            &prepared,
-            OperationPhase::Capturing,
-            "Rechecking local sessions and destination files…",
-            3,
-        )?;
-        let current = self.capture_local_cancellable(
-            config,
-            &recheck_stage,
-            None,
-            Some(&prepared.cancel),
-            false,
-            false,
-        )?;
-        if pull_local_fingerprint(config, &current, &incoming)? != prepared.local_fingerprint {
-            return Err(SpiceError::User("Codex or a destination project changed after the preview. Review a fresh Pull preview before applying it.".to_string()));
-        }
-        if prepared.transfer_contract.as_ref() != Some(&transfer_contract(&incoming, &current)?) {
-            return Err(SpiceError::User("The source snapshot or destination Codex version changed after preview. Refresh and review Pull again before restoring.".into()));
-        }
-        check_cancel(&prepared.cancel)?;
-        let decisions = decisions(&prepared.preview, &resolution_map, &incoming);
-        // Keeping local versions is a completed reconciliation too. Record the
-        // reviewed ancestor without rewriting unchanged Codex databases or files.
-        if decisions
-            .values()
-            .all(|decision| *decision == ApplyDecision::Local)
-        {
-            platform::assert_codex_closed()?;
+        let writer_monitor = platform::WriterMonitor::start(prepared.cancel.clone())?;
+        let result = (|| -> Result<OperationResult> {
             self.ensure_heads(config, &prepared.expected_head_ids)?;
-            record_pull_baseline(&self.data_dir, &incoming, &prepared.expected_head_ids)?;
+            let incoming_id = prepared
+                .expected_latest
+                .as_deref()
+                .ok_or_else(|| SpiceError::User("Pull preview has no snapshot.".to_string()))?;
+            let incoming = snapshot::load_manifest(config, incoming_id)?;
+            codex::validate_snapshot_source(&incoming)?;
             set_progress(
                 &prepared,
-                OperationPhase::Complete,
-                "Snapshot verified and acknowledged. Local versions kept; Push is available.",
-                7,
+                OperationPhase::Verifying,
+                "Verifying every required cloud object…",
+                2,
             )?;
-            self.finish_operation(operation_id, &[prepared.stage_dir, recheck_stage])?;
-            return Ok(OperationResult {
+            let summary = snapshot::verify_manifest_with_progress(
+                config,
+                &incoming,
+                Some(&prepared.cancel),
+                &mut |progress| {
+                    set_progress(
+                        &prepared,
+                        OperationPhase::Verifying,
+                        &content_progress_message(progress, "Checking received content"),
+                        2,
+                    )
+                },
+            )?;
+            let recovery_estimate = incoming
+                .objects
+                .iter()
+                .map(|object| object.raw_size)
+                .sum::<u64>();
+            ensure_disk_space(
+                &self.data_dir,
+                recovery_estimate.saturating_add(MIN_OPERATION_HEADROOM),
+                "stage and protect this Pull",
+            )?;
+            let resolution_map: HashMap<_, _> = resolutions
+                .iter()
+                .map(|resolution| (resolution.key.as_str(), &resolution.choice))
+                .collect();
+            for conflict in prepared
+                .preview
+                .changes
+                .iter()
+                .filter(|change| change.action == ChangeAction::Conflict)
+            {
+                if !resolution_map.contains_key(conflict.key.as_str()) {
+                    return Err(SpiceError::User(format!(
+                        "Choose which version to keep for {}.",
+                        conflict.label
+                    )));
+                }
+            }
+            if !required_mappings(config, &incoming).is_empty() {
+                return Err(SpiceError::User("Choose a destination for every incoming project root, save it, and preview Pull again.".to_string()));
+            }
+            let recheck_stage = self.preview_directory(&format!("{}-recheck", operation_id))?;
+            set_progress(
+                &prepared,
+                OperationPhase::Capturing,
+                "Rechecking local sessions and destination files…",
+                3,
+            )?;
+            let current = self.capture_local_cancellable(
+                config,
+                &recheck_stage,
+                None,
+                Some(&prepared.cancel),
+                false,
+                false,
+            )?;
+            if pull_local_fingerprint(config, &current, &incoming)? != prepared.local_fingerprint {
+                return Err(SpiceError::User("Codex or a destination project changed after the preview. Review a fresh Pull preview before applying it.".to_string()));
+            }
+            if prepared.transfer_contract.as_ref() != Some(&transfer_contract(&incoming, &current)?)
+            {
+                return Err(SpiceError::User("The source snapshot or destination Codex version changed after preview. Refresh and review Pull again before restoring.".into()));
+            }
+            check_cancel(&prepared.cancel)?;
+            let decisions = decisions(&prepared.preview, &resolution_map, &incoming);
+            // Keeping local versions is a completed reconciliation too. Record the
+            // reviewed ancestor without rewriting unchanged Codex databases or files.
+            if decisions
+                .values()
+                .all(|decision| *decision == ApplyDecision::Local)
+            {
+                platform::assert_codex_closed()?;
+                self.ensure_heads(config, &prepared.expected_head_ids)?;
+                writer_monitor.check()?;
+                record_pull_baseline(&self.data_dir, &incoming, &prepared.expected_head_ids)?;
+                set_progress(
+                    &prepared,
+                    OperationPhase::Complete,
+                    "Snapshot verified and acknowledged. Local versions kept; Push is available.",
+                    7,
+                )?;
+                self.finish_operation(operation_id, &[prepared.stage_dir, recheck_stage])?;
+                return Ok(OperationResult {
                 snapshot: summary,
                 warnings: incoming.warnings,
                 recovery_id: None,
@@ -671,340 +723,350 @@ impl Engine {
                     "Snapshot verified and acknowledged. Local versions kept; Push is available."
                         .to_string(),
             });
-        }
-        let apply_stage = self.preview_directory(&format!("{}-apply", operation_id))?;
-        let staged_home = apply_stage.join("codex");
-        let live_home = Path::new(&config.codex_home);
-        codex::snapshot_databases(live_home, &staged_home)?;
-        for name in [".codex-global-state.json", "session_index.jsonl"] {
-            let source = live_home.join(name);
-            if source.is_file() {
-                fs::copy(source, staged_home.join(name))?;
             }
-        }
-        let cloud_store = ObjectStore::new(settings::cloud_store_root(config).join("objects"))?;
-        let incoming_threads: HashSet<String> = incoming
-            .threads
-            .iter()
-            .filter(|thread| decision_incoming(&decisions, &format!("thread:{}", thread.id)))
-            .map(|thread| thread.id.clone())
-            .collect();
-        let incoming_projects: HashSet<String> = incoming
-            .projects
-            .iter()
-            .filter(|project| decision_incoming(&decisions, &format!("project:{}", project.id)))
-            .map(|project| project.id.clone())
-            .collect();
-        let deleted_threads: HashSet<String> = decisions
-            .iter()
-            .filter(|(key, action)| key.starts_with("thread:") && **action == ApplyDecision::Delete)
-            .map(|(key, _)| key.trim_start_matches("thread:").to_string())
-            .collect();
-        let deleted_projects: HashSet<String> = decisions
-            .iter()
-            .filter(|(key, action)| {
-                key.starts_with("project:") && **action == ApplyDecision::Delete
-            })
-            .map(|(key, _)| key.trim_start_matches("project:").to_string())
-            .collect();
-        let mut rollout_paths = HashMap::new();
-        let mut rollout_fingerprints = HashMap::new();
-        let mut staged_rollouts = Vec::new();
-        for object in incoming.objects.iter().filter(|object| {
-            matches!(object.kind, ObjectKind::Rollout)
-                && incoming_threads.contains(&object.owner_id)
-        }) {
-            let thread = incoming
-                .threads
-                .iter()
-                .find(|thread| thread.id == object.owner_id)
-                .expect("rollout owner in manifest");
-            let relative = thread
-                .rollout_relative_path
-                .as_deref()
-                .map(PathBuf::from)
-                .and_then(|path| safe_relative(&path).ok())
-                .unwrap_or_else(|| {
-                    PathBuf::from("sessions")
-                        .join("spice-route")
-                        .join(format!("{}.jsonl", thread.id))
-                });
-            let staged = staged_home.join(&relative);
-            cloud_store.materialize_cancellable(object, &staged, Some(&prepared.cancel))?;
-            rollout_fingerprints.insert(
-                thread.id.clone(),
-                codex::portable_rollout_fingerprint(&staged)?,
-            );
-            let live = live_home.join(&relative);
-            rollout_paths.insert(thread.id.clone(), path_string(&live));
-            staged_rollouts.push((thread.id.clone(), staged, live));
-        }
-        let applied_id = settings::load_local_state(&self.data_dir)?.last_applied_snapshot_id;
-        let baseline = snapshot::common_ancestor(config, applied_id.as_deref(), &incoming.id)?;
-        let attachment_operations =
-            plan_attachment_operations(config, &incoming, baseline.as_ref(), &decisions)?;
-        let mut attachment_paths: HashMap<String, HashMap<String, String>> = HashMap::new();
-        for object in incoming.objects.iter().filter(|object| {
-            matches!(object.kind, ObjectKind::Artifact)
-                && incoming_threads.contains(&object.owner_id)
-        }) {
-            let thread = incoming
-                .threads
-                .iter()
-                .find(|thread| thread.id == object.owner_id)
-                .ok_or_else(|| {
-                    SpiceError::CorruptSnapshot(format!(
-                        "Attachment owner {} is missing.",
-                        object.owner_id
-                    ))
-                })?;
-            let reference = thread
-                .attachments
-                .iter()
-                .find(|reference| reference.logical_path == object.logical_path)
-                .ok_or_else(|| {
-                    SpiceError::CorruptSnapshot(format!(
-                        "Attachment reference is missing for {}.",
-                        object.logical_path
-                    ))
-                })?;
-            let destination =
-                attachment_destination(config, &incoming, object).ok_or_else(|| {
-                    SpiceError::CorruptSnapshot(format!(
-                        "Attachment path is invalid: {}.",
-                        object.logical_path
-                    ))
-                })?;
-            attachment_paths
-                .entry(thread.id.clone())
-                .or_default()
-                .insert(reference.source_path.clone(), path_string(&destination));
-        }
-        for (thread_id, staged, _) in &staged_rollouts {
-            if let Some(replacements) = attachment_paths.get(thread_id) {
-                codex::rewrite_rollout_local_image_paths(staged, replacements)?;
-            }
-        }
-        codex::apply_bundle(
-            &staged_home,
-            &incoming,
-            &incoming_threads,
-            &incoming_projects,
-            &deleted_threads,
-            &deleted_projects,
-            config,
-            &rollout_paths,
-            &attachment_paths,
-        )?;
-        let file_operations =
-            plan_file_operations(config, &incoming, baseline.as_ref(), &decisions)?;
-        let git_operations = plan_git_operations(config, &incoming, &decisions)?;
-        let history_roots: Vec<PathBuf> = incoming
-            .projects
-            .iter()
-            .filter(|project| {
-                project.mode == ProjectMode::HistoryOnly && incoming_projects.contains(&project.id)
-            })
-            .flat_map(|project| {
-                (0..project.source_roots.len().max(1))
-                    .filter_map(|index| codex::destination_project_root(project, index, config))
-            })
-            .collect();
-        let mut recovery_targets = vec![
-            self.data_dir.join("state.json"),
-            live_home.join("state_5.sqlite"),
-            live_home.join("thread_history_1.sqlite"),
-            live_home.join(".codex-global-state.json"),
-            live_home.join("session_index.jsonl"),
-        ];
-        for suffix in [
-            "state_5.sqlite-wal",
-            "state_5.sqlite-shm",
-            "thread_history_1.sqlite-wal",
-            "thread_history_1.sqlite-shm",
-        ] {
-            recovery_targets.push(live_home.join(suffix));
-        }
-        recovery_targets.extend(staged_rollouts.iter().map(|(_, _, live)| live.clone()));
-        if let Some(base) = &baseline {
-            for thread in base
-                .threads
-                .iter()
-                .filter(|thread| deleted_threads.contains(&thread.id))
-            {
-                if let Some(relative) = &thread.rollout_relative_path {
-                    if let Ok(relative) = safe_relative(Path::new(relative)) {
-                        recovery_targets.push(live_home.join(relative));
-                    }
-                }
-            }
-        }
-        for operation in &file_operations {
-            recovery_targets.push(operation.destination.clone());
-        }
-        for operation in &attachment_operations {
-            recovery_targets.push(operation.destination.clone());
-        }
-        for operation in &git_operations {
-            recovery_targets.extend(git_recovery_targets(&operation.destination));
-        }
-        recovery_targets.extend(history_roots.iter().cloned());
-        platform::assert_codex_closed()?;
-        set_progress(
-            &prepared,
-            OperationPhase::BackingUp,
-            "Creating a durable local rollback set…",
-            4,
-        )?;
-        let recovery_id = recovery::create_cancellable(
-            &self.data_dir,
-            &format!("Before pulling {}", short_id(&incoming.id)),
-            Some(incoming.id.clone()),
-            &recovery_targets,
-            Some(&prepared.cancel),
-        )?;
-        set_progress(
-            &prepared,
-            OperationPhase::Applying,
-            "Applying selected sessions, projects, and files…",
-            5,
-        )?;
-        let apply_result = (|| -> Result<()> {
-            check_cancel(&prepared.cancel)?;
-            platform::assert_codex_closed()?;
-            let mut live_mutations = 0_usize;
-            for name in [
-                "state_5.sqlite",
-                "thread_history_1.sqlite",
-                ".codex-global-state.json",
-                "session_index.jsonl",
-            ] {
-                check_codex_writer_periodically(&mut live_mutations)?;
-                let source = staged_home.join(name);
+            let apply_stage = self.preview_directory(&format!("{}-apply", operation_id))?;
+            let staged_home = apply_stage.join("codex");
+            let live_home = Path::new(&config.codex_home);
+            codex::snapshot_databases(live_home, &staged_home)?;
+            for name in [".codex-global-state.json", "session_index.jsonl"] {
+                let source = live_home.join(name);
                 if source.is_file() {
-                    replace_file(&source, &live_home.join(name))?;
+                    fs::copy(source, staged_home.join(name))?;
                 }
             }
+            let cloud_store = ObjectStore::new(settings::cloud_store_root(config).join("objects"))?;
+            let incoming_threads: HashSet<String> = incoming
+                .threads
+                .iter()
+                .filter(|thread| decision_incoming(&decisions, &format!("thread:{}", thread.id)))
+                .map(|thread| thread.id.clone())
+                .collect();
+            let incoming_projects: HashSet<String> = incoming
+                .projects
+                .iter()
+                .filter(|project| decision_incoming(&decisions, &format!("project:{}", project.id)))
+                .map(|project| project.id.clone())
+                .collect();
+            let deleted_threads: HashSet<String> = decisions
+                .iter()
+                .filter(|(key, action)| {
+                    key.starts_with("thread:") && **action == ApplyDecision::Delete
+                })
+                .map(|(key, _)| key.trim_start_matches("thread:").to_string())
+                .collect();
+            let deleted_projects: HashSet<String> = decisions
+                .iter()
+                .filter(|(key, action)| {
+                    key.starts_with("project:") && **action == ApplyDecision::Delete
+                })
+                .map(|(key, _)| key.trim_start_matches("project:").to_string())
+                .collect();
+            let mut rollout_paths = HashMap::new();
+            let mut rollout_fingerprints = HashMap::new();
+            let mut staged_rollouts = Vec::new();
+            for object in incoming.objects.iter().filter(|object| {
+                matches!(object.kind, ObjectKind::Rollout)
+                    && incoming_threads.contains(&object.owner_id)
+            }) {
+                let thread = incoming
+                    .threads
+                    .iter()
+                    .find(|thread| thread.id == object.owner_id)
+                    .expect("rollout owner in manifest");
+                let relative = thread
+                    .rollout_relative_path
+                    .as_deref()
+                    .map(PathBuf::from)
+                    .and_then(|path| safe_relative(&path).ok())
+                    .unwrap_or_else(|| {
+                        PathBuf::from("sessions")
+                            .join("spice-route")
+                            .join(format!("{}.jsonl", thread.id))
+                    });
+                let staged = staged_home.join(&relative);
+                cloud_store.materialize_cancellable(object, &staged, Some(&prepared.cancel))?;
+                rollout_fingerprints.insert(
+                    thread.id.clone(),
+                    codex::portable_rollout_fingerprint(&staged)?,
+                );
+                let live = live_home.join(&relative);
+                rollout_paths.insert(thread.id.clone(), path_string(&live));
+                staged_rollouts.push((thread.id.clone(), staged, live));
+            }
+            let applied_id = settings::load_local_state(&self.data_dir)?.last_applied_snapshot_id;
+            let baseline = snapshot::common_ancestor(config, applied_id.as_deref(), &incoming.id)?;
+            let attachment_operations =
+                plan_attachment_operations(config, &incoming, baseline.as_ref(), &decisions)?;
+            let mut attachment_paths: HashMap<String, HashMap<String, String>> = HashMap::new();
+            for object in incoming.objects.iter().filter(|object| {
+                matches!(object.kind, ObjectKind::Artifact)
+                    && incoming_threads.contains(&object.owner_id)
+            }) {
+                let thread = incoming
+                    .threads
+                    .iter()
+                    .find(|thread| thread.id == object.owner_id)
+                    .ok_or_else(|| {
+                        SpiceError::CorruptSnapshot(format!(
+                            "Attachment owner {} is missing.",
+                            object.owner_id
+                        ))
+                    })?;
+                let reference = thread
+                    .attachments
+                    .iter()
+                    .find(|reference| reference.logical_path == object.logical_path)
+                    .ok_or_else(|| {
+                        SpiceError::CorruptSnapshot(format!(
+                            "Attachment reference is missing for {}.",
+                            object.logical_path
+                        ))
+                    })?;
+                let destination =
+                    attachment_destination(config, &incoming, object).ok_or_else(|| {
+                        SpiceError::CorruptSnapshot(format!(
+                            "Attachment path is invalid: {}.",
+                            object.logical_path
+                        ))
+                    })?;
+                attachment_paths
+                    .entry(thread.id.clone())
+                    .or_default()
+                    .insert(reference.source_path.clone(), path_string(&destination));
+            }
+            for (thread_id, staged, _) in &staged_rollouts {
+                if let Some(replacements) = attachment_paths.get(thread_id) {
+                    codex::rewrite_rollout_local_image_paths(staged, replacements)?;
+                }
+            }
+            codex::apply_bundle(
+                &staged_home,
+                &incoming,
+                &incoming_threads,
+                &incoming_projects,
+                &deleted_threads,
+                &deleted_projects,
+                config,
+                &rollout_paths,
+                &attachment_paths,
+            )?;
+            let file_operations =
+                plan_file_operations(config, &incoming, baseline.as_ref(), &decisions)?;
+            let git_operations = plan_git_operations(config, &incoming, &decisions)?;
+            let history_roots: Vec<PathBuf> = incoming
+                .projects
+                .iter()
+                .filter(|project| {
+                    project.mode == ProjectMode::HistoryOnly
+                        && incoming_projects.contains(&project.id)
+                })
+                .flat_map(|project| {
+                    (0..project.source_roots.len().max(1))
+                        .filter_map(|index| codex::destination_project_root(project, index, config))
+                })
+                .collect();
+            let mut recovery_targets = vec![
+                self.data_dir.join("state.json"),
+                live_home.join("state_5.sqlite"),
+                live_home.join("thread_history_1.sqlite"),
+                live_home.join(".codex-global-state.json"),
+                live_home.join("session_index.jsonl"),
+            ];
             for suffix in [
                 "state_5.sqlite-wal",
                 "state_5.sqlite-shm",
                 "thread_history_1.sqlite-wal",
                 "thread_history_1.sqlite-shm",
             ] {
-                check_codex_writer_periodically(&mut live_mutations)?;
-                let path = live_home.join(suffix);
-                if path.is_file() {
-                    fs::remove_file(path)?;
-                }
+                recovery_targets.push(live_home.join(suffix));
             }
-            for (_, source, live) in &staged_rollouts {
-                check_codex_writer_periodically(&mut live_mutations)?;
-                replace_file(source, live)?;
-            }
-            for root in &history_roots {
-                check_codex_writer_periodically(&mut live_mutations)?;
-                fs::create_dir_all(root)?;
-            }
-            platform::assert_codex_closed()?;
-            restore_git_groups(
-                &cloud_store,
-                &incoming,
-                &git_operations,
-                &apply_stage,
-                Some(&prepared.cancel),
-                true,
-            )?;
-            for operation in &file_operations {
-                check_cancel(&prepared.cancel)?;
-                check_codex_writer_periodically(&mut live_mutations)?;
-                match &operation.object {
-                    Some(object) => cloud_store.materialize_cancellable(
-                        object,
-                        &operation.destination,
-                        Some(&prepared.cancel),
-                    )?,
-                    None => {
-                        if operation.destination.is_file() {
-                            fs::remove_file(&operation.destination)?;
+            recovery_targets.extend(staged_rollouts.iter().map(|(_, _, live)| live.clone()));
+            if let Some(base) = &baseline {
+                for thread in base
+                    .threads
+                    .iter()
+                    .filter(|thread| deleted_threads.contains(&thread.id))
+                {
+                    if let Some(relative) = &thread.rollout_relative_path {
+                        if let Ok(relative) = safe_relative(Path::new(relative)) {
+                            recovery_targets.push(live_home.join(relative));
                         }
                     }
                 }
+            }
+            for operation in &file_operations {
+                recovery_targets.push(operation.destination.clone());
             }
             for operation in &attachment_operations {
+                recovery_targets.push(operation.destination.clone());
+            }
+            for operation in &git_operations {
+                recovery_targets.extend(git_recovery_targets(&operation.destination));
+            }
+            recovery_targets.extend(history_roots.iter().cloned());
+            platform::assert_codex_closed()?;
+            set_progress(
+                &prepared,
+                OperationPhase::BackingUp,
+                "Creating a durable local rollback set…",
+                4,
+            )?;
+            let recovery_id = recovery::create_cancellable(
+                &self.data_dir,
+                &format!("Before pulling {}", short_id(&incoming.id)),
+                Some(incoming.id.clone()),
+                &recovery_targets,
+                Some(&prepared.cancel),
+            )?;
+            set_progress(
+                &prepared,
+                OperationPhase::Applying,
+                "Applying selected sessions, projects, and files…",
+                5,
+            )?;
+            let apply_result = (|| -> Result<()> {
                 check_cancel(&prepared.cancel)?;
-                check_codex_writer_periodically(&mut live_mutations)?;
-                match &operation.object {
-                    Some(object) => cloud_store.materialize_cancellable(
-                        object,
-                        &operation.destination,
-                        Some(&prepared.cancel),
-                    )?,
-                    None => {
-                        if operation.destination.is_file() {
-                            fs::remove_file(&operation.destination)?;
+                platform::assert_codex_closed()?;
+                let mut live_mutations = 0_usize;
+                for name in [
+                    "state_5.sqlite",
+                    "thread_history_1.sqlite",
+                    ".codex-global-state.json",
+                    "session_index.jsonl",
+                ] {
+                    writer_monitor.check()?;
+                    check_codex_writer_periodically(&mut live_mutations)?;
+                    let source = staged_home.join(name);
+                    if source.is_file() {
+                        replace_file(&source, &live_home.join(name))?;
+                    }
+                }
+                for suffix in [
+                    "state_5.sqlite-wal",
+                    "state_5.sqlite-shm",
+                    "thread_history_1.sqlite-wal",
+                    "thread_history_1.sqlite-shm",
+                ] {
+                    writer_monitor.check()?;
+                    check_codex_writer_periodically(&mut live_mutations)?;
+                    let path = live_home.join(suffix);
+                    if path.is_file() {
+                        fs::remove_file(path)?;
+                    }
+                }
+                for (_, source, live) in &staged_rollouts {
+                    writer_monitor.check()?;
+                    check_codex_writer_periodically(&mut live_mutations)?;
+                    replace_file(source, live)?;
+                }
+                for root in &history_roots {
+                    writer_monitor.check()?;
+                    check_codex_writer_periodically(&mut live_mutations)?;
+                    fs::create_dir_all(root)?;
+                }
+                platform::assert_codex_closed()?;
+                restore_git_groups(
+                    &cloud_store,
+                    &incoming,
+                    &git_operations,
+                    &apply_stage,
+                    Some(&prepared.cancel),
+                    true,
+                )?;
+                for operation in &file_operations {
+                    writer_monitor.check()?;
+                    match &operation.object {
+                        Some(object) => cloud_store.materialize_cancellable(
+                            object,
+                            &operation.destination,
+                            Some(&prepared.cancel),
+                        )?,
+                        None => {
+                            if operation.destination.is_file() {
+                                fs::remove_file(&operation.destination)?;
+                            }
                         }
                     }
                 }
-            }
-            for id in &deleted_threads {
-                check_codex_writer_periodically(&mut live_mutations)?;
-                if let Some(base) = baseline.as_ref() {
-                    if let Some(thread) = base.threads.iter().find(|thread| &thread.id == id) {
-                        if let Some(relative) = &thread.rollout_relative_path {
-                            if let Ok(relative) = safe_relative(Path::new(relative)) {
-                                let path = live_home.join(relative);
-                                if path.is_file() {
-                                    fs::remove_file(path)?;
+                for operation in &attachment_operations {
+                    writer_monitor.check()?;
+                    match &operation.object {
+                        Some(object) => cloud_store.materialize_cancellable(
+                            object,
+                            &operation.destination,
+                            Some(&prepared.cancel),
+                        )?,
+                        None => {
+                            if operation.destination.is_file() {
+                                fs::remove_file(&operation.destination)?;
+                            }
+                        }
+                    }
+                }
+                for id in &deleted_threads {
+                    writer_monitor.check()?;
+                    check_codex_writer_periodically(&mut live_mutations)?;
+                    if let Some(base) = baseline.as_ref() {
+                        if let Some(thread) = base.threads.iter().find(|thread| &thread.id == id) {
+                            if let Some(relative) = &thread.rollout_relative_path {
+                                if let Ok(relative) = safe_relative(Path::new(relative)) {
+                                    let path = live_home.join(relative);
+                                    if path.is_file() {
+                                        fs::remove_file(path)?;
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                set_progress(
+                    &prepared,
+                    OperationPhase::FinalVerification,
+                    "Verifying restored databases, files, transcripts, and Git state…",
+                    6,
+                )?;
+                verify_applied_state(
+                    config,
+                    &incoming_threads,
+                    &incoming_projects,
+                    &deleted_threads,
+                    &deleted_projects,
+                    &file_operations,
+                    &attachment_operations,
+                    &git_operations,
+                    &rollout_paths,
+                    &rollout_fingerprints,
+                    &history_roots,
+                )?;
+                writer_monitor.check()?;
+                record_pull_baseline(&self.data_dir, &incoming, &prepared.expected_head_ids)?;
+                Ok(())
+            })();
+            if let Err(error) = apply_result {
+                let error = writer_monitor.explain_error(error);
+                return Err(SpiceError::User(format!(
+                    "Pull stopped after creating recovery point {recovery_id}: {error}"
+                )));
             }
+            recovery::complete(&self.data_dir, &recovery_id)?;
             set_progress(
                 &prepared,
-                OperationPhase::FinalVerification,
-                "Verifying restored databases, files, transcripts, and Git state…",
-                6,
+                OperationPhase::Complete,
+                "Snapshot received, verified, and applied.",
+                7,
             )?;
-            verify_applied_state(
-                config,
-                &incoming_threads,
-                &incoming_projects,
-                &deleted_threads,
-                &deleted_projects,
-                &file_operations,
-                &attachment_operations,
-                &git_operations,
-                &rollout_paths,
-                &rollout_fingerprints,
-                &history_roots,
+            self.finish_operation(
+                operation_id,
+                &[prepared.stage_dir, recheck_stage, apply_stage],
             )?;
-            record_pull_baseline(&self.data_dir, &incoming, &prepared.expected_head_ids)?;
-            Ok(())
+            Ok(OperationResult {
+                snapshot: summary,
+                warnings: incoming.warnings,
+                recovery_id: Some(recovery_id),
+                status_message: "Snapshot received, verified, and applied.".to_string(),
+            })
         })();
-        if let Err(error) = apply_result {
-            return Err(SpiceError::User(format!(
-                "Pull stopped after creating recovery point {recovery_id}: {error}"
-            )));
-        }
-        recovery::complete(&self.data_dir, &recovery_id)?;
-        set_progress(
-            &prepared,
-            OperationPhase::Complete,
-            "Snapshot received, verified, and applied.",
-            7,
-        )?;
-        self.finish_operation(
-            operation_id,
-            &[prepared.stage_dir, recheck_stage, apply_stage],
-        )?;
-        Ok(OperationResult {
-            snapshot: summary,
-            warnings: incoming.warnings,
-            recovery_id: Some(recovery_id),
-            status_message: "Snapshot received, verified, and applied.".to_string(),
-        })
+        result.map_err(|error| writer_monitor.explain_error(error))
     }
 
     pub fn cancel(&self, operation_id: &str) -> Result<()> {
@@ -1023,6 +1085,16 @@ impl Engine {
             )?;
         }
         Ok(())
+    }
+
+    /// Used when a native frontend closes its command pipe. Workers still finish
+    /// their recovery bookkeeping before the sidecar exits.
+    pub fn cancel_all(&self) {
+        if let Ok(operations) = self.operations.lock() {
+            for operation in operations.values() {
+                operation.cancel.store(true, Ordering::SeqCst);
+            }
+        }
     }
 
     pub fn operation_progress(&self, operation_id: &str) -> Result<Option<OperationProgress>> {
@@ -1173,12 +1245,31 @@ impl Engine {
         require_project_sources: bool,
         capture_content: bool,
     ) -> Result<SnapshotManifest> {
-        let db_dir = stage.join("db");
         let object_store = if capture_content {
             ObjectStore::new(stage.join("objects"))?
         } else {
             ObjectStore::for_preview(stage.join("objects"))
         };
+        self.capture_local_using_store(
+            config,
+            stage,
+            parent,
+            cancel,
+            &object_store,
+            require_project_sources,
+        )
+    }
+
+    fn capture_local_using_store(
+        &self,
+        config: &AppConfig,
+        stage: &Path,
+        parent: Option<String>,
+        cancel: Option<&AtomicBool>,
+        object_store: &ObjectStore,
+        require_project_sources: bool,
+    ) -> Result<SnapshotManifest> {
+        let db_dir = stage.join("db");
         codex::snapshot_databases(Path::new(&config.codex_home), &db_dir)?;
         if let Some(flag) = cancel {
             check_cancel(flag)?;
@@ -1192,7 +1283,7 @@ impl Engine {
         let mut manifest = snapshot::build_manifest_cancellable(
             config,
             export,
-            &object_store,
+            object_store,
             parent,
             cancel,
             require_project_sources,
@@ -1279,7 +1370,16 @@ impl Engine {
 }
 
 fn config_fingerprint(config: &AppConfig) -> Result<String> {
-    hash_json(config)
+    validation_fingerprint(config)
+}
+
+fn validation_fingerprint(value: &impl serde::Serialize) -> Result<String> {
+    // Config maps get a fresh randomized iteration order on every IPC decode.
+    // Compare their meaning, including nested objects, rather than that order.
+    // Keep this separate from persisted fingerprints used by older snapshots.
+    let mut canonical = serde_json::to_value(value)?;
+    canonical.sort_all_objects();
+    hash_json(&canonical)
 }
 
 fn transfer_contract(
@@ -1287,8 +1387,8 @@ fn transfer_contract(
     local: &SnapshotManifest,
 ) -> Result<(String, String)> {
     Ok((
-        hash_json(incoming)?,
-        hash_json(&(&local.compatibility, &local.codex_version))?,
+        validation_fingerprint(incoming)?,
+        validation_fingerprint(&(&local.compatibility, &local.codex_version))?,
     ))
 }
 fn new_progress(operation_id: &str, total_steps: u32) -> Arc<Mutex<OperationProgress>> {
@@ -1320,6 +1420,41 @@ fn set_progress(
     progress.cancellation_requested = operation.cancel.load(Ordering::SeqCst);
     Ok(())
 }
+fn content_progress_message(progress: &snapshot::ContentProgress, action: &str) -> String {
+    if progress.writing_manifest {
+        return format!(
+            "{} content objects checked. Publishing the completion manifest…",
+            progress.completed_objects
+        );
+    }
+    let mut message = format!(
+        "{action}: {} of {} objects; {} of {} processed.",
+        progress.completed_objects,
+        progress.total_objects,
+        progress_bytes(progress.processed_raw_bytes),
+        progress_bytes(progress.total_raw_bytes),
+    );
+    if let Some(filename) = &progress.filename {
+        message.push(' ');
+        message.push_str(filename);
+    }
+    message
+}
+
+fn progress_bytes(bytes: u64) -> String {
+    if bytes < 1024 {
+        return format!("{bytes} B");
+    }
+    let mut value = bytes as f64;
+    let units = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut index = 0;
+    while value >= 1024.0 && index < units.len() - 1 {
+        value /= 1024.0;
+        index += 1;
+    }
+    format!("{value:.1} {}", units[index])
+}
+
 fn validate_prepared(config: &AppConfig, prepared: &PreparedOperation) -> Result<()> {
     if config_fingerprint(config)? != prepared.config_fingerprint {
         return Err(SpiceError::User(
@@ -1482,8 +1617,7 @@ fn cleanup_inventory(root: &Path) -> Result<CleanupInventory> {
 }
 
 fn short_id(value: &str) -> String {
-    let suffix = value.chars().rev().take(8).collect::<Vec<_>>();
-    suffix.into_iter().rev().collect::<String>().to_uppercase()
+    crate::models::handoff_label(value)
 }
 
 fn record_pull_baseline(
@@ -1591,7 +1725,7 @@ fn diff_for_push(base: Option<&SnapshotManifest>, local: &SnapshotManifest) -> V
             format!("thread:{}", thread.id),
             ChangeKind::Thread,
             action,
-            &thread.title,
+            &codex::display_thread_title(&thread.title),
             if thread.projectless {
                 "Projectless chat"
             } else {
@@ -1630,7 +1764,7 @@ fn diff_for_push(base: Option<&SnapshotManifest>, local: &SnapshotManifest) -> V
                     format!("thread:{}", old.id),
                     ChangeKind::Thread,
                     ChangeAction::Delete,
-                    &old.title,
+                    &codex::display_thread_title(&old.title),
                     "Deleted on this device",
                     0,
                 ));
@@ -1689,6 +1823,10 @@ fn diff_for_pull(
     let incoming_projects = project_map(incoming);
     let base_projects = baseline.map(project_map).unwrap_or_default();
     let base_objects = baseline.map(object_map).unwrap_or_default();
+    // Older snapshots can contain internal approval tasks. Keep their historical
+    // records in the immutable snapshot, but never offer or import them as chats.
+    let excluded_threads =
+        codex::selection_excluded_thread_ids(&incoming.selection, &incoming.threads);
     let mut changes = Vec::new();
     for project in &incoming.projects {
         let local_value = local_projects
@@ -1717,6 +1855,9 @@ fn diff_for_pull(
         )));
     }
     for thread in &incoming.threads {
+        if excluded_threads.contains(&thread.id) {
+            continue;
+        }
         let action = three_way(
             local_threads
                 .get(thread.id.as_str())
@@ -1736,7 +1877,7 @@ fn diff_for_pull(
             format!("thread:{}", thread.id),
             ChangeKind::Thread,
             action,
-            &thread.title,
+            &codex::display_thread_title(&thread.title),
             if thread.projectless {
                 "Incoming projectless chat"
             } else {
@@ -1749,7 +1890,8 @@ fn diff_for_pull(
         matches!(
             object.kind,
             ObjectKind::ProjectFile | ObjectKind::ProjectlessFile
-        )
+        ) && !(object.kind == ObjectKind::ProjectlessFile
+            && excluded_threads.contains(&object.owner_id))
     }) {
         let Some(destination) = object_destination(config, incoming, object) else {
             continue;
@@ -1783,7 +1925,7 @@ fn diff_for_pull(
                     format!("thread:{}", old.id),
                     ChangeKind::Thread,
                     three_way(local_value, None, Some(&old.fingerprint)),
-                    &old.title,
+                    &codex::display_thread_title(&old.title),
                     "Deleted on the source device",
                     0,
                 )));
@@ -1816,6 +1958,7 @@ fn diff_for_pull(
         }) {
             if !incoming_objects.contains_key(old.logical_path.as_str())
                 && selection_includes_object(incoming, old)
+                && !(old.kind == ObjectKind::ProjectlessFile && excluded.contains(&old.owner_id))
             {
                 if let Some(destination) = object_destination(config, base, old) {
                     let local_hash = if destination.is_file() {
@@ -1959,7 +2102,8 @@ fn selection_includes_project(selection: &SelectionRules, project_id: &str) -> b
         != ProjectMode::Excluded
 }
 fn selection_includes_thread(selection: &SelectionRules, thread: &ThreadExport) -> bool {
-    !selection.excluded_thread_ids.contains(&thread.id)
+    !codex::is_internal_thread(thread)
+        && !selection.excluded_thread_ids.contains(&thread.id)
         && (selection.include_archived || !thread.archived)
         && thread
             .project_id
@@ -2071,6 +2215,7 @@ fn project_root(
 
 fn destination_layout_issues(config: &AppConfig, incoming: &SnapshotManifest) -> Vec<String> {
     let mut issues = Vec::new();
+    let excluded = codex::selection_excluded_thread_ids(&incoming.selection, &incoming.threads);
     let mut roots: Vec<(String, PathBuf, String)> = Vec::new();
     for project in incoming
         .projects
@@ -2124,7 +2269,7 @@ fn destination_layout_issues(config: &AppConfig, incoming: &SnapshotManifest) ->
         matches!(
             object.kind,
             ObjectKind::ProjectFile | ObjectKind::ProjectlessFile
-        )
+        ) && !(object.kind == ObjectKind::ProjectlessFile && excluded.contains(&object.owner_id))
     }) {
         if let Some(destination) = object_destination(config, incoming, object) {
             if let Some(component) = unsupported_windows_component(&destination) {
@@ -2263,11 +2408,12 @@ fn pull_local_fingerprint(
     incoming: &SnapshotManifest,
 ) -> Result<String> {
     let mut files = Vec::new();
+    let excluded = codex::selection_excluded_thread_ids(&incoming.selection, &incoming.threads);
     for object in incoming.objects.iter().filter(|object| {
         matches!(
             object.kind,
             ObjectKind::ProjectFile | ObjectKind::ProjectlessFile
-        )
+        ) && !(object.kind == ObjectKind::ProjectlessFile && excluded.contains(&object.owner_id))
     }) {
         if let Some(destination) = object_destination(config, incoming, object) {
             files.push((
@@ -2597,7 +2743,7 @@ fn verify_applied_state(
         }
         command_status(
             {
-                let mut command = Command::new("git");
+                let mut command = platform::hidden_command("git");
                 command.arg("-C").arg(&operation.destination).args([
                     "fsck",
                     "--connectivity-only",
@@ -2634,7 +2780,7 @@ fn verify_applied_state(
 }
 
 fn git_output(root: &Path, args: &[&str]) -> Option<String> {
-    let output = Command::new("git")
+    let output = platform::hidden_command("git")
         .arg("-C")
         .arg(root)
         .args(args)
@@ -2722,7 +2868,7 @@ fn restore_git_groups(
             if let Some(parent) = operation.destination.parent() {
                 fs::create_dir_all(parent)?;
             }
-            let mut command = Command::new("git");
+            let mut command = platform::hidden_command("git");
             command
                 .arg("-C")
                 .arg(primary)
@@ -2742,7 +2888,7 @@ fn restore_git_groups(
             fs::create_dir_all(&operation.destination)?;
             command_status(
                 {
-                    let mut c = Command::new("git");
+                    let mut c = platform::hidden_command("git");
                     c.arg("-C").arg(&operation.destination).arg("init");
                     c
                 },
@@ -2799,7 +2945,7 @@ fn install_git_object_pack(root: &Path, pack: &Path) -> Result<()> {
     let input = File::open(pack)?;
     command_status(
         {
-            let mut command = Command::new("git");
+            let mut command = platform::hidden_command("git");
             command
                 .arg("-C")
                 .arg(root)
@@ -2814,7 +2960,7 @@ fn install_git_object_pack(root: &Path, pack: &Path) -> Result<()> {
 fn fetch_bundle(root: &Path, bundle: &Path) -> Result<()> {
     command_status(
         {
-            let mut c = Command::new("git");
+            let mut c = platform::hidden_command("git");
             c.arg("-C")
                 .arg(root)
                 .args(["fetch", "--force"])
@@ -2829,7 +2975,7 @@ fn set_git_head(root: &Path, descriptor: &GitDescriptor) -> Result<()> {
     if let (Some(branch), Some(head)) = (&descriptor.branch, &descriptor.head) {
         command_status(
             {
-                let mut c = Command::new("git");
+                let mut c = platform::hidden_command("git");
                 c.arg("-C")
                     .arg(root)
                     .args(["update-ref", &format!("refs/heads/{branch}"), head]);
@@ -2839,7 +2985,7 @@ fn set_git_head(root: &Path, descriptor: &GitDescriptor) -> Result<()> {
         )?;
         command_status(
             {
-                let mut c = Command::new("git");
+                let mut c = platform::hidden_command("git");
                 c.arg("-C").arg(root).args([
                     "symbolic-ref",
                     "HEAD",
@@ -2852,7 +2998,7 @@ fn set_git_head(root: &Path, descriptor: &GitDescriptor) -> Result<()> {
     } else if let Some(head) = &descriptor.head {
         command_status(
             {
-                let mut c = Command::new("git");
+                let mut c = platform::hidden_command("git");
                 c.arg("-C")
                     .arg(root)
                     .args(["update-ref", "--no-deref", "HEAD", head]);
@@ -2880,6 +3026,140 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
     use tempfile::tempdir;
+
+    fn review_config() -> AppConfig {
+        let mut config = settings::default_config();
+        for index in 0..16 {
+            let id = format!("project-{index}");
+            config
+                .source_roots
+                .insert(id.clone(), format!("source/{index}"));
+            config
+                .destination_roots
+                .insert(id.clone(), format!("destination/{index}"));
+            config
+                .selection
+                .project_modes
+                .insert(id, ProjectMode::HistoryOnly);
+        }
+        config
+    }
+
+    fn prepared_for_config(config: &AppConfig) -> PreparedOperation {
+        PreparedOperation {
+            preview: OperationPreview {
+                operation_id: "review".into(),
+                direction: Direction::Pull,
+                snapshot_id: Some("snapshot".into()),
+                changes: Vec::new(),
+                warnings: Vec::new(),
+                blocked_reasons: Vec::new(),
+                estimated_bytes: 0,
+                requires_codex_close: false,
+                required_mappings: Vec::new(),
+            },
+            config_fingerprint: config_fingerprint(config).unwrap(),
+            local_fingerprint: String::new(),
+            transfer_contract: None,
+            expected_latest: None,
+            expected_head_ids: Vec::new(),
+            additional_parent_ids: Vec::new(),
+            stage_dir: PathBuf::new(),
+            cancel: Arc::new(AtomicBool::new(false)),
+            progress: new_progress("review", 1),
+        }
+    }
+
+    #[test]
+    fn unchanged_settings_survive_ipc_round_trips_and_different_map_insertion_orders() {
+        let config = review_config();
+        let prepared = prepared_for_config(&config);
+        let serialized = serde_json::to_string(&config).unwrap();
+        for _ in 0..64 {
+            let mut decoded: AppConfig = serde_json::from_str(&serialized).unwrap();
+            // Rebuild each map in the opposite order, as another client can do.
+            decoded.source_roots = config
+                .source_roots
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            decoded.destination_roots = (0..16)
+                .rev()
+                .map(|index| (format!("project-{index}"), format!("destination/{index}")))
+                .collect();
+            decoded.selection.project_modes = (0..16)
+                .rev()
+                .map(|index| (format!("project-{index}"), ProjectMode::HistoryOnly))
+                .collect();
+            validate_prepared(&decoded, &prepared).unwrap();
+        }
+    }
+
+    #[test]
+    fn real_settings_changes_still_invalidate_the_preview() {
+        let config = review_config();
+        let prepared = prepared_for_config(&config);
+        let mut variants = Vec::new();
+        let mut changed = config.clone();
+        changed
+            .destination_roots
+            .insert("project-0".into(), "different/destination".into());
+        variants.push(changed);
+        let mut changed = config.clone();
+        changed
+            .source_roots
+            .insert("project-0".into(), "different/source".into());
+        variants.push(changed);
+        let mut changed = config.clone();
+        changed
+            .selection
+            .project_modes
+            .insert("project-0".into(), ProjectMode::Full);
+        variants.push(changed);
+        let mut changed = config.clone();
+        changed.selection.excluded_thread_ids.push("chat".into());
+        variants.push(changed);
+        let mut changed = config.clone();
+        changed.selection.include_sensitive_files = !changed.selection.include_sensitive_files;
+        variants.push(changed);
+        let mut changed = config.clone();
+        changed.cloud_root.push_str("/different-cloud");
+        variants.push(changed);
+        for changed in variants {
+            assert!(validate_prepared(&changed, &prepared)
+                .unwrap_err()
+                .to_string()
+                .contains("Settings changed"));
+        }
+    }
+
+    #[test]
+    fn transfer_validation_survives_manifest_reload_but_detects_content_and_schema_changes() {
+        let mut incoming = review_manifest();
+        incoming.selection = review_config().selection;
+        incoming.ui_state =
+            serde_json::from_str(r#"{"projects":{"beta":2,"alpha":1},"views":[{"z":0,"a":1}]}"#)
+                .unwrap();
+        let local = review_manifest();
+        let expected = transfer_contract(&incoming, &local).unwrap();
+        let serialized = serde_json::to_string(&incoming).unwrap();
+        for _ in 0..64 {
+            let mut decoded: SnapshotManifest = serde_json::from_str(&serialized).unwrap();
+            decoded.ui_state = serde_json::from_str(
+                r#"{"views":[{"a":1,"z":0}],"projects":{"alpha":1,"beta":2}}"#,
+            )
+            .unwrap();
+            assert_eq!(transfer_contract(&decoded, &local).unwrap(), expected);
+        }
+        incoming.ui_state["projects"]["alpha"] = serde_json::json!(3);
+        assert_ne!(transfer_contract(&incoming, &local).unwrap().0, expected.0);
+        let mut changed_local = local.clone();
+        changed_local.compatibility.schema_fingerprint = "new-schema".into();
+        assert_ne!(
+            transfer_contract(&incoming, &changed_local).unwrap().1,
+            expected.1
+        );
+    }
 
     fn review_manifest() -> SnapshotManifest {
         let config = settings::default_config();
@@ -3013,6 +3293,89 @@ mod tests {
         assert!(diff_for_pull(&config, &excluded, &base, Some(&base))
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn old_internal_tasks_and_their_files_are_not_offered_or_restored() {
+        let config = settings::default_config();
+        let local = review_manifest();
+        let mut incoming = local.clone();
+        let mut guardian = review_thread("internal", "approval", None);
+        guardian.state_rows.get_mut("threads").unwrap()[0]
+            .values
+            .insert(
+                "source".into(),
+                SqlValue::Text(serde_json::json!({"subagent":{"other":"guardian"}}).to_string()),
+            );
+        guardian.projectless_relative_root = Some("internal".into());
+        incoming.threads = vec![
+            guardian,
+            review_thread("internal-child", "child", Some("internal")),
+            review_thread("normal", "conversation", None),
+        ];
+        incoming.objects.push(ObjectEntry {
+            hash: "a".repeat(64),
+            logical_path: "projectless/internal/files/file.txt".into(),
+            kind: ObjectKind::ProjectlessFile,
+            owner_id: "internal".into(),
+            raw_size: 1,
+            stored_size: 1,
+            executable: false,
+        });
+        let changes = diff_for_pull(&config, &incoming, &local, None).unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].key, "thread:normal");
+        let preview = OperationPreview {
+            operation_id: "old-snapshot-review".into(),
+            direction: Direction::Pull,
+            snapshot_id: Some(incoming.id.clone()),
+            changes,
+            warnings: vec![],
+            blocked_reasons: vec![],
+            estimated_bytes: 0,
+            requires_codex_close: false,
+            required_mappings: vec![],
+        };
+        let chosen = decisions(&preview, &HashMap::new(), &incoming);
+        assert!(!decision_incoming(&chosen, "thread:internal"));
+        assert!(!decision_incoming(&chosen, "thread:internal-child"));
+        assert!(plan_file_operations(&config, &incoming, None, &chosen)
+            .unwrap()
+            .is_empty());
+        // Two old snapshots may both retain internal tasks while omitting a
+        // child's formerly shared file. That is not an authorized deletion.
+        let mut legacy_base = incoming.clone();
+        let mut child_file = legacy_base.objects[0].clone();
+        child_file.owner_id = "internal-child".into();
+        child_file.logical_path = "projectless/internal-child/files/file.txt".into();
+        legacy_base.objects.push(child_file);
+        let legacy_changes =
+            diff_for_pull(&config, &incoming, &legacy_base, Some(&legacy_base)).unwrap();
+        assert!(legacy_changes
+            .iter()
+            .all(|change| change.key == "thread:normal"));
+        let mut next = incoming.clone();
+        next.threads.retain(|thread| thread.id == "normal");
+        next.objects.clear();
+        assert!(diff_for_pull(&config, &next, &incoming, Some(&incoming))
+            .unwrap()
+            .iter()
+            .all(|change| change.action == ChangeAction::Unchanged));
+    }
+
+    #[test]
+    fn review_titles_are_bounded_without_altering_incoming_history() {
+        let config = settings::default_config();
+        let local = review_manifest();
+        let mut incoming = local.clone();
+        let mut thread = review_thread("chat", "history", None);
+        thread.title = format!("A normal conversation\n{}", "more text ".repeat(2000));
+        incoming.threads.push(thread);
+        let original = incoming.threads[0].title.clone();
+        let changes = diff_for_pull(&config, &incoming, &local, None).unwrap();
+        assert!(changes[0].label.chars().count() <= 160);
+        assert!(!changes[0].label.contains('\n'));
+        assert_eq!(incoming.threads[0].title, original);
     }
 
     #[test]
@@ -3162,7 +3525,7 @@ mod tests {
         let stage = tempdir().unwrap();
         command_status(
             {
-                let mut command = Command::new("git");
+                let mut command = platform::hidden_command("git");
                 command
                     .arg("-C")
                     .arg(source.path())
@@ -3178,7 +3541,7 @@ mod tests {
         ] {
             command_status(
                 {
-                    let mut command = Command::new("git");
+                    let mut command = platform::hidden_command("git");
                     command
                         .arg("-C")
                         .arg(source.path())
@@ -3193,7 +3556,7 @@ mod tests {
         fs::write(source.path().join("deleted.txt"), b"delete me\n").unwrap();
         command_status(
             {
-                let mut command = Command::new("git");
+                let mut command = platform::hidden_command("git");
                 command
                     .arg("-C")
                     .arg(source.path())
@@ -3205,7 +3568,7 @@ mod tests {
         .unwrap();
         command_status(
             {
-                let mut command = Command::new("git");
+                let mut command = platform::hidden_command("git");
                 command
                     .arg("-C")
                     .arg(source.path())
@@ -3218,7 +3581,7 @@ mod tests {
         fs::write(source.path().join("staged.txt"), b"staged version\n").unwrap();
         command_status(
             {
-                let mut command = Command::new("git");
+                let mut command = platform::hidden_command("git");
                 command
                     .arg("-C")
                     .arg(source.path())
@@ -3230,7 +3593,7 @@ mod tests {
         .unwrap();
         command_status(
             {
-                let mut command = Command::new("git");
+                let mut command = platform::hidden_command("git");
                 command
                     .arg("-C")
                     .arg(source.path())
@@ -3319,7 +3682,7 @@ mod tests {
         assert!(status.lines().any(|line| line == "?? untracked.txt"));
         command_status(
             {
-                let mut command = Command::new("git");
+                let mut command = platform::hidden_command("git");
                 command.arg("-C").arg(&destination_root).args([
                     "fsck",
                     "--connectivity-only",

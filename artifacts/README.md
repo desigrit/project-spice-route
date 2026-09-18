@@ -1,15 +1,15 @@
-# Windows preview installer
+# Windows installers
 
-[Download Spice Route 0.3.1 for Windows x64](https://github.com/desigrit/project-spice-route/raw/refs/heads/main/artifacts/Spice-Route-0.3.1-x64-setup.exe).
+[Spice Route 1.4 for Windows x64](Spice-Route-1.4.0-windows-x64-setup.exe) is the current Workspace interface, built with WinUI 3. The [0.3.2 Tauri maintenance installer](Spice-Route-0.3.2-x64-setup.exe) remains available for comparison.
 
 The adjacent `.sha256` file records the installer's SHA-256 checksum. Compare it with the output of:
 
 ```powershell
-Get-FileHash .\Spice-Route-0.3.1-x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Spice-Route-1.4.0-windows-x64-setup.exe -Algorithm SHA256
 ```
 
-This is an unsigned preview installer. It installs for the current Windows user and does not require Node.js, Rust, or the development scripts. WebView2 is required by the desktop shell. Git is needed when syncing Git repositories.
+These are unsigned testing installers. They install for the current Windows user and do not require Node.js, Rust, or development scripts. Version 1.4 bundles .NET, WinUI, and the VC runtime. Only the earlier Tauri interface requires WebView2. Git is needed when syncing Git repositories.
 
-Only the current installer is kept here. Earlier testing notes describe historical builds that are not included in this initial repository upload.
+Version 1.4 updates the 0.4.0 WinUI installation in place and shares its local configuration and recovery profile. The earlier Tauri app can remain installed, but close it before opening the current app. Neither installer has been launched as part of the current verification.
 
-See the [main README](../README.md) for setup and the [0.3.1 testing guide](../docs/testing-0.3.1.md) for known limits.
+See the [main README](../README.md) for setup and the [Windows verification guide](../docs/testing-1.4.0.md) for checks and remaining acceptance work. The [maintenance verification guide](../docs/testing-0.3.2.md) covers the shared engine fixes.

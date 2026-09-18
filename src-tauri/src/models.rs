@@ -473,12 +473,7 @@ impl SnapshotManifest {
     pub fn summary(&self, stored_bytes: u64, verified: bool) -> SnapshotSummary {
         SnapshotSummary {
             id: self.id.clone(),
-            short_id: self
-                .id
-                .chars()
-                .skip(self.id.chars().count().saturating_sub(8))
-                .collect::<String>()
-                .to_uppercase(),
+            short_id: handoff_label(&self.id),
             device_id: self.device_id.clone(),
             device_name: self.device_name.clone(),
             created_at: self.created_at.clone(),
@@ -489,5 +484,36 @@ impl SnapshotManifest {
             verified,
             client_sync_state: ClientSyncState::Unknown,
         }
+    }
+}
+
+/// A stable, sortable UTC date with the existing unique handoff suffix.
+/// This changes presentation only. Stored snapshot identities remain unchanged.
+pub fn handoff_label(id: &str) -> String {
+    let suffix = id
+        .chars()
+        .skip(id.chars().count().saturating_sub(8))
+        .collect::<String>()
+        .to_uppercase();
+    let date = id
+        .split_once('-')
+        .and_then(|(date, _)| chrono::NaiveDateTime::parse_from_str(date, "%Y%m%dT%H%M%SZ").ok());
+    match date {
+        Some(date) => format!("{}-{suffix}", date.format("%Y%m%d.%H%MZ")),
+        None => suffix,
+    }
+}
+
+#[cfg(test)]
+mod handoff_label_tests {
+    use super::handoff_label;
+
+    #[test]
+    fn label_keeps_date_and_distinct_suffix_for_handoffs_in_same_minute() {
+        let earlier = handoff_label("20260918T173048Z-d2747f21166641e6a83bf01d12b838de");
+        let later = handoff_label("20260918T173059Z-d2747f21166641e6a83bf01d12345678");
+        assert_eq!(earlier, "20260918.1730Z-12B838DE");
+        assert_ne!(earlier, later);
+        assert_eq!(handoff_label("legacy-12345678"), "12345678");
     }
 }

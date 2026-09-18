@@ -6,6 +6,7 @@ pub mod compatibility;
 pub mod engine;
 #[path = "../../src/error.rs"]
 pub mod error;
+pub mod ipc;
 #[path = "../../src/models.rs"]
 pub mod models;
 #[path = "../../src/platform.rs"]

@@ -99,7 +99,6 @@ function renderOverview(syncStatus: SyncStatus) {
       status={syncStatus}
       onPush={vi.fn()}
       onPull={vi.fn()}
-      onOpenCodex={vi.fn()}
     />,
   );
 }
@@ -187,7 +186,7 @@ describe("handoff review", () => {
   it("keeps a transfer failure visible after refreshing status and preserves the choices", async () => {
     vi.spyOn(api, "discoverEnvironment").mockResolvedValue(environment);
     vi.spyOn(api, "loadConfig").mockResolvedValue(config);
-    vi.spyOn(api, "listContent").mockResolvedValue({ threads: [], projects: [], totalEstimatedBytes: 0, warnings: [] });
+    vi.spyOn(api, "listContentQuick").mockResolvedValue({ threads: [], projects: [], totalEstimatedBytes: 0, warnings: [] });
     const latest = snapshot("snapshot-1", "Travel laptop");
     vi.spyOn(api, "getSyncStatus").mockResolvedValue({ ...status(false), latestSnapshot: latest, visibleHeads: [latest] });
     vi.spyOn(api, "listRecoveries").mockResolvedValue([]);
@@ -200,7 +199,7 @@ describe("handoff review", () => {
     screen.getAllByRole("button", { name: "Use incoming" }).forEach((button) => fireEvent.click(button));
     fireEvent.click(screen.getByRole("button", { name: "Pull" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("The local workspace changed. Refresh the review."));
-    expect(api.listContent).toHaveBeenCalledTimes(2);
+    expect(api.listContentQuick).toHaveBeenCalledTimes(2);
     expect(screen.getAllByRole("button", { name: "Use incoming", pressed: true })).toHaveLength(3);
     expect(screen.getByRole("button", { name: "Refresh review" })).toBeVisible();
   });
@@ -213,6 +212,95 @@ const projectCatalog: ContentCatalog = {
     { id: "flights", name: "Flights", roots: ["E:\\Work\\Flights", "F:\\Worktrees\\Flights"], localRoots: ["E:\\Work\\Flights", "F:\\Worktrees\\Flights"], threadCount: 3, estimatedBytes: 100, gitRepository: true, linkedWorktree: true },
   ],
 };
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
+function mockStartup() {
+  vi.spyOn(api, "discoverEnvironment").mockResolvedValue(environment);
+  vi.spyOn(api, "loadConfig").mockResolvedValue(config);
+  vi.spyOn(api, "listContentQuick").mockResolvedValue({ ...projectCatalog, projects: projectCatalog.projects.map((project) => ({ ...project, estimatedBytes: 0 })) });
+  vi.spyOn(api, "getSyncStatus").mockResolvedValue({ ...status(false), visibleHeads: [], pendingRecovery: true });
+}
+
+describe("page-specific discovery", () => {
+  it("skips workspace and recovery scans on Overview, then loads only the opened page", async () => {
+    mockStartup();
+    const detail = deferred<ContentCatalog>();
+    const recovery = deferred<Awaited<ReturnType<typeof api.listRecoveries>>>();
+    const detailedRead = vi.spyOn(api, "listContent").mockReturnValue(detail.promise);
+    const recoveryRead = vi.spyOn(api, "listRecoveries").mockReturnValue(recovery.promise);
+    render(<App />);
+    await screen.findByTitle("Recovery needs attention");
+    expect(detailedRead).not.toHaveBeenCalled();
+    expect(recoveryRead).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "What to sync" }));
+    await waitFor(() => expect(detailedRead).toHaveBeenCalledTimes(1));
+    expect(screen.getByLabelText("Estimated sync size for Product")).toHaveTextContent("Calculating size…");
+    expect(screen.getByLabelText("Estimated sync size for Product")).not.toHaveTextContent("0 B");
+    fireEvent.click(screen.getByRole("combobox", { name: "Sync mode for Product" }));
+    fireEvent.click(screen.getByRole("option", { name: "Chat history only" }));
+    await act(async () => detail.resolve(projectCatalog));
+    expect(screen.getByRole("combobox", { name: "Sync mode for Product" })).toHaveTextContent("Chat history only");
+    expect(screen.getByLabelText("Estimated sync size for Flights")).toHaveTextContent("100 B");
+    expect(recoveryRead).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Overview" }));
+    fireEvent.click(screen.getByRole("button", { name: "What to sync" }));
+    expect(detailedRead).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Recovery" }));
+    await waitFor(() => expect(recoveryRead).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("status")).toHaveTextContent("Loading recovery points…");
+    expect(screen.queryByText("No recovery points yet")).not.toBeInTheDocument();
+    await act(async () => recovery.resolve([]));
+    expect(screen.getByText("No recovery points yet")).toBeVisible();
+  });
+
+  it("shares an in-flight size scan across navigation and ignores older refresh results", async () => {
+    mockStartup();
+    const previous = deferred<ContentCatalog>();
+    const current = deferred<ContentCatalog>();
+    const detailedRead = vi.spyOn(api, "listContent").mockReturnValueOnce(previous.promise).mockReturnValueOnce(current.promise);
+    vi.spyOn(api, "listRecoveries").mockResolvedValue([]);
+    render(<App />);
+    await screen.findByTitle("Recovery needs attention");
+    fireEvent.click(screen.getByRole("button", { name: "What to sync" }));
+    await waitFor(() => expect(detailedRead).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole("button", { name: "Overview" }));
+    fireEvent.click(screen.getByRole("button", { name: "What to sync" }));
+    expect(detailedRead).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(detailedRead).toHaveBeenCalledTimes(2));
+    await act(async () => current.resolve(projectCatalog));
+    expect(screen.getByLabelText("Estimated sync size for Product")).toHaveTextContent("100 B");
+    await act(async () => previous.resolve({ ...projectCatalog, projects: projectCatalog.projects.map((project) => ({ ...project, estimatedBytes: 8000 })) }));
+    expect(screen.getByLabelText("Estimated sync size for Product")).toHaveTextContent("100 B");
+  });
+
+  it("keeps deferred errors on their page and retries a failed scan on return", async () => {
+    mockStartup();
+    const detailedRead = vi.spyOn(api, "listContent").mockRejectedValueOnce(new Error("Workspace is unavailable.")).mockResolvedValueOnce(projectCatalog);
+    vi.spyOn(api, "listRecoveries").mockRejectedValue(new Error("Recovery folder is unavailable."));
+    render(<App />);
+    await screen.findByTitle("Recovery needs attention");
+    fireEvent.click(screen.getByRole("button", { name: "What to sync" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Workspace is unavailable."));
+    expect(screen.getByLabelText("Estimated sync size for Product")).toHaveTextContent("Size unavailable");
+    fireEvent.click(screen.getByRole("button", { name: "Overview" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Recovery" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Recovery folder is unavailable."));
+    fireEvent.click(screen.getByRole("button", { name: "What to sync" }));
+    await waitFor(() => expect(screen.getByLabelText("Estimated sync size for Product")).toHaveTextContent("100 B"));
+    expect(detailedRead).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
 
 describe("per-project local folders", () => {
   it("saves independent folders through the overflow menu and native picker", async () => {

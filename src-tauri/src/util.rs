@@ -2,7 +2,7 @@ use crate::error::{Result, SpiceError};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
-use std::io::{Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use uuid::Uuid;
 
@@ -37,7 +37,12 @@ pub fn hash_json(value: &impl Serialize) -> Result<String> {
 
 pub fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
     let file = File::open(path)?;
-    Ok(serde_json::from_reader(file)?)
+    // serde_json reads individual bytes from its Read implementation. Buffering
+    // is essential for multi-megabyte manifests stored in a cloud-client folder.
+    Ok(serde_json::from_reader(BufReader::with_capacity(
+        256 * 1024,
+        file,
+    ))?)
 }
 
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {

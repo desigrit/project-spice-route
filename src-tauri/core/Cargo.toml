@@ -1,6 +1,6 @@
 [package]
 name = "spice-route-core"
-version = "0.3.1"
+version = "0.3.2"
 description = "Portable Codex snapshot, compatibility, and recovery engine"
 edition = "2021"
 rust-version = "1.77.2"

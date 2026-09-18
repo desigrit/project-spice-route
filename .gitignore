@@ -11,6 +11,8 @@ src-tauri/target/
 # Build output and generated Tauri schemas
 target/
 src-tauri/gen/
+native/**/bin/
+native/**/obj/
 
 # Local assistant tools and preferences
 .agents/
@@ -33,10 +35,14 @@ spice-route-compatibility.json
 *.pfx
 *.p12
 
-# Keep only the current distributable and its checksum in source control
+# Keep published preview installers and their checksums in source control
 artifacts/*
 !artifacts/Spice-Route-0.3.1-x64-setup.exe
 !artifacts/Spice-Route-0.3.1-x64-setup.exe.sha256
+!artifacts/Spice-Route-0.3.2-x64-setup.exe
+!artifacts/Spice-Route-0.3.2-x64-setup.exe.sha256
+!artifacts/Spice-Route-1.4.0-windows-x64-setup.exe
+!artifacts/Spice-Route-1.4.0-windows-x64-setup.exe.sha256
 !artifacts/README.md
 
 # Visual QA output is reproducible; curated README screenshots live separately

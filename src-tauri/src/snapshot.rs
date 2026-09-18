@@ -13,8 +13,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 use walkdir::{DirEntry, WalkDir};
 
@@ -27,6 +29,8 @@ fn supported_snapshot_schema(version: u32) -> bool {
 pub struct ObjectStore {
     root: PathBuf,
     preview_only: bool,
+    reuse_root: Option<PathBuf>,
+    source_paths: Mutex<HashMap<String, PathBuf>>,
 }
 
 impl ObjectStore {
@@ -36,7 +40,17 @@ impl ObjectStore {
         Ok(Self {
             root,
             preview_only: false,
+            reuse_root: None,
+            source_paths: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// Existing transport objects are candidates only. Publication verifies their
+    /// raw content and can repair a corrupt candidate from the captured source.
+    pub fn with_reuse(root: impl Into<PathBuf>, reuse_root: impl Into<PathBuf>) -> Result<Self> {
+        let mut store = Self::new(root)?;
+        store.reuse_root = Some(reuse_root.into());
+        Ok(store)
     }
 
     /// Compute content identities for comparisons without compressing, syncing, or
@@ -45,6 +59,8 @@ impl ObjectStore {
         Self {
             root: root.into(),
             preview_only: true,
+            reuse_root: None,
+            source_paths: Mutex::new(HashMap::new()),
         }
     }
 
@@ -84,18 +100,7 @@ impl ObjectStore {
         }
         if self.preview_only {
             let (hash, raw_size) = hash_file_cancellable(source, cancel)?;
-            let metadata_after = fs::metadata(source)?;
-            let (confirmed_hash, confirmed_size) = hash_file_cancellable(source, cancel)?;
-            if metadata_before.len() != metadata_after.len()
-                || metadata_before.modified().ok() != metadata_after.modified().ok()
-                || hash != confirmed_hash
-                || raw_size != confirmed_size
-            {
-                return Err(SpiceError::User(format!(
-                    "{} changed while it was being inspected. Wait for writes to finish and try again.",
-                    source.display()
-                )));
-            }
+            ensure_unchanged_source(source, &metadata_before, raw_size)?;
             return Ok(ObjectEntry {
                 hash,
                 logical_path,
@@ -106,11 +111,79 @@ impl ObjectStore {
                 executable: is_executable(&metadata_before),
             });
         }
+        // Git bundles and indexes are temporary captures. They need an owned
+        // staged object because their input paths disappear before publication.
+        let can_reuse = self.reuse_root.is_some()
+            && !matches!(
+                kind,
+                ObjectKind::GitBundle | ObjectKind::GitIndex | ObjectKind::GitObjectPack
+            );
+        let identified = if can_reuse {
+            let (hash, size) = hash_file_cancellable(source, cancel)?;
+            ensure_unchanged_source(source, &metadata_before, size)?;
+            self.source_paths
+                .lock()
+                .map_err(|_| {
+                    SpiceError::User(
+                        "The capture source list is unavailable. Prepare the handoff again.".into(),
+                    )
+                })?
+                .insert(hash.clone(), source.to_path_buf());
+            let staged = self.object_path(&hash)?;
+            let existing = if staged.is_file() {
+                Some(staged)
+            } else {
+                self.reuse_root
+                    .as_ref()
+                    .map(|root| root.join(&hash[..2]).join(format!("{hash}.zst")))
+                    .filter(|path| path.is_file())
+            };
+            if let Some(existing) = existing {
+                return Ok(ObjectEntry {
+                    hash,
+                    logical_path,
+                    kind,
+                    owner_id,
+                    raw_size: size,
+                    stored_size: fs::metadata(existing)?.len(),
+                    executable: is_executable(&metadata_before),
+                });
+            }
+            Some((hash, size))
+        } else {
+            None
+        };
+        let (hash, raw_size, stored_size) = self.capture_compressed_file(
+            source,
+            &metadata_before,
+            cancel,
+            identified
+                .as_ref()
+                .map(|(hash, size)| (hash.as_str(), *size)),
+        )?;
+        Ok(ObjectEntry {
+            hash,
+            logical_path,
+            kind,
+            owner_id,
+            raw_size,
+            stored_size,
+            executable: is_executable(&metadata_before),
+        })
+    }
+
+    fn capture_compressed_file(
+        &self,
+        source: &Path,
+        metadata_before: &fs::Metadata,
+        cancel: Option<&AtomicBool>,
+        expected: Option<(&str, u64)>,
+    ) -> Result<(String, u64, u64)> {
         let temporary = self.root.join(format!(".{}.partial", Uuid::new_v4()));
-        let captured = (|| -> Result<(String, u64)> {
+        let captured = (|| -> Result<(String, u64, u64)> {
             let input = File::open(source)?;
             let output = BufWriter::new(File::create(&temporary)?);
-            let mut encoder = zstd::stream::write::Encoder::new(output, 6)?;
+            let mut encoder = zstd::stream::write::Encoder::new(output, 1)?;
             let mut reader = BufReader::new(input);
             let mut buffer = vec![0_u8; 1024 * 1024];
             let mut hasher = Sha256::new();
@@ -128,45 +201,62 @@ impl ObjectStore {
             let mut output = encoder.finish()?;
             output.flush()?;
             output.get_ref().sync_all()?;
-            Ok((format!("{:x}", hasher.finalize()), raw_size))
-        })();
-        let (hash, raw_size) = match captured {
-            Ok(value) => value,
-            Err(error) => {
-                let _ = fs::remove_file(&temporary);
-                return Err(error);
+            drop(output);
+            let hash = format!("{:x}", hasher.finalize());
+            ensure_unchanged_source(source, metadata_before, raw_size)?;
+            // Actual captures have two content observations. Reuse candidates were
+            // hashed before compression; ordinary capture checks after compression.
+            let confirmed = match expected {
+                Some((hash, size)) => (hash.to_string(), size),
+                None => hash_file_cancellable(source, cancel)?,
+            };
+            if hash != confirmed.0 || raw_size != confirmed.1 {
+                return Err(source_changed(source));
             }
-        };
-        let metadata_after = fs::metadata(source)?;
-        let (hash_after, size_after) = hash_file_cancellable(source, cancel)?;
-        if metadata_before.len() != metadata_after.len()
-            || metadata_before.modified().ok() != metadata_after.modified().ok()
-            || raw_size != size_after
-            || hash != hash_after
-        {
-            let _ = fs::remove_file(&temporary);
-            return Err(SpiceError::User(format!(
-                "{} changed while it was being captured. Wait for writes to finish and try again.",
-                source.display()
-            )));
-        }
-        let destination = self.object_path(&hash)?;
-        fs::create_dir_all(destination.parent().expect("object path has parent"))?;
-        if destination.exists() {
-            fs::remove_file(&temporary)?;
-        } else {
+            ensure_unchanged_source(source, metadata_before, raw_size)?;
+            check_cancel(cancel)?;
+            let destination = self.object_path(&hash)?;
+            fs::create_dir_all(destination.parent().expect("object path has parent"))?;
+            // Replacement happens only after the complete staged content passed its
+            // checks. A bad pre-existing stage object cannot win a deduplication race.
             fs::rename(&temporary, &destination)?;
+            Ok((hash, raw_size, fs::metadata(destination)?.len()))
+        })();
+        if captured.is_err() {
+            let _ = fs::remove_file(&temporary);
         }
-        let stored_size = fs::metadata(&destination)?.len();
-        Ok(ObjectEntry {
-            hash,
-            logical_path,
-            kind,
-            owner_id,
-            raw_size,
-            stored_size,
-            executable: is_executable(&metadata_before),
-        })
+        captured
+    }
+
+    fn staged_source(&self, object: &ObjectEntry, cancel: Option<&AtomicBool>) -> Result<PathBuf> {
+        let path = self.object_path(&object.hash)?;
+        if path.is_file() {
+            return Ok(path);
+        }
+        let original = self
+            .source_paths
+            .lock()
+            .map_err(|_| {
+                SpiceError::User(
+                    "The capture source list is unavailable. Prepare the handoff again.".into(),
+                )
+            })?
+            .get(&object.hash)
+            .cloned();
+        let Some(original) = original else {
+            return Err(SpiceError::CorruptSnapshot(format!(
+                "Missing object {} ({})",
+                object.hash, object.logical_path
+            )));
+        };
+        let metadata = fs::metadata(&original)?;
+        self.capture_compressed_file(
+            &original,
+            &metadata,
+            cancel,
+            Some((&object.hash, object.raw_size)),
+        )?;
+        Ok(path)
     }
 
     pub fn put_bytes(
@@ -189,7 +279,21 @@ impl ObjectStore {
         }
         let source = tempfile::NamedTempFile::new_in(&self.root)?;
         fs::write(source.path(), bytes)?;
-        self.put_file(source.path(), logical_path, kind, owner_id)
+        let (hash, raw_size, stored_size) = self.capture_compressed_file(
+            source.path(),
+            &fs::metadata(source.path())?,
+            None,
+            Some((&sha256_bytes(bytes), bytes.len() as u64)),
+        )?;
+        Ok(ObjectEntry {
+            hash,
+            logical_path,
+            kind,
+            owner_id,
+            raw_size,
+            stored_size,
+            executable: false,
+        })
     }
 
     pub fn verify(&self, object: &ObjectEntry) -> Result<()> {
@@ -200,6 +304,15 @@ impl ObjectStore {
         &self,
         object: &ObjectEntry,
         cancel: Option<&AtomicBool>,
+    ) -> Result<()> {
+        self.verify_with_progress(object, cancel, None)
+    }
+
+    fn verify_with_progress(
+        &self,
+        object: &ObjectEntry,
+        cancel: Option<&AtomicBool>,
+        mut progress: Option<&mut dyn FnMut(u64) -> Result<()>>,
     ) -> Result<()> {
         let path = self.object_path(&object.hash)?;
         if !path.is_file() {
@@ -221,6 +334,9 @@ impl ObjectStore {
             }
             hasher.update(&buffer[..count]);
             size += count as u64;
+            if let Some(callback) = progress.as_mut() {
+                callback(size)?;
+            }
         }
         let actual = format!("{:x}", hasher.finalize());
         if actual != object.hash || size != object.raw_size {
@@ -282,16 +398,15 @@ impl ObjectStore {
             }
             output.flush()?;
             output.get_ref().sync_all()?;
+            drop(output);
+            check_cancel(cancel)?;
+            fs::rename(&partial, destination)?;
             Ok(())
         })();
         if let Err(error) = restored {
             let _ = fs::remove_file(&partial);
             return Err(error);
         }
-        if destination.exists() {
-            fs::remove_file(destination)?;
-        }
-        fs::rename(&partial, destination)?;
         set_executable(destination, object.executable)?;
         Ok(())
     }
@@ -306,50 +421,218 @@ impl ObjectStore {
         object: &ObjectEntry,
         cancel: Option<&AtomicBool>,
     ) -> Result<()> {
-        let source_path = source.object_path(&object.hash)?;
+        self.import_with_progress(source, object, cancel, None)
+    }
+
+    fn import_with_progress(
+        &self,
+        source: &ObjectStore,
+        object: &ObjectEntry,
+        cancel: Option<&AtomicBool>,
+        mut progress: Option<&mut dyn FnMut(u64) -> Result<()>>,
+    ) -> Result<()> {
+        check_cancel(cancel)?;
+        let mut report = |bytes| -> Result<()> {
+            if let Some(callback) = progress.as_mut() {
+                callback(bytes)?;
+            }
+            Ok(())
+        };
         let destination = self.object_path(&object.hash)?;
         if destination.is_file() {
-            match self.verify_cancellable(object, cancel) {
+            match self.verify_with_progress(object, cancel, Some(&mut report)) {
                 Ok(()) => return Ok(()),
-                Err(SpiceError::Cancelled) => return Err(SpiceError::Cancelled),
-                Err(_) => {}
+                Err(SpiceError::Io(_) | SpiceError::CorruptSnapshot(_)) => {}
+                Err(error) => return Err(error),
             }
         }
-        source.verify_cancellable(object, cancel)?;
-        if destination.is_file() {
-            fs::remove_file(&destination)?;
-        }
+        let source_path = source.staged_source(object, cancel)?;
         fs::create_dir_all(destination.parent().expect("object path has parent"))?;
         let partial = destination.with_extension(format!("zst.{}.partial", Uuid::new_v4()));
         let copied = (|| -> Result<()> {
-            let mut input = BufReader::new(File::open(source_path)?);
-            let mut output = BufWriter::new(File::create(&partial)?);
+            let mut tee = TeeReader {
+                input: File::open(source_path)?,
+                output: BufWriter::new(File::create(&partial)?),
+            };
+            let mut decoder = zstd::stream::read::Decoder::new(&mut tee)?;
             let mut buffer = vec![0_u8; 1024 * 1024];
+            let mut hasher = Sha256::new();
+            let mut size = 0_u64;
             loop {
                 check_cancel(cancel)?;
-                let count = input.read(&mut buffer)?;
+                let count = decoder.read(&mut buffer)?;
                 if count == 0 {
                     break;
                 }
-                output.write_all(&buffer[..count])?;
+                hasher.update(&buffer[..count]);
+                size += count as u64;
+                report(size)?;
+                if size > object.raw_size {
+                    return Err(SpiceError::CorruptSnapshot(format!(
+                        "Size mismatch for {}",
+                        object.logical_path
+                    )));
+                }
             }
-            output.flush()?;
-            output.get_ref().sync_all()?;
+            if format!("{:x}", hasher.finalize()) != object.hash || size != object.raw_size {
+                return Err(SpiceError::CorruptSnapshot(format!(
+                    "Hash mismatch for {}",
+                    object.logical_path
+                )));
+            }
+            drop(decoder);
+            tee.output.flush()?;
+            tee.output.get_ref().sync_all()?;
+            drop(tee);
+            check_cancel(cancel)?;
+            fs::rename(&partial, &destination)?;
             Ok(())
         })();
         if let Err(error) = copied {
             let _ = fs::remove_file(&partial);
             return Err(error);
         }
-        if let Err(error) = fs::rename(&partial, &destination) {
-            if destination.is_file() {
-                let _ = fs::remove_file(&partial);
-            } else {
-                return Err(error.into());
-            }
-        }
-        self.verify_cancellable(object, cancel)
+        Ok(())
     }
+}
+
+/// A cloud object is copied in compressed form while its decoded content is
+/// hashed. The completion manifest is still published after every object passes.
+struct TeeReader<R, W> {
+    input: R,
+    output: W,
+}
+
+impl<R: Read, W: Write> Read for TeeReader<R, W> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let count = self.input.read(buffer)?;
+        self.output.write_all(&buffer[..count])?;
+        Ok(count)
+    }
+}
+
+/// Progress measures raw content processed, not bytes uploaded by a cloud client.
+#[derive(Clone, Debug)]
+pub struct ContentProgress {
+    pub completed_objects: usize,
+    pub total_objects: usize,
+    pub processed_raw_bytes: u64,
+    pub total_raw_bytes: u64,
+    pub filename: Option<String>,
+    pub writing_manifest: bool,
+}
+
+type ContentObserver<'a> = &'a mut dyn FnMut(&ContentProgress) -> Result<()>;
+
+struct ContentReporter<'a> {
+    observer: Option<ContentObserver<'a>>,
+    state: ContentProgress,
+    completed_bytes: u64,
+    current_bytes: u64,
+    current_size: u64,
+    last_emitted: Option<Instant>,
+}
+
+impl<'a> ContentReporter<'a> {
+    fn new(objects: &[ObjectEntry], observer: Option<ContentObserver<'a>>) -> Self {
+        let unique: HashMap<_, _> = objects
+            .iter()
+            .map(|object| (&object.hash, object.raw_size))
+            .collect();
+        Self {
+            observer,
+            state: ContentProgress {
+                completed_objects: 0,
+                total_objects: unique.len(),
+                processed_raw_bytes: 0,
+                total_raw_bytes: unique
+                    .values()
+                    .fold(0_u64, |sum, bytes| sum.saturating_add(*bytes)),
+                filename: None,
+                writing_manifest: false,
+            },
+            completed_bytes: 0,
+            current_bytes: 0,
+            current_size: 0,
+            last_emitted: None,
+        }
+    }
+
+    fn begin(&mut self, object: &ObjectEntry) -> Result<()> {
+        self.current_bytes = 0;
+        self.current_size = object.raw_size;
+        self.state.filename = Some(codex::display_thread_title(
+            object
+                .logical_path
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or(&object.logical_path),
+        ));
+        self.emit(false)
+    }
+
+    fn advance(&mut self, raw_bytes: u64) -> Result<()> {
+        // A corrupt candidate can be checked and repaired during the same step.
+        // Count its content once even when that requires a second decoding pass.
+        self.current_bytes = self.current_bytes.max(raw_bytes.min(self.current_size));
+        self.state.processed_raw_bytes = self.completed_bytes.saturating_add(self.current_bytes);
+        self.emit(false)
+    }
+
+    fn finish_object(&mut self) -> Result<()> {
+        self.completed_bytes = self.completed_bytes.saturating_add(self.current_size);
+        self.state.processed_raw_bytes = self.completed_bytes;
+        self.state.completed_objects += 1;
+        self.emit(false)
+    }
+
+    fn finish(&mut self, writing_manifest: bool) -> Result<()> {
+        self.state.writing_manifest = writing_manifest;
+        self.state.filename = None;
+        self.emit(true)
+    }
+
+    fn emit(&mut self, force: bool) -> Result<()> {
+        let Some(observer) = self.observer.as_mut() else {
+            return Ok(());
+        };
+        // Normal object/chunk events are limited to four updates per second.
+        // The start and final phase transition are always delivered.
+        if force
+            || self
+                .last_emitted
+                .map_or(true, |last| last.elapsed() >= Duration::from_millis(250))
+        {
+            observer(&self.state)?;
+            self.last_emitted = Some(Instant::now());
+        }
+        Ok(())
+    }
+}
+
+fn source_changed(source: &Path) -> SpiceError {
+    SpiceError::User(format!(
+        "{} changed while it was being captured. Wait for writes to finish and try again.",
+        source.display()
+    ))
+}
+
+fn ensure_unchanged_source(source: &Path, before: &fs::Metadata, read_size: u64) -> Result<()> {
+    let after = fs::metadata(source)?;
+    let changed = !after.is_file()
+        || before.len() != read_size
+        || before.len() != after.len()
+        || before.modified().ok() != after.modified().ok()
+        || before.created().ok() != after.created().ok();
+    #[cfg(unix)]
+    let changed = {
+        use std::os::unix::fs::MetadataExt;
+        changed || before.dev() != after.dev() || before.ino() != after.ino()
+    };
+    if changed {
+        return Err(source_changed(source));
+    }
+    Ok(())
 }
 
 pub fn build_manifest(
@@ -681,7 +964,7 @@ fn capture_tree(
     }
     if excluded_count > 0 {
         warnings.push(format!(
-            "{} file{} excluded from {} by safety or custom rules{}.",
+            "{} file{} omitted from {} by the selected file exclusions{}.",
             excluded_count,
             if excluded_count == 1 {
                 " was"
@@ -738,7 +1021,11 @@ fn should_enter(entry: &DirEntry, root: &Path, selection: &SelectionRules) -> bo
     if !entry.file_type().is_dir() {
         return true;
     }
-    if !selection.include_build_outputs && is_build_output_component(&name) {
+    if !selection.include_build_outputs
+        && entry.path().strip_prefix(root).is_ok_and(|relative| {
+            is_build_output_path(&relative.to_string_lossy().replace('\\', "/"))
+        })
+    {
         return false;
     }
     true
@@ -762,6 +1049,16 @@ fn is_build_output_component(name: &str) -> bool {
             | "bin"
             | "obj"
     )
+}
+
+fn is_build_output_path(relative: &str) -> bool {
+    let components: Vec<_> = relative.split('/').map(str::to_ascii_lowercase).collect();
+    components
+        .iter()
+        .any(|name| is_build_output_component(name))
+        || components
+            .windows(2)
+            .any(|parts| parts[0] == "packaging" && matches!(parts[1].as_str(), "out" | "staging"))
 }
 
 fn build_exclusions(values: &[String]) -> Result<GlobSet> {
@@ -865,12 +1162,7 @@ pub(crate) fn selection_allows_object_path(
     {
         return false;
     }
-    if !selection.include_build_outputs
-        && relative
-            .split('/')
-            .map(str::to_ascii_lowercase)
-            .any(|component| is_build_output_component(&component))
-    {
+    if !selection.include_build_outputs && is_build_output_path(&relative) {
         return false;
     }
     let patterns = match build_exclusions(&selection.extra_exclude_patterns) {
@@ -917,17 +1209,13 @@ pub(crate) fn capture_git(
     root_index: usize,
     store: &ObjectStore,
     objects: &mut Vec<ObjectEntry>,
-    warnings: &mut Vec<String>,
+    _warnings: &mut Vec<String>,
     cancel: Option<&AtomicBool>,
 ) -> Result<Option<GitDescriptor>> {
     check_cancel(cancel)?;
     if !root.join(".git").exists() {
         return Ok(None);
     }
-    warnings.push(format!(
-        "{} includes complete Git history. Working-file exclusions do not remove secrets that were already committed.",
-        root.display()
-    ));
     let common = git_output(root, &["rev-parse", "--git-common-dir"]);
     let git_dir = git_output(root, &["rev-parse", "--git-dir"]);
     let (Some(common), Some(git_dir)) = (common, git_dir) else {
@@ -945,7 +1233,7 @@ pub(crate) fn capture_git(
     let temp = tempfile::tempdir()?;
     let bundle_path = temp.path().join("repository.bundle");
     let has_refs = git_output(root, &["for-each-ref", "--format=%(refname)"]).is_some();
-    let mut bundle_command = Command::new("git");
+    let mut bundle_command = crate::platform::hidden_command("git");
     bundle_command
         .arg("-C")
         .arg(root)
@@ -980,7 +1268,7 @@ pub(crate) fn capture_git(
     let (index_object, index_pack_object) = if index_path.is_file() {
         let portable_index_path = temp.path().join("portable.index");
         fs::copy(&index_path, &portable_index_path)?;
-        let normalize_index = Command::new("git")
+        let normalize_index = crate::platform::hidden_command("git")
             .arg("-C")
             .arg(root)
             .env("GIT_INDEX_FILE", &portable_index_path)
@@ -1000,7 +1288,7 @@ pub(crate) fn capture_git(
             )));
         }
         let index_pack_path = temp.path().join("index-objects.pack");
-        let pack_output = Command::new("git")
+        let pack_output = crate::platform::hidden_command("git")
             .arg("-C")
             .arg(root)
             .env("GIT_INDEX_FILE", &portable_index_path)
@@ -1060,7 +1348,7 @@ fn absolute_git_path(root: &Path, value: &str) -> PathBuf {
 }
 
 fn git_output(root: &Path, args: &[&str]) -> Option<String> {
-    let output = Command::new("git")
+    let output = crate::platform::hidden_command("git")
         .arg("-C")
         .arg(root)
         .args(args)
@@ -1113,6 +1401,26 @@ pub fn publish_cancellable(
     manifest: &SnapshotManifest,
     cancel: Option<&AtomicBool>,
 ) -> Result<SnapshotSummary> {
+    publish_observed(config, local_store, manifest, cancel, None)
+}
+
+pub fn publish_with_progress(
+    config: &AppConfig,
+    local_store: &ObjectStore,
+    manifest: &SnapshotManifest,
+    cancel: Option<&AtomicBool>,
+    observer: ContentObserver<'_>,
+) -> Result<SnapshotSummary> {
+    publish_observed(config, local_store, manifest, cancel, Some(observer))
+}
+
+fn publish_observed(
+    config: &AppConfig,
+    local_store: &ObjectStore,
+    manifest: &SnapshotManifest,
+    cancel: Option<&AtomicBool>,
+    observer: Option<ContentObserver<'_>>,
+) -> Result<SnapshotSummary> {
     if local_store.preview_only {
         return Err(SpiceError::User(
             "A preview has no captured content and cannot be published.".into(),
@@ -1120,13 +1428,44 @@ pub fn publish_cancellable(
     }
     let root = cloud_store_root(config);
     let cloud_store = ObjectStore::new(root.join("objects"))?;
+    let mut progress = ContentReporter::new(&manifest.objects, observer);
     let mut imported = HashSet::new();
     for object in &manifest.objects {
         check_cancel(cancel)?;
         if imported.insert(&object.hash) {
-            cloud_store.import_from_cancellable(local_store, object, cancel)?;
+            progress.begin(object)?;
+            cloud_store.import_with_progress(
+                local_store,
+                object,
+                cancel,
+                Some(&mut |bytes| progress.advance(bytes)),
+            )?;
+            progress.finish_object()?;
         }
     }
+    // A reused object may have needed repair, or another compression level may
+    // already represent the same raw content. Persist the verified file's actual
+    // compressed length without changing its content identity or ancestry.
+    let mut normalized: Option<SnapshotManifest> = None;
+    let mut stored_sizes = HashMap::new();
+    for (index, object) in manifest.objects.iter().enumerate() {
+        check_cancel(cancel)?;
+        let stored_size = match stored_sizes.get(&object.hash) {
+            Some(size) => *size,
+            None => {
+                let size = fs::metadata(cloud_store.object_path(&object.hash)?)?.len();
+                stored_sizes.insert(object.hash.clone(), size);
+                size
+            }
+        };
+        if stored_size != object.stored_size {
+            normalized.get_or_insert_with(|| manifest.clone()).objects[index].stored_size =
+                stored_size;
+        }
+    }
+    let manifest = normalized.as_ref().unwrap_or(manifest);
+    progress.finish(true)?;
+    check_cancel(cancel)?;
     let manifests = root.join("snapshots");
     fs::create_dir_all(&manifests)?;
     let final_path = manifests.join(format!("{}.json", manifest.id));
@@ -1137,13 +1476,20 @@ pub fn publish_cancellable(
         )));
     }
     let partial = manifests.join(format!(".{}.partial", manifest.id));
-    let bytes = serde_json::to_vec_pretty(manifest)?;
-    {
+    let written = (|| -> Result<()> {
+        let bytes = serde_json::to_vec_pretty(manifest)?;
         let mut file = File::create(&partial)?;
         file.write_all(&bytes)?;
         file.sync_all()?;
+        drop(file);
+        check_cancel(cancel)?;
+        fs::rename(&partial, &final_path)?;
+        Ok(())
+    })();
+    if let Err(error) = written {
+        let _ = fs::remove_file(&partial);
+        return Err(error);
     }
-    fs::rename(partial, &final_path)?;
     Ok(manifest.summary(
         manifest
             .objects
@@ -1245,7 +1591,7 @@ pub fn inspect_manifest(
     config: &AppConfig,
     manifest: &SnapshotManifest,
 ) -> Result<SnapshotSummary> {
-    validate_manifest(config, manifest, None, false)
+    validate_manifest(config, manifest, None, false, None)
 }
 
 pub fn verify_manifest_cancellable(
@@ -1253,7 +1599,16 @@ pub fn verify_manifest_cancellable(
     manifest: &SnapshotManifest,
     cancel: Option<&AtomicBool>,
 ) -> Result<SnapshotSummary> {
-    validate_manifest(config, manifest, cancel, true)
+    validate_manifest(config, manifest, cancel, true, None)
+}
+
+pub fn verify_manifest_with_progress(
+    config: &AppConfig,
+    manifest: &SnapshotManifest,
+    cancel: Option<&AtomicBool>,
+    observer: ContentObserver<'_>,
+) -> Result<SnapshotSummary> {
+    validate_manifest(config, manifest, cancel, true, Some(observer))
 }
 
 fn validate_manifest(
@@ -1261,13 +1616,17 @@ fn validate_manifest(
     manifest: &SnapshotManifest,
     cancel: Option<&AtomicBool>,
     verify_content: bool,
+    observer: Option<ContentObserver<'_>>,
 ) -> Result<SnapshotSummary> {
+    let mut progress = ContentReporter::new(&manifest.objects, observer);
     if !supported_snapshot_schema(manifest.schema_version) {
         return Err(SpiceError::UnsupportedCodex(format!("Snapshot format {} requires a newer Spice Route version. This release reads formats 1 and 2.", manifest.schema_version)));
     }
     let store = ObjectStore {
         root: cloud_store_root(config).join("objects"),
         preview_only: false,
+        reuse_root: None,
+        source_paths: Mutex::new(HashMap::new()),
     };
     let thread_ids: HashSet<&str> = manifest
         .threads
@@ -1337,7 +1696,15 @@ fn validate_manifest(
                     object.logical_path
                 )));
             }
-            None if verify_content => store.verify_cancellable(object, cancel)?,
+            None if verify_content => {
+                progress.begin(object)?;
+                store.verify_with_progress(
+                    object,
+                    cancel,
+                    Some(&mut |bytes| progress.advance(bytes)),
+                )?;
+                progress.finish_object()?;
+            }
             _ => {}
         }
     }
@@ -1428,6 +1795,10 @@ fn validate_manifest(
                 )));
             }
         }
+    }
+    if verify_content {
+        progress.finish(false)?;
+        check_cancel(cancel)?;
     }
     Ok(manifest.summary(
         manifest
@@ -1746,6 +2117,7 @@ mod tests {
             fs::write(path, vec![b'x'; size]).unwrap();
         }
         let mut config = settings::default_config();
+        config.selection.include_sensitive_files = false;
         assert_eq!(
             estimate_workspace_bytes(root.path(), &config.selection).unwrap(),
             5
@@ -2125,6 +2497,407 @@ mod tests {
     }
 
     #[test]
+    fn valid_materialization_replaces_an_existing_file_after_verification() {
+        let root = tempdir().unwrap();
+        let store = ObjectStore::new(root.path().join("objects")).unwrap();
+        let object = store
+            .put_bytes(
+                b"new verified content",
+                "file".into(),
+                ObjectKind::Artifact,
+                "task".into(),
+            )
+            .unwrap();
+        let destination = root.path().join("restored.txt");
+        fs::write(&destination, b"old content").unwrap();
+        store.materialize(&object, &destination).unwrap();
+        assert_eq!(fs::read(&destination).unwrap(), b"new verified content");
+    }
+
+    #[test]
+    fn progress_counts_unique_content_and_distinguishes_manifest_publication() {
+        let root = tempdir().unwrap();
+        let mut config = settings::default_config();
+        config.cloud_root = root.path().join("cloud").to_string_lossy().into_owned();
+        let local = ObjectStore::new(root.path().join("stage")).unwrap();
+        let object = local
+            .put_bytes(
+                b"shared content",
+                "projects/project/0/files/one.txt".into(),
+                ObjectKind::ProjectFile,
+                "project".into(),
+            )
+            .unwrap();
+        let mut duplicate = object.clone();
+        duplicate.logical_path = "projects/project/0/files/two.txt".into();
+        let mut value = manifest("progress", None, &[], &config);
+        value.projects.push(ProjectExport {
+            id: "project".into(),
+            legacy_id: None,
+            name: "Project".into(),
+            mode: ProjectMode::Full,
+            source_roots: vec!["source".into()],
+            rows: Default::default(),
+            git: vec![],
+        });
+        value.objects = vec![object.clone(), duplicate];
+        let mut published = Vec::new();
+        publish_with_progress(&config, &local, &value, None, &mut |event| {
+            published.push(event.clone());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(published.first().unwrap().completed_objects, 0);
+        let last = published.last().unwrap();
+        assert_eq!((last.completed_objects, last.total_objects), (1, 1));
+        assert_eq!(
+            (last.processed_raw_bytes, last.total_raw_bytes),
+            (object.raw_size, object.raw_size)
+        );
+        assert!(last.writing_manifest);
+        assert!(published
+            .windows(2)
+            .all(|pair| pair[0].processed_raw_bytes <= pair[1].processed_raw_bytes));
+        let mut verified = Vec::new();
+        verify_manifest_with_progress(&config, &value, None, &mut |event| {
+            verified.push(event.clone());
+            Ok(())
+        })
+        .unwrap();
+        let last = verified.last().unwrap();
+        assert_eq!((last.completed_objects, last.total_objects), (1, 1));
+        assert_eq!(last.processed_raw_bytes, object.raw_size);
+        assert!(!last.writing_manifest);
+    }
+
+    #[test]
+    fn chunk_progress_is_available_for_large_objects_and_reporter_is_throttled() {
+        let root = tempdir().unwrap();
+        let local = ObjectStore::new(root.path().join("stage")).unwrap();
+        let object = local
+            .put_bytes(
+                &vec![0x5a; 3 * 1024 * 1024],
+                "large.bin".into(),
+                ObjectKind::ProjectFile,
+                "project".into(),
+            )
+            .unwrap();
+        let mut bytes = Vec::new();
+        local
+            .verify_with_progress(
+                &object,
+                None,
+                Some(&mut |count| {
+                    bytes.push(count);
+                    Ok(())
+                }),
+            )
+            .unwrap();
+        assert!(bytes
+            .iter()
+            .any(|count| *count > 0 && *count < object.raw_size));
+        assert_eq!(bytes.last().copied(), Some(object.raw_size));
+        let mut events = Vec::new();
+        let mut observer = |event: &ContentProgress| {
+            events.push(event.clone());
+            Ok(())
+        };
+        let mut reporter = ContentReporter::new(std::slice::from_ref(&object), Some(&mut observer));
+        reporter.begin(&object).unwrap();
+        // Hold the deadline in the future so this test never depends on CPU speed.
+        reporter.last_emitted = Some(Instant::now() + Duration::from_secs(60));
+        for count in 0..1000 {
+            reporter.advance(count).unwrap();
+        }
+        reporter.finish_object().unwrap();
+        reporter.finish(false).unwrap();
+        drop(reporter);
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[1].processed_raw_bytes, object.raw_size);
+    }
+
+    #[test]
+    fn cancellation_at_manifest_phase_never_publishes_a_completion_manifest() {
+        let root = tempdir().unwrap();
+        let mut config = settings::default_config();
+        config.cloud_root = root.path().join("cloud").to_string_lossy().into_owned();
+        let local = ObjectStore::new(root.path().join("stage")).unwrap();
+        let mut value = manifest("cancel-at-publication", None, &[], &config);
+        value.objects.push(
+            local
+                .put_bytes(
+                    b"content",
+                    "file".into(),
+                    ObjectKind::Artifact,
+                    "task".into(),
+                )
+                .unwrap(),
+        );
+        let cancelled = AtomicBool::new(false);
+        let result =
+            publish_with_progress(&config, &local, &value, Some(&cancelled), &mut |event| {
+                if event.writing_manifest {
+                    cancelled.store(true, Ordering::SeqCst);
+                }
+                Ok(())
+            });
+        assert!(matches!(result, Err(SpiceError::Cancelled)));
+        let snapshots = cloud_store_root(&config).join("snapshots");
+        assert!(!snapshots.exists() || fs::read_dir(snapshots).unwrap().count() == 0);
+    }
+
+    #[test]
+    fn import_chunk_cancellation_keeps_existing_destination_and_cleans_partial() {
+        let root = tempdir().unwrap();
+        let local = ObjectStore::new(root.path().join("stage")).unwrap();
+        let cloud = ObjectStore::new(root.path().join("cloud")).unwrap();
+        let object = local
+            .put_bytes(
+                &vec![0x5a; 3 * 1024 * 1024],
+                "large.bin".into(),
+                ObjectKind::ProjectFile,
+                "project".into(),
+            )
+            .unwrap();
+        let destination = cloud.object_path(&object.hash).unwrap();
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        fs::write(&destination, b"original destination").unwrap();
+        let cancelled = AtomicBool::new(false);
+        let result = cloud.import_with_progress(
+            &local,
+            &object,
+            Some(&cancelled),
+            Some(&mut |bytes| {
+                if bytes > 0 {
+                    cancelled.store(true, Ordering::SeqCst);
+                }
+                Ok(())
+            }),
+        );
+        assert!(matches!(result, Err(SpiceError::Cancelled)));
+        assert_eq!(fs::read(&destination).unwrap(), b"original destination");
+        assert_eq!(
+            fs::read_dir(destination.parent().unwrap()).unwrap().count(),
+            1
+        );
+    }
+
+    #[test]
+    fn publication_records_repaired_object_size_without_changing_content_identity() {
+        let root = tempdir().unwrap();
+        let mut config = settings::default_config();
+        config.cloud_root = root.path().join("cloud").to_string_lossy().into_owned();
+        let local = ObjectStore::new(root.path().join("stage")).unwrap();
+        let mut object = local
+            .put_bytes(
+                b"captured content",
+                "file".into(),
+                ObjectKind::Artifact,
+                "task".into(),
+            )
+            .unwrap();
+        let actual_size = object.stored_size;
+        object.stored_size = 999;
+        let mut incoming = manifest("publication-size", None, &[], &config);
+        incoming.objects.push(object);
+        let fingerprint = manifest_fingerprint(&incoming).unwrap();
+        let result = publish(&config, &local, &incoming).unwrap();
+        let saved: SnapshotManifest =
+            read_json(&cloud_store_root(&config).join("snapshots/publication-size.json")).unwrap();
+        assert_eq!(saved.id, incoming.id);
+        assert_eq!(saved.objects[0].stored_size, actual_size);
+        assert_eq!(manifest_fingerprint(&saved).unwrap(), fingerprint);
+        assert_eq!(result.stored_bytes, actual_size);
+        assert_eq!(incoming.objects[0].stored_size, 999);
+    }
+
+    #[test]
+    fn unchanged_cloud_objects_are_reused_without_staging_or_a_second_source_read() {
+        let root = tempdir().unwrap();
+        let source_path = root.path().join("source.txt");
+        let bytes = b"unchanged workspace content";
+        fs::write(&source_path, bytes).unwrap();
+        let cloud = ObjectStore::new(root.path().join("cloud")).unwrap();
+        let existing = cloud
+            .put_bytes(
+                bytes,
+                "file".into(),
+                ObjectKind::ProjectFile,
+                "project".into(),
+            )
+            .unwrap();
+        let local = ObjectStore::with_reuse(root.path().join("stage"), &cloud.root).unwrap();
+        let captured = local
+            .put_file(
+                &source_path,
+                "file".into(),
+                ObjectKind::ProjectFile,
+                "project".into(),
+            )
+            .unwrap();
+        assert_eq!(captured.hash, existing.hash);
+        assert_eq!(captured.stored_size, existing.stored_size);
+        assert!(!local.object_path(&captured.hash).unwrap().exists());
+        assert_eq!(fs::read_dir(&local.root).unwrap().count(), 0);
+        // The capture has already identified the content. Publication can verify
+        // the immutable cloud object even when its original local path is gone.
+        fs::remove_file(&source_path).unwrap();
+        cloud.import_from(&local, &captured).unwrap();
+        cloud.verify(&captured).unwrap();
+        assert_eq!(fs::read_dir(&local.root).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn reuse_repairs_corrupt_or_missing_candidates_using_the_expected_content() {
+        for missing in [false, true] {
+            let root = tempdir().unwrap();
+            let source_path = root.path().join("source.txt");
+            let bytes = b"original captured bytes";
+            fs::write(&source_path, bytes).unwrap();
+            let cloud = ObjectStore::new(root.path().join("cloud")).unwrap();
+            let existing = cloud
+                .put_bytes(
+                    bytes,
+                    "file".into(),
+                    ObjectKind::ProjectFile,
+                    "project".into(),
+                )
+                .unwrap();
+            let local = ObjectStore::with_reuse(root.path().join("stage"), &cloud.root).unwrap();
+            let captured = local
+                .put_file(
+                    &source_path,
+                    "file".into(),
+                    ObjectKind::ProjectFile,
+                    "project".into(),
+                )
+                .unwrap();
+            let destination = cloud.object_path(&existing.hash).unwrap();
+            if missing {
+                fs::remove_file(&destination).unwrap();
+            } else {
+                fs::write(&destination, b"corrupt cloud candidate").unwrap();
+            }
+            cloud.import_from(&local, &captured).unwrap();
+            local.verify(&captured).unwrap();
+            cloud.verify(&captured).unwrap();
+            assert_eq!(
+                fs::read_dir(destination.parent().unwrap()).unwrap().count(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn changed_reuse_source_and_cancellation_never_replace_existing_cloud_content() {
+        let root = tempdir().unwrap();
+        let source_path = root.path().join("source.txt");
+        let original = b"original source";
+        fs::write(&source_path, original).unwrap();
+        let cloud = ObjectStore::new(root.path().join("cloud")).unwrap();
+        let existing = cloud
+            .put_bytes(
+                original,
+                "file".into(),
+                ObjectKind::ProjectFile,
+                "project".into(),
+            )
+            .unwrap();
+        let local = ObjectStore::with_reuse(root.path().join("stage"), &cloud.root).unwrap();
+        let captured = local
+            .put_file(
+                &source_path,
+                "file".into(),
+                ObjectKind::ProjectFile,
+                "project".into(),
+            )
+            .unwrap();
+        let destination = cloud.object_path(&existing.hash).unwrap();
+        fs::write(&destination, b"existing corrupt object").unwrap();
+        let cancelled = AtomicBool::new(true);
+        assert!(matches!(
+            cloud.import_from_cancellable(&local, &captured, Some(&cancelled)),
+            Err(SpiceError::Cancelled)
+        ));
+        fs::write(&source_path, b"source changed after the capture").unwrap();
+        assert!(cloud
+            .import_from(&local, &captured)
+            .unwrap_err()
+            .to_string()
+            .contains("changed while"));
+        assert_eq!(fs::read(&destination).unwrap(), b"existing corrupt object");
+        assert_eq!(fs::read_dir(&local.root).unwrap().count(), 0);
+        assert_eq!(
+            fs::read_dir(destination.parent().unwrap()).unwrap().count(),
+            1
+        );
+    }
+
+    #[test]
+    fn invalid_import_keeps_existing_destination_and_removes_partial_copy() {
+        let root = tempdir().unwrap();
+        let source = ObjectStore::new(root.path().join("stage")).unwrap();
+        let cloud = ObjectStore::new(root.path().join("cloud")).unwrap();
+        let object = source
+            .put_bytes(
+                b"expected",
+                "file".into(),
+                ObjectKind::Artifact,
+                "task".into(),
+            )
+            .unwrap();
+        let destination = cloud.object_path(&object.hash).unwrap();
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        fs::write(
+            &destination,
+            b"keep destination until a valid replacement is ready",
+        )
+        .unwrap();
+        let invalid = zstd::stream::encode_all(&b"replaced"[..], 1).unwrap();
+        fs::write(source.object_path(&object.hash).unwrap(), invalid).unwrap();
+        assert!(matches!(
+            cloud.import_from(&source, &object),
+            Err(SpiceError::CorruptSnapshot(_))
+        ));
+        assert_eq!(
+            fs::read(&destination).unwrap(),
+            b"keep destination until a valid replacement is ready"
+        );
+        assert_eq!(
+            fs::read_dir(destination.parent().unwrap()).unwrap().count(),
+            1
+        );
+    }
+
+    #[test]
+    fn temporary_byte_sources_remain_owned_by_a_reuse_store() {
+        let root = tempdir().unwrap();
+        let cloud = ObjectStore::new(root.path().join("cloud")).unwrap();
+        let original = cloud
+            .put_bytes(
+                b"temporary bytes",
+                "file".into(),
+                ObjectKind::Artifact,
+                "task".into(),
+            )
+            .unwrap();
+        let local = ObjectStore::with_reuse(root.path().join("stage"), &cloud.root).unwrap();
+        let captured = local
+            .put_bytes(
+                b"temporary bytes",
+                "file".into(),
+                ObjectKind::Artifact,
+                "task".into(),
+            )
+            .unwrap();
+        assert_eq!(captured.hash, original.hash);
+        local.verify(&captured).unwrap();
+        fs::write(cloud.object_path(&captured.hash).unwrap(), b"corrupt").unwrap();
+        cloud.import_from(&local, &captured).unwrap();
+        cloud.verify(&captured).unwrap();
+    }
+
+    #[test]
     fn publishing_repairs_a_corrupt_existing_cloud_object() {
         let source_root = tempdir().unwrap();
         let cloud_root = tempdir().unwrap();
@@ -2155,9 +2928,15 @@ mod tests {
     }
 
     #[test]
-    fn default_sensitive_patterns_are_excluded() {
+    fn project_secrets_are_included_by_default_with_an_explicit_opt_out() {
         let mut config = crate::settings::default_config();
         let patterns = build_exclusions(&[]).unwrap();
+        assert!(!excluded_relative("app/.env", &config, &patterns));
+        assert!(!excluded_relative("keys/id_ed25519", &config, &patterns));
+        assert!(!excluded_relative("credentials.json", &config, &patterns));
+        let custom = build_exclusions(&["**/.env".into()]).unwrap();
+        assert!(excluded_relative("app/.env", &config, &custom));
+        config.selection.include_sensitive_files = false;
         assert!(excluded_relative("app/.env", &config, &patterns));
         assert!(excluded_relative("keys/id_ed25519", &config, &patterns));
         assert!(excluded_relative("app/.npmrc", &config, &patterns));
@@ -2176,6 +2955,42 @@ mod tests {
         assert!(!excluded_relative("src/credentials.ts", &config, &patterns));
         config.selection.include_sensitive_files = true;
         assert!(!excluded_relative("app/.env", &config, &patterns));
+    }
+
+    #[test]
+    fn generated_packages_are_optional_but_model_assets_remain_selected() {
+        let root = tempdir().unwrap();
+        let mut config = crate::settings::default_config();
+        for path in [
+            "packaging/out/App.msix",
+            "packaging/staging/python/runtime.dll",
+            "models/weights.safetensors",
+            "out/source.txt",
+        ] {
+            let target = root.path().join(path);
+            fs::create_dir_all(target.parent().unwrap()).unwrap();
+            fs::write(target, b"12345678").unwrap();
+        }
+        assert_eq!(
+            estimate_workspace_bytes(root.path(), &config.selection).unwrap(),
+            16
+        );
+        let object = ObjectEntry {
+            hash: "a".repeat(64),
+            logical_path: "projects/project/0/files/packaging/out/App.msix".into(),
+            kind: ObjectKind::ProjectFile,
+            owner_id: "project".into(),
+            raw_size: 8,
+            stored_size: 8,
+            executable: false,
+        };
+        assert!(!selection_allows_object_path(&object, &config.selection));
+        config.selection.include_build_outputs = true;
+        assert_eq!(
+            estimate_workspace_bytes(root.path(), &config.selection).unwrap(),
+            32
+        );
+        assert!(selection_allows_object_path(&object, &config.selection));
     }
 
     #[test]

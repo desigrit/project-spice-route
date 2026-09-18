@@ -1,0 +1,26 @@
+<Application x:Class="SpiceRoute.Windows.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries><XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" /></ResourceDictionary.MergedDictionaries>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="SpiceSurface" Color="#FAF9F5"/>
+          <SolidColorBrush x:Key="SpiceSidebar" Color="#EEEDE7"/>
+          <SolidColorBrush x:Key="SpiceSubtle" Color="#EEEFE9"/>
+          <Color x:Key="SystemAccentColor">#173D5B</Color>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <SolidColorBrush x:Key="SpiceSurface" Color="#102B41"/>
+          <SolidColorBrush x:Key="SpiceSidebar" Color="#0C2234"/>
+          <SolidColorBrush x:Key="SpiceSubtle" Color="#1C3B52"/>
+          <Color x:Key="SystemAccentColor">#F5E8C5</Color>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="HighContrast">
+          <SolidColorBrush x:Key="SpiceSurface" Color="{ThemeResource SystemColorWindowColor}"/>
+          <SolidColorBrush x:Key="SpiceSidebar" Color="{ThemeResource SystemColorWindowColor}"/>
+          <SolidColorBrush x:Key="SpiceSubtle" Color="{ThemeResource SystemColorWindowColor}"/>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>

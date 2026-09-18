@@ -55,6 +55,7 @@ const navItems: Array<{ id: Page; label: string; icon: typeof Route }> = [
 ];
 
 type BusyState = { label: string; operationId?: string } | null;
+type EstimateState = "pending" | "ready" | "unavailable";
 
 export default function App() {
   const [page, setPage] = useState<Page>("overview");
@@ -63,6 +64,14 @@ export default function App() {
   const [catalog, setCatalog] = useState<ContentCatalog | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [recoveries, setRecoveries] = useState<RecoverySummary[]>([]);
+  const refreshGeneration = useRef(0);
+  const [catalogSource, setCatalogSource] = useState<{ generation: number; config: AppConfig } | null>(null);
+  const [detailsGeneration, setDetailsGeneration] = useState<number | null>(null);
+  const [recoveryGeneration, setRecoveryGeneration] = useState<number | null>(null);
+  const detailsRequest = useRef<{ generation: number; promise: Promise<ContentCatalog> } | null>(null);
+  const recoveryRequest = useRef<{ generation: number; promise: Promise<RecoverySummary[]> } | null>(null);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const [busy, setBusy] = useState<BusyState>({ label: "Inspecting Codex…" });
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -72,34 +81,80 @@ export default function App() {
   const [operationProgress, setOperationProgress] = useState<OperationProgress | null>(null);
 
   const refresh = useCallback(async (knownConfig?: AppConfig) => {
+    const generation = ++refreshGeneration.current;
     setError(null);
+    setDetailsError(null);
+    setRecoveryError(null);
     try {
       const [nextEnvironment, nextConfig] = await Promise.all([
         api.discoverEnvironment(),
         knownConfig ? Promise.resolve(knownConfig) : api.loadConfig(),
       ]);
+      if (generation !== refreshGeneration.current) return;
       setEnvironment(nextEnvironment);
       setConfig(nextConfig);
       if (nextConfig.onboardingComplete) {
-        const [nextCatalog, nextStatus, nextRecoveries] = await Promise.all([
-          api.listContent(nextConfig),
+        const [nextCatalog, nextStatus] = await Promise.all([
+          api.listContentQuick(nextConfig),
           api.getSyncStatus(nextConfig),
-          api.listRecoveries(),
         ]);
+        if (generation !== refreshGeneration.current) return;
         setCatalog(nextCatalog);
         setSyncStatus(nextStatus);
-        setRecoveries(nextRecoveries);
+        setCatalogSource({ generation, config: nextConfig });
       }
     } catch (cause) {
-      setError(toMessage(cause));
+      if (generation === refreshGeneration.current) setError(toMessage(cause));
     } finally {
-      setBusy(null);
+      if (generation === refreshGeneration.current) setBusy(null);
     }
   }, []);
 
   useEffect(() => {
     void refresh();
+    return () => { refreshGeneration.current += 1; };
   }, [refresh]);
+
+  // Workspace walks and rollback-size scans belong to the pages that need them.
+  // Reuse in-flight reads if navigation returns before they finish, but never
+  // apply results captured for an older refresh or an unmounted page.
+  useEffect(() => {
+    if (page !== "selection" || !catalogSource || detailsGeneration === catalogSource.generation) return;
+    let disposed = false;
+    const { generation, config: sourceConfig } = catalogSource;
+    setDetailsError(null);
+    if (detailsRequest.current?.generation !== generation) {
+      detailsRequest.current = { generation, promise: api.listContent(sourceConfig) };
+    }
+    void detailsRequest.current.promise.then((nextCatalog) => {
+      if (disposed || generation !== refreshGeneration.current) return;
+      setCatalog(nextCatalog);
+      setDetailsGeneration(generation);
+    }).catch((cause) => {
+      if (detailsRequest.current?.generation === generation) detailsRequest.current = null;
+      if (!disposed && generation === refreshGeneration.current) setDetailsError(toMessage(cause));
+    });
+    return () => { disposed = true; };
+  }, [page, catalogSource, detailsGeneration]);
+
+  useEffect(() => {
+    if (page !== "recovery" || !catalogSource || recoveryGeneration === catalogSource.generation) return;
+    let disposed = false;
+    const { generation } = catalogSource;
+    setRecoveryError(null);
+    if (recoveryRequest.current?.generation !== generation) {
+      recoveryRequest.current = { generation, promise: api.listRecoveries() };
+    }
+    void recoveryRequest.current.promise.then((nextRecoveries) => {
+      if (disposed || generation !== refreshGeneration.current) return;
+      setRecoveries(nextRecoveries);
+      setRecoveryGeneration(generation);
+    }).catch((cause) => {
+      if (recoveryRequest.current?.generation === generation) recoveryRequest.current = null;
+      if (!disposed && generation === refreshGeneration.current) setRecoveryError(toMessage(cause));
+    });
+    return () => { disposed = true; };
+  }, [page, catalogSource, recoveryGeneration]);
 
   useEffect(() => {
     const operationId = busy?.operationId;
@@ -266,7 +321,7 @@ export default function App() {
             >
               <Icon size={18} />
               <span>{label}</span>
-              {id === "recovery" && recoveries.some((item) => item.status === "pending") && (
+              {id === "recovery" && syncStatus?.pendingRecovery && (
                 <span className="nav-dot" title="Recovery needs attention" />
               )}
             </Button>
@@ -278,7 +333,7 @@ export default function App() {
             <Laptop size={16} />
             <span><small>This device</small>{config.deviceName || "Not named"}</span>
           </div>
-          <div className="sidebar-version">Spice Route 0.3.1 · Preview</div>
+          <div className="sidebar-version">Spice Route 0.3.2 · Preview</div>
         </div>
       </aside>
 
@@ -305,13 +360,18 @@ export default function App() {
             status={syncStatus}
             onPush={() => void beginPreview("push")}
             onPull={(snapshotId) => void beginPreview("pull", snapshotId)}
-            onOpenCodex={() => void api.openCodex()}
           />
         )}
         {page === "selection" && catalog && (
-          <SelectionScreen config={config} catalog={catalog} onSave={(next) => void save(next, "Sync choices saved. Project folder mappings stay on this device.")} />
+          <>
+          {detailsError && <Banner kind="error">Could not calculate workspace sizes: {detailsError} Select Refresh to try again.</Banner>}
+          <SelectionScreen config={config} catalog={catalog} estimateState={detailsGeneration === catalogSource?.generation ? "ready" : detailsError ? "unavailable" : "pending"} onSave={(next) => void save(next, "Sync choices saved. Project folder mappings stay on this device.")} />
+          </>
         )}
         {page === "recovery" && (
+          <>
+          {recoveryError ? <Banner kind="error">Could not load recovery points: {recoveryError} Select Refresh to try again.</Banner>
+            : recoveryGeneration !== catalogSource?.generation ? <p role="status">Loading recovery points…</p> : (
           <RecoveryScreen
             recoveries={recoveries}
             onRestore={async (id) => {
@@ -328,6 +388,8 @@ export default function App() {
               }
             }}
           />
+          )}
+          </>
         )}
         {page === "settings" && (
           <SettingsScreen config={config} environment={environment} onSave={(next) => void save(next, "Settings saved.")} onResetCloudHistory={() => void beginCloudCleanup()} />
@@ -387,7 +449,6 @@ export function Overview({
   status,
   onPush,
   onPull,
-  onOpenCodex,
 }: {
   config: AppConfig;
   environment: EnvironmentDiscovery;
@@ -395,7 +456,6 @@ export function Overview({
   status: SyncStatus | null;
   onPush: () => void;
   onPull: (snapshotId?: string) => void;
-  onOpenCodex: () => void;
 }) {
   const latest = status?.latestSnapshot;
   const heads = status?.visibleHeads ?? [];
@@ -468,7 +528,6 @@ export function Overview({
       <section className="panel recent-panel">
         <div className="panel-heading">
           <div><p className="eyebrow">Handoff state</p><h3>Latest visible snapshot</h3></div>
-          {status?.lastAppliedSnapshotId && <Button className="text-button" onClick={onOpenCodex}>Open Codex <ChevronRight size={15} /></Button>}
         </div>
         {latest ? (
           <div className="snapshot-row">
@@ -490,10 +549,11 @@ export function Overview({
   );
 }
 
-export function SelectionScreen({ config, catalog, onSave }: { config: AppConfig; catalog: ContentCatalog; onSave: (config: AppConfig) => void }) {
+export function SelectionScreen({ config, catalog, onSave, estimateState = "ready" }: { config: AppConfig; catalog: ContentCatalog; onSave: (config: AppConfig) => void; estimateState?: EstimateState }) {
   const [draft, setDraft] = useState(config);
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<"projects" | "projectChats" | "projectless">("projects");
+  const estimateMessage = estimateState === "pending" ? "Calculating size…" : "Size unavailable";
   useEffect(() => setDraft(config), [config]);
 
   const visibleProjects = catalog.projects.filter((project) => `${project.name} ${project.roots.join(" ")} ${project.localRoots.join(" ")}`.toLowerCase().includes(query.toLowerCase()));
@@ -550,7 +610,7 @@ export function SelectionScreen({ config, catalog, onSave }: { config: AppConfig
           <h2>Keep the work you need</h2>
           <p>Choose what travels. Folder locations stay on this device.</p>
         </div>
-        <div className="selection-save"><span role="status" aria-live="polite">{formatBytes(estimatedSelectedBytes(draft, catalog))} <small>estimated</small></span><Button className="primary-button" onClick={() => onSave(draft)}>Save choices</Button></div>
+        <div className="selection-save"><span role="status" aria-live="polite">{estimateState === "ready" ? <>{formatBytes(estimatedSelectedBytes(draft, catalog))} <small>estimated</small></> : estimateMessage}</span><Button className="primary-button" onClick={() => onSave(draft)}>Save choices</Button></div>
       </section>
       {folderError && <Banner kind="error" onClose={() => setFolderError(null)}>{folderError}</Banner>}
 
@@ -577,7 +637,7 @@ export function SelectionScreen({ config, catalog, onSave }: { config: AppConfig
                 <span className="content-icon"><FolderCode size={19} /></span>
                 <div className="content-main"><strong>{project.name}</strong><small>{project.threadCount} {project.threadCount === 1 ? "chat" : "chats"}{project.roots.length > 1 ? ` · ${project.roots.length} folders` : ""}</small></div>
                 {project.linkedWorktree && <span className="tag">worktree</span>}
-                <span className="project-size" aria-label={`Estimated sync size for ${project.name}`} aria-live="polite">{formatBytes(estimatedProjectBytes(draft, catalog, project))}<small>estimated</small></span>
+                <span className="project-size" aria-label={`Estimated sync size for ${project.name}`} aria-live="polite">{estimateState === "ready" ? <>{formatBytes(estimatedProjectBytes(draft, catalog, project))}<small>estimated</small></> : estimateMessage}</span>
                 <ModeSelect label={`Sync mode for ${project.name}`} value={mode} onChange={(nextMode) => updateSelection({ projectModes: { ...draft.selection.projectModes, [project.id]: nextMode } })} />
               </div>
               {mode === "full" ? <div className="project-folder-list">
@@ -622,7 +682,7 @@ export function SelectionScreen({ config, catalog, onSave }: { config: AppConfig
                       : draft.selection.excludedThreadIds.filter((id) => id !== thread.id),
                   })}
                 />
-                <span className="content-main"><strong>{thread.title || "Untitled chat"}</strong><small>{project ? `${project.name} · ` : ""}{thread.preview || thread.cwd} · {formatBytes(thread.estimatedBytes)}</small></span>
+                <span className="content-main"><strong>{thread.title || "Untitled chat"}</strong><small>{project ? `${project.name} · ` : ""}{thread.preview || thread.cwd} · {estimateState === "ready" ? formatBytes(thread.estimatedBytes) : estimateMessage}</small></span>
                 {thread.archived && <span className="tag">archived</span>}
                 {!projectIncluded && <span className="tag warning">project excluded</span>}
               </label>
@@ -632,9 +692,9 @@ export function SelectionScreen({ config, catalog, onSave }: { config: AppConfig
         </section>
       )}
 
-      <details className="file-options"><summary>File exclusions <span>Dependencies, build outputs and sensitive files</span></summary><section className="compact-settings">
+      <details className="file-options"><summary>File exclusions <span>Dependencies, build outputs and custom patterns</span></summary><section className="compact-settings">
         <ToggleRow title="Include dependency and build folders" detail="Adds folders such as node_modules, target, dist, .next, and caches." checked={draft.selection.includeBuildOutputs} onChange={(checked) => updateSelection({ includeBuildOutputs: checked })} />
-        <ToggleRow title="Include potentially sensitive working files" detail="Adds .env files, private keys, certificates, and credential-shaped files. Full Git history stays intact and may already contain committed secrets." checked={draft.selection.includeSensitiveFiles} onChange={(checked) => updateSelection({ includeSensitiveFiles: checked })} />
+        <ToggleRow title="Include project configuration and secrets" detail="Includes .env files, keys, certificates, and local credentials inside selected project folders. Your custom exclusions still apply. Codex sign-in and machine settings stay on this PC." checked={draft.selection.includeSensitiveFiles} onChange={(checked) => updateSelection({ includeSensitiveFiles: checked })} />
         <label className="pattern-field">
           <span><strong>Additional file exclusions</strong><small>Optional comma-separated glob patterns, such as <code>coverage/**, *.iso</code>.</small></span>
           <input
@@ -789,7 +849,7 @@ export function Onboarding({ config, environment, onComplete }: { config: AppCon
             <div className="onboarding-loading"><LoaderCircle className="spin" size={18} /> Inspecting selected content…</div>
           ) : null}
           {catalogError && <Banner kind="warning">{catalogError}</Banner>}
-          <div className="privacy-note"><ShieldCheck size={17} /><span>Dependency folders, build outputs, secret-shaped working files, credentials, and global Codex settings stay local by default. Full Git history may include committed secrets.</span></div>
+          <div className="privacy-note"><ShieldCheck size={17} /><span>Dependency folders and build outputs stay local by default. Project configuration and secrets follow your sync choices. Codex sign-in and global settings stay on this PC.</span></div>
           <div className="onboarding-actions"><Button className="text-button" onClick={() => setStep(2)}>Back</Button><Button className="primary-button" onClick={() => onComplete({ ...draft, onboardingComplete: true })}>Finish setup <Check size={17} /></Button></div>
         </>}
       </section>
@@ -820,7 +880,7 @@ export function PreviewDialog({ preview, onCancel, onExecute, onSaveMappings, su
   const hasChanges = preview.changes.some((change) => change.action !== "unchanged");
   const acknowledge = preview.direction === "pull" && !hasChanges;
   const actionLabel = acknowledge ? "Acknowledge snapshot" : preview.direction === "push" ? "Push" : "Pull";
-  const executeLabel = preview.requiresCodexClose ? `Close Codex and ${actionLabel.toLowerCase()}` : actionLabel;
+  const executeLabel = actionLabel;
   const chooseMapping = async (mapping: RequiredMapping) => {
     const key = `${mapping.projectId}:${mapping.rootIndex}`;
     const selected = await open({ directory: true, multiple: false, defaultPath: mappingPaths[key] || mapping.suggestedPath });
@@ -887,7 +947,7 @@ export function PreviewDialog({ preview, onCancel, onExecute, onSaveMappings, su
             {preview.requiredMappings.length > 0 ? (
               <Button className="primary-button" disabled={!mappingsReady} onClick={saveMappings}>Save destinations & refresh</Button>
             ) : (
-              <Button className="primary-button" disabled={blocked || (!hasChanges && !acknowledge)} onClick={() => onExecute(Object.entries(resolutions).map(([key, choice]) => ({ key, choice })))}>{executeLabel}</Button>
+              <Button className="primary-button" disabled={blocked || (!hasChanges && !acknowledge)} onClick={() => onExecute(Object.entries(resolutions).map(([key, choice]) => ({ key, choice })))}>{preview.direction === "push" && <ArrowUpFromLine size={16} aria-hidden="true" />}{executeLabel}</Button>
             )}
           </div>
         </footer>

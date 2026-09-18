@@ -10,15 +10,17 @@ Sometimes you start something at your desk and want to pick it up on your laptop
 
 Spice Route is a Windows desktop app that transfers selected Codex chats and project workspaces through a folder managed by **Google Drive, OneDrive, or iCloud Drive**. Choose what travels, push from one computer, and pull on the other. Your existing cloud client handles sign-in and delivery.
 
-[Download the Windows preview](https://github.com/desigrit/project-spice-route/raw/refs/heads/main/artifacts/Spice-Route-0.3.1-x64-setup.exe) · [Getting started](#getting-started) · [Build from source](#build-from-source) · [Report an issue](https://github.com/desigrit/project-spice-route/issues)
+[Windows installer](artifacts/Spice-Route-1.4.0-windows-x64-setup.exe) · [Getting started](#getting-started) · [Build from source](#build-from-source) · [Report an issue](https://github.com/desigrit/project-spice-route/issues)
 
 ![Spice Route Overview in light mode, showing Push and Pull actions and the latest visible snapshot](docs/images/overview-light.png)
 
-*Screenshots are rendered from the app's interface with sample data. No personal conversations are shown.*
+*These screenshots show the earlier Tauri interface with sample data. Version 1.4 introduces the WinUI 3 Workspace interface; current runtime screenshots are still pending. No personal conversations are shown.*
 
 ## A little context before you begin
 
-**The current version is 0.3.1, a Windows x64 preview.** It has automated coverage for selected-history transfer, compatibility, conflicts, Git restoration, and rollback. A live transfer between your own devices is still an important validation step. Keep an independent backup of work you cannot replace while trying the preview.
+**The current Windows version is 1.4.** Its shared Rust engine has automated coverage for selected-history transfer, compatibility, conflicts, Git restoration, and rollback. The WinUI interface compiles and its engine connection has headless contract tests. Interactive testing and a live transfer between devices remain validation steps. This is still an early testing release, so keep an independent backup of work you cannot replace.
+
+The Workspace interface uses actual WinUI 3 navigation, menus, folder pickers, and virtualized lists. Review has separate Files, Attention, and Notes tabs, with project filters and large files first. Push and Pull stay in a consistent action row, while timestamped handoff labels make snapshots easier to match across computers.
 
 This is an independent project, not an official OpenAI product. It works with Codex's local storage, which can change between releases. Unknown formats are blocked until an adapter has been tested. macOS support is planned; it is not available in this release.
 
@@ -35,7 +37,7 @@ You do not have to move every project just to bring a conversation along.
 
 Each project has its own local folder. One can live on `D:`, another on `E:`, and a linked worktree somewhere else. Folder mappings stay on the current computer, while your sync selections are shared across devices.
 
-Recognized dependencies, caches, build outputs, and likely secret files are excluded by default. You can review these choices and add your own exclusion patterns. Git history is transferred intact, so a secret committed in the past may still be present in that history.
+Recognized dependencies, caches, and build outputs are excluded by default, including generated packaging output and staging folders. New configurations include project files such as `.env`, local credentials, keys, and certificates. Existing installations keep their saved choices; enable **Include project secrets and configuration** in Settings if you want those files to travel. Custom exclusions still apply. Git history is transferred intact.
 
 ![What to sync in dark mode, with compact project rows, individual folder locations, and a Chat history only selection](docs/images/selection-dark.png)
 
@@ -43,15 +45,17 @@ Recognized dependencies, caches, build outputs, and likely secret files are excl
 
 ### 1. Install the desktop app
 
-Download the [Windows x64 installer](https://github.com/desigrit/project-spice-route/raw/refs/heads/main/artifacts/Spice-Route-0.3.1-x64-setup.exe) on each computer. It installs for your Windows user. You do not need Node.js, Rust, or the development scripts to use it.
+Download the [Windows x64 installer](artifacts/Spice-Route-1.4.0-windows-x64-setup.exe) on each computer. It installs for your Windows user and bundles its .NET, Windows App SDK, and C++ runtimes. You do not need Node.js, Rust, or the development scripts to use it.
 
-The preview installer is not code-signed, so Windows may show a SmartScreen warning. A [SHA-256 checksum](artifacts/Spice-Route-0.3.1-x64-setup.exe.sha256) is included alongside the download. Check your copy in PowerShell:
+The installer is not code-signed, so Windows may show a SmartScreen warning. A [SHA-256 checksum](artifacts/Spice-Route-1.4.0-windows-x64-setup.exe.sha256) is included alongside the download. Check your copy in PowerShell:
 
 ```powershell
-Get-FileHash .\Spice-Route-0.3.1-x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Spice-Route-1.4.0-windows-x64-setup.exe -Algorithm SHA256
 ```
 
-You will also need Codex, the WebView2 runtime used by the desktop shell, and an installed cloud drive client. Git must be available when transferring Git repositories.
+You will also need Codex and an installed cloud drive client. Git must be available when transferring Git repositories. The native interface does not use WebView2.
+
+Version 1.4 updates the 0.4.0 WinUI installation in place and uses the same local Spice Route profile. The earlier Tauri app can remain installed, but close it before opening this one. Your saved device identity, folder choices, and recovery history remain in place. Do not run both interfaces against the same profile at once.
 
 ### 2. Connect a cloud folder
 
@@ -84,7 +88,7 @@ Use one computer at a time for a given handoff. Push before you leave, and pull 
 **On the computer you are leaving:**
 
 1. Finish your active Codex work and close Codex. This helps keep the preview stable.
-2. Choose **Push this device** and review the proposed changes.
+2. Choose **Push** and review the proposed changes.
 3. Complete the Push and note its handoff ID.
 4. Wait for your cloud client to finish syncing.
 
@@ -92,8 +96,8 @@ Use one computer at a time for a given handoff. Push before you leave, and pull 
 
 1. Wait for the cloud client to receive the files.
 2. Match the visible snapshot's source, time, and handoff ID with the one you pushed.
-3. Choose **Pull latest**, confirm any project folders, and review conflicts.
-4. Apply the handoff, then choose **Open Codex** and continue your work.
+3. Choose **Pull**, confirm any project folders, and review conflicts.
+4. Apply the handoff, then open Codex yourself and continue your work.
 
 If Codex is still open, Spice Route can request a graceful exit. It blocks the transfer while known Codex writers remain running. If local work changes after a preview, make a fresh review before proceeding.
 
@@ -140,7 +144,7 @@ Other useful boundaries:
 
 Spice Route checks both the runtime and the database structure before allowing writes. Matching desktop version labels alone is not the compatibility test.
 
-| Codex runtime | State / history migrations | Status in 0.3.1 |
+| Codex runtime | State / history migrations | Supported engine profiles |
 | --- | --- | --- |
 | `0.153.4` | `52 / 6` | Tested profile |
 | `0.154.0-alpha.6.2` | `54 / 6` | Tested profile |
@@ -148,11 +152,26 @@ Spice Route checks both the runtime and the database structure before allowing w
 
 Transfers keep the destination's own database schema. Older records can move into the supported newer profile. A transfer in the reverse direction is blocked if it contains newer fields the older profile cannot represent. Those values are never silently discarded.
 
-See the [compatibility design](docs/compatibility-plan.md) and [0.3.1 testing notes](docs/testing-0.3.1.md) for the exact boundaries. The current automated suite has **47 Rust tests and 19 frontend tests**; real-device history display, continuation, and cloud-client behavior remain part of manual acceptance.
+See the [compatibility design](docs/compatibility-plan.md) and [Windows testing notes](docs/testing-1.4.0.md) for the exact boundaries. The current automated suite has **88 Rust tests, 11 headless native engine-client contract checks, and 22 Tauri frontend tests**. Real-device history display, continuation, and cloud-client behavior remain part of manual acceptance.
 
 ## Build from source
 
-Spice Route uses **Tauri 2**, **React**, **TypeScript**, and a **Rust sync engine**. It is a desktop app with a web-rendered interface. The browser preview alone cannot access native sync operations.
+The Windows app uses **WinUI 3**, **C#**, and the shared **Rust sync engine**. The engine runs as a hidden local process with typed operations over a JSON-line connection. No hosted service is involved. The earlier Tauri 2 and React interface remains available in the repository.
+
+Both interfaces use the 0.3.2 engine improvements for startup, transfer performance, settings validation, progress reporting, and recovery. See the [performance audit](docs/performance-audit.md) for measured results.
+
+To build the native Windows installer, install the .NET 9 SDK, Rust's Windows MSVC toolchain, Visual Studio C++ Build Tools, a Windows SDK, and NSIS 3. Then run:
+
+```powershell
+git clone https://github.com/desigrit/project-spice-route.git
+cd project-spice-route
+rustup toolchain install stable-x86_64-pc-windows-msvc
+./scripts/build-native-windows.ps1
+```
+
+The script produces `artifacts/Spice-Route-1.4.0-windows-x64-setup.exe` and its checksum. It builds and packages the application without opening it. See the [Windows verification guide](docs/testing-1.4.0.md) for the engine-client tests and interactive acceptance checks.
+
+### Earlier Tauri interface
 
 On Windows, install:
 
@@ -200,9 +219,11 @@ If the MSVC tools are not detected, use Visual Studio's Developer PowerShell. Th
 
 ```text
 src/                       React interface, themes, and frontend tests
+native/windows/            WinUI 3 app and per-user installer definition
+native/tests/              Headless native engine-client contract tests
 src-tauri/src/             Sync engine, Codex adapter, recovery, and platform code
 src-tauri/src/fixtures/    Sanitized database schema fixtures
-src-tauri/core/            Engine crate that can be tested without the desktop UI
+src-tauri/core/            Engine crate, native sidecar, and standalone tests
 scripts/                   Build helpers, diagnostics, and headless visual checks
 docs/                      Architecture, compatibility, and testing notes
 artifacts/                 Current Windows preview installer and checksum

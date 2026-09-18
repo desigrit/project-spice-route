@@ -12,6 +12,8 @@ pub enum SpiceError {
         "Codex is still running. Save your work and fully quit every Codex window and CLI session."
     )]
     CodexRunning,
+    #[error("Codex reopened during this handoff. Close Codex before trying again.")]
+    CodexReopened,
     #[error("This Codex data format is not supported for restore: {0}")]
     UnsupportedCodex(String),
     #[error("The cloud snapshot is incomplete or corrupt: {0}")]

@@ -1,5 +1,7 @@
 # Validation and release gate
 
+Spice Route 1.4 for Windows builds on the 0.3.2 Rust engine. Current checks pass 88 Rust tests, 11 headless native engine-client contract checks, and 22 Tauri frontend tests. The engine adds buffered manifest reads, lazy page inventories, deterministic settings validation, reusable content capture, bounded progress reporting, hidden subprocesses, and cheaper recovery checks. See the [performance audit](performance-audit.md), [maintenance verification record](testing-0.3.2.md), and [Windows verification record](testing-1.4.0.md) for measured results and remaining interactive and live-device acceptance.
+
 Version 0.3.1 passes 47 Rust tests, 19 frontend tests, release Clippy with warnings denied, TypeScript, and the Windows MSVC/NSIS build. It removes compression from previews and cloud hydration from status refresh, repairs conflict feedback and missing-baseline acknowledgment, and extends recovery protection. See [the 0.3.1 testing guide](testing-0.3.1.md). No live transfer or installed-app launch was performed for this patch.
 
 The 0.3.0 compatibility engine passes 36 Rust tests and release Clippy with warnings denied. Both schema fixtures now use the actual reported database definitions, including triggers. The 52/54 matrix tests and preserved format-1 snapshot support are detailed in [the 0.3.0 handoff](testing-0.3.0.md). Non-null newer fields block a downgrade transfer; unsupported future versions remain blocked. Real-device history display and session continuation are still a manual gate.
@@ -18,7 +20,7 @@ The Rust core suite covers:
 - Preservation of destination-only sessions, settings, queues, task permission fields, and agent paths.
 - New imported tasks using destination-local permission defaults.
 - Full, history-only, and excluded project behavior.
-- Default secret and build-output exclusions.
+- Project-secret inclusion by default for new configurations, explicit exclusions, and build-output filtering.
 - File capture mutation detection and safe cancellation.
 - SHA-256 and zstd object round trips, deduplication, corrupt cloud-object repair, and manifest-last publication.
 - Multi-head ancestry and merge convergence.

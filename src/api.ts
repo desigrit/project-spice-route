@@ -18,6 +18,7 @@ export const api = {
   loadConfig: () => invoke<AppConfig>("load_config"),
   saveConfig: (config: AppConfig) => invoke<AppConfig>("save_config", { config }),
   listContent: (config: AppConfig) => invoke<ContentCatalog>("list_content", { config }),
+  listContentQuick: (config: AppConfig) => invoke<ContentCatalog>("list_content_quick", { config }),
   getSyncStatus: (config: AppConfig) => invoke<SyncStatus>("get_sync_status", { config }),
   previewPush: (config: AppConfig) => invoke<OperationPreview>("preview_push", { config }),
   executePush: (config: AppConfig, operationId: string) =>
