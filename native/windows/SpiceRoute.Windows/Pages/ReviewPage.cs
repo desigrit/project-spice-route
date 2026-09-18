@@ -24,7 +24,6 @@ public sealed class ReviewChange : INotifyPropertyChanged
     public int ChoiceIndex { get => choiceIndex; set { if (choiceIndex == value) return; choiceIndex = value; PropertyChanged?.Invoke(this, new(nameof(ChoiceIndex))); } }
     public event PropertyChangedEventHandler? PropertyChanged;
 }
-
 public sealed class ReviewPage : Page
 {
     private readonly SpiceRouteContext context;
