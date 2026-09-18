@@ -1,26 +1,120 @@
-<Application x:Class="SpiceRoute.Windows.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+<Application
+    x:Class="SpiceRoute.Windows.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
   <Application.Resources>
     <ResourceDictionary>
-      <ResourceDictionary.MergedDictionaries><XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" /></ResourceDictionary.MergedDictionaries>
+      <ResourceDictionary.MergedDictionaries>
+        <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+      </ResourceDictionary.MergedDictionaries>
+
       <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Light">
-          <SolidColorBrush x:Key="SpiceSurface" Color="#FAF9F5"/>
-          <SolidColorBrush x:Key="SpiceSidebar" Color="#EEEDE7"/>
-          <SolidColorBrush x:Key="SpiceSubtle" Color="#EEEFE9"/>
-          <Color x:Key="SystemAccentColor">#173D5B</Color>
+          <SolidColorBrush x:Key="SpiceCanvas" Color="#F4F3EE" />
+          <SolidColorBrush x:Key="SpiceSurface" Color="#FBFAF6" />
+          <SolidColorBrush x:Key="SpiceSidebar" Color="#E8EAE5" />
+          <SolidColorBrush x:Key="SpiceSubtle" Color="#ECEFEA" />
+          <SolidColorBrush x:Key="SpiceAccent" Color="#123B59" />
+          <SolidColorBrush x:Key="SpiceAccentHover" Color="#0D3049" />
+          <SolidColorBrush x:Key="SpiceAccentSoft" Color="#DDE8ED" />
+          <SolidColorBrush x:Key="SpiceText" Color="#15354C" />
+          <SolidColorBrush x:Key="SpiceTextSecondary" Color="#587083" />
+          <SolidColorBrush x:Key="SpiceLine" Color="#D5DAD6" />
+          <SolidColorBrush x:Key="SpiceSuccess" Color="#28735F" />
+          <SolidColorBrush x:Key="SpiceSuccessSoft" Color="#DFEEE8" />
+          <SolidColorBrush x:Key="SpiceWarning" Color="#8B611B" />
+          <SolidColorBrush x:Key="SpiceOnAccent" Color="#FFFFFF" />
+          <Color x:Key="SystemAccentColor">#123B59</Color>
         </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
-          <SolidColorBrush x:Key="SpiceSurface" Color="#102B41"/>
-          <SolidColorBrush x:Key="SpiceSidebar" Color="#0C2234"/>
-          <SolidColorBrush x:Key="SpiceSubtle" Color="#1C3B52"/>
-          <Color x:Key="SystemAccentColor">#F5E8C5</Color>
+          <SolidColorBrush x:Key="SpiceCanvas" Color="#0B1B27" />
+          <SolidColorBrush x:Key="SpiceSurface" Color="#102735" />
+          <SolidColorBrush x:Key="SpiceSidebar" Color="#0A1E2B" />
+          <SolidColorBrush x:Key="SpiceSubtle" Color="#193644" />
+          <SolidColorBrush x:Key="SpiceAccent" Color="#F1E5C3" />
+          <SolidColorBrush x:Key="SpiceAccentHover" Color="#FFF1CC" />
+          <SolidColorBrush x:Key="SpiceAccentSoft" Color="#25495C" />
+          <SolidColorBrush x:Key="SpiceText" Color="#F3EEE2" />
+          <SolidColorBrush x:Key="SpiceTextSecondary" Color="#B3C2CC" />
+          <SolidColorBrush x:Key="SpiceLine" Color="#315061" />
+          <SolidColorBrush x:Key="SpiceSuccess" Color="#8ACCB8" />
+          <SolidColorBrush x:Key="SpiceSuccessSoft" Color="#183E37" />
+          <SolidColorBrush x:Key="SpiceWarning" Color="#E8C37A" />
+          <SolidColorBrush x:Key="SpiceOnAccent" Color="#102B41" />
+          <Color x:Key="SystemAccentColor">#F1E5C3</Color>
         </ResourceDictionary>
         <ResourceDictionary x:Key="HighContrast">
-          <SolidColorBrush x:Key="SpiceSurface" Color="{ThemeResource SystemColorWindowColor}"/>
-          <SolidColorBrush x:Key="SpiceSidebar" Color="{ThemeResource SystemColorWindowColor}"/>
-          <SolidColorBrush x:Key="SpiceSubtle" Color="{ThemeResource SystemColorWindowColor}"/>
+          <SolidColorBrush x:Key="SpiceCanvas" Color="{ThemeResource SystemColorWindowColor}" />
+          <SolidColorBrush x:Key="SpiceSurface" Color="{ThemeResource SystemColorWindowColor}" />
+          <SolidColorBrush x:Key="SpiceSidebar" Color="{ThemeResource SystemColorWindowColor}" />
+          <SolidColorBrush x:Key="SpiceSubtle" Color="{ThemeResource SystemColorWindowColor}" />
+          <SolidColorBrush x:Key="SpiceAccent" Color="{ThemeResource SystemColorHighlightColor}" />
+          <SolidColorBrush x:Key="SpiceAccentHover" Color="{ThemeResource SystemColorHighlightColor}" />
+          <SolidColorBrush x:Key="SpiceAccentSoft" Color="{ThemeResource SystemColorWindowColor}" />
+          <SolidColorBrush x:Key="SpiceText" Color="{ThemeResource SystemColorWindowTextColor}" />
+          <SolidColorBrush x:Key="SpiceTextSecondary" Color="{ThemeResource SystemColorWindowTextColor}" />
+          <SolidColorBrush x:Key="SpiceLine" Color="{ThemeResource SystemColorWindowTextColor}" />
+          <SolidColorBrush x:Key="SpiceSuccess" Color="{ThemeResource SystemColorWindowTextColor}" />
+          <SolidColorBrush x:Key="SpiceSuccessSoft" Color="{ThemeResource SystemColorWindowColor}" />
+          <SolidColorBrush x:Key="SpiceWarning" Color="{ThemeResource SystemColorWindowTextColor}" />
+          <SolidColorBrush x:Key="SpiceOnAccent" Color="{ThemeResource SystemColorHighlightTextColor}" />
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
+
+      <Style x:Key="SpicePrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+        <Setter Property="Background" Value="{ThemeResource SpiceAccent}" />
+        <Setter Property="Foreground" Value="{ThemeResource SpiceOnAccent}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="MinHeight" Value="32" />
+        <Setter Property="Padding" Value="12,5" />
+      </Style>
+      <Style x:Key="SpiceSecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+        <Setter Property="Background" Value="{ThemeResource SpiceSurface}" />
+        <Setter Property="Foreground" Value="{ThemeResource SpiceText}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource SpiceLine}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="MinHeight" Value="32" />
+        <Setter Property="Padding" Value="12,5" />
+      </Style>
+      <Style x:Key="SpiceTextButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{ThemeResource SpiceAccent}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="MinHeight" Value="28" />
+        <Setter Property="Padding" Value="5,3" />
+      </Style>
+      <Style x:Key="SpiceIconButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{ThemeResource SpiceAccent}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="MinWidth" Value="32" />
+        <Setter Property="MinHeight" Value="32" />
+        <Setter Property="Padding" Value="7" />
+      </Style>
+      <Style x:Key="SpicePageTitleStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{ThemeResource SpiceText}" />
+        <Setter Property="FontFamily" Value="Segoe UI Variable Display" />
+        <Setter Property="FontSize" Value="24" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+      </Style>
+      <Style x:Key="SpiceSectionTitleStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{ThemeResource SpiceText}" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+      </Style>
+      <Style x:Key="SpiceMetaTextStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{ThemeResource SpiceTextSecondary}" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+      </Style>
     </ResourceDictionary>
   </Application.Resources>
 </Application>

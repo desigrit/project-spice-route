@@ -1,6 +1,6 @@
 # Spice Route 0.3.2 verification plan
 
-This maintenance build addresses excessive startup work, transfer overhead, flashing command windows, and a false settings-change error. It retains the Tauri interface. The approved WinUI Workspace interface is packaged separately as [version 1.4](testing-1.4.0.md), using the same engine.
+This maintenance build addresses excessive startup work, transfer overhead, flashing command windows, and a false settings-change error. It retains the Tauri interface. The approved WinUI Workspace interface is packaged separately as [version 1.4.1](testing-1.4.1.md), using the same engine.
 
 The Windows installer is `artifacts/Spice-Route-0.3.2-x64-setup.exe`, with its SHA-256 in the adjacent checksum file. No installed application, live Push, live Pull, or personal-profile restoration was launched as part of these changes.
 

@@ -11,6 +11,7 @@ public partial class App : Application
         window = new MainWindow();
         if (Environment.GetCommandLineArgs().Any(argument => string.Equals(argument, "--startup-probe", StringComparison.Ordinal)))
         {
+            window.RunStartupProbe();
             window.Close();
             Exit();
             return;

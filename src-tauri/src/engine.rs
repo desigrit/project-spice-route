@@ -42,6 +42,15 @@ struct PreparedCloudCleanup {
     store_fingerprint: String,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+struct PushLineagePlan {
+    primary_id: Option<String>,
+    expected_head_ids: Vec<String>,
+    additional_parent_ids: Vec<String>,
+    replaces_cloud_history: bool,
+    blocked_reasons: Vec<String>,
+}
+
 pub struct Engine {
     pub data_dir: PathBuf,
     operations: Mutex<HashMap<String, PreparedOperation>>,
@@ -242,6 +251,12 @@ impl Engine {
                 SyncState::Blocked,
                 "This Codex version is available for diagnostics only.".to_string(),
             )
+        } else if heads.len() > 1 && state.last_applied_snapshot_id.is_none() {
+            (
+                SyncState::Ready,
+                "Several cloud branches are visible. Pull one to combine histories, or Push to replace them with this device's current selection."
+                    .to_string(),
+            )
         } else if heads.len() > 1 && merge_ready {
             (
                 SyncState::Ready,
@@ -256,14 +271,16 @@ impl Engine {
                     heads.len()
                 ),
             )
+        } else if incoming_available && state.last_applied_snapshot_id.is_none() {
+            (
+                SyncState::Ready,
+                "A cloud handoff is visible without a local baseline. Pull to combine it, or Push to replace it with this device's current selection."
+                    .to_string(),
+            )
         } else if incoming_available {
             (
                 SyncState::NeedsPull,
-                if state.last_applied_snapshot_id.is_none() {
-                    "This device has no saved sync baseline. Review the visible snapshot with Pull; choose which versions to keep before pushing.".to_string()
-                } else {
-                    "An incoming snapshot is ready to review.".to_string()
-                },
+                "An incoming snapshot is ready to review.".to_string(),
             )
         } else {
             (
@@ -294,37 +311,13 @@ impl Engine {
         )?;
         let operation_id = Uuid::new_v4().to_string();
         let heads = snapshot::head_manifests(config)?;
-        let expected_head_ids = sorted_ids(heads.iter().map(|item| item.id.clone()));
         let state = settings::load_local_state(&self.data_dir)?;
-        let mut blocked_reasons = Vec::new();
-        let merge_ready = heads.len() > 1
-            && sorted_ids(state.pending_merge_parent_ids.clone()) == expected_head_ids
-            && state
-                .last_applied_snapshot_id
-                .as_ref()
-                .map(|id| expected_head_ids.contains(id))
-                .unwrap_or(false);
-        if heads.len() > 1 && !merge_ready {
-            blocked_reasons.push("Several cloud branches are visible. Review and Pull one branch before publishing a merge snapshot.".to_string());
-        }
-        let primary = if heads.len() == 1 {
-            Some(&heads[0])
-        } else {
-            state
-                .last_applied_snapshot_id
-                .as_deref()
-                .and_then(|id| heads.iter().find(|item| item.id == id))
-                .or_else(|| heads.first())
-        };
-        if heads.len() == 1
-            && state.last_applied_snapshot_id.as_deref() != primary.map(|item| item.id.as_str())
-        {
-            blocked_reasons.push(if state.last_applied_snapshot_id.is_none() {
-                format!("This device has no saved sync baseline. Review snapshot {} with Pull and choose which versions to keep. Completing that review enables Push.", short_id(&heads[0].id))
-            } else {
-                format!("Review and Pull snapshot {} before pushing. Resolve any conflicts to combine this device's work with the incoming history.", short_id(&heads[0].id))
-            });
-        }
+        let lineage = plan_push_lineage(&heads, &state);
+        let primary = lineage
+            .primary_id
+            .as_deref()
+            .and_then(|id| heads.iter().find(|item| item.id == id));
+        let blocked_reasons = lineage.blocked_reasons.clone();
         // A blocked Push cannot use a file preview. Return the actionable reason
         // before reading workspaces or making Git bundles.
         if !blocked_reasons.is_empty() {
@@ -338,18 +331,16 @@ impl Engine {
                 blocked_reasons,
                 requires_codex_close: false,
                 required_mappings: Vec::new(),
+                replaces_cloud_history: lineage.replaces_cloud_history,
+                replaced_snapshot_ids: if lineage.replaces_cloud_history {
+                    lineage.expected_head_ids
+                } else {
+                    Vec::new()
+                },
             });
         }
         let stage = self.preview_directory(&operation_id)?;
-        let additional_parent_ids = if merge_ready {
-            expected_head_ids
-                .iter()
-                .filter(|id| Some(id.as_str()) != primary.map(|item| item.id.as_str()))
-                .cloned()
-                .collect()
-        } else {
-            Vec::new()
-        };
+        let additional_parent_ids = lineage.additional_parent_ids.clone();
         let mut manifest = self.capture_local_cancellable(
             config,
             &stage,
@@ -362,6 +353,13 @@ impl Engine {
         let local_fingerprint = snapshot::manifest_fingerprint(&manifest)?;
         let mut changes = diff_for_push(primary, &manifest);
         changes.sort_by(change_order);
+        let mut warnings = manifest.warnings.clone();
+        if lineage.replaces_cloud_history {
+            warnings.insert(
+                0,
+                replacement_push_warning(lineage.expected_head_ids.len(), &manifest),
+            );
+        }
         let preview = OperationPreview {
             operation_id: operation_id.clone(),
             direction: Direction::Push,
@@ -377,10 +375,16 @@ impl Engine {
                 .map(|change| change.bytes)
                 .sum(),
             changes,
-            warnings: manifest.warnings.clone(),
+            warnings,
             blocked_reasons,
             requires_codex_close: platform::codex_running(),
             required_mappings: Vec::new(),
+            replaces_cloud_history: lineage.replaces_cloud_history,
+            replaced_snapshot_ids: if lineage.replaces_cloud_history {
+                lineage.expected_head_ids.clone()
+            } else {
+                Vec::new()
+            },
         };
         self.store_prepared(PreparedOperation {
             preview: preview.clone(),
@@ -388,7 +392,7 @@ impl Engine {
             local_fingerprint,
             transfer_contract: None,
             expected_latest: primary.map(|item| item.id.clone()),
-            expected_head_ids,
+            expected_head_ids: lineage.expected_head_ids,
             additional_parent_ids,
             stage_dir: stage,
             cancel: Arc::new(AtomicBool::new(false)),
@@ -475,6 +479,8 @@ impl Engine {
             blocked_reasons,
             requires_codex_close: platform::codex_running(),
             required_mappings,
+            replaces_cloud_history: false,
+            replaced_snapshot_ids: Vec::new(),
         };
         self.store_prepared(PreparedOperation {
             preview: preview.clone(),
@@ -560,6 +566,10 @@ impl Engine {
                 "Saving content objects, then publishing the completion manifest…",
                 4,
             )?;
+            // Capture can take long enough for another device to publish after
+            // the initial recheck. Do not let a reviewed replacement silently
+            // supersede a head that was not shown in its preview.
+            self.ensure_heads(config, &prepared.expected_head_ids)?;
             writer_monitor.check()?;
             platform::assert_codex_closed()?;
             let summary = snapshot::publish_with_progress(
@@ -1371,6 +1381,86 @@ impl Engine {
 
 fn config_fingerprint(config: &AppConfig) -> Result<String> {
     validation_fingerprint(config)
+}
+
+fn plan_push_lineage(heads: &[SnapshotManifest], state: &LocalState) -> PushLineagePlan {
+    let expected_head_ids = sorted_ids(heads.iter().map(|item| item.id.clone()));
+    let replaces_cloud_history = state.last_applied_snapshot_id.is_none() && !heads.is_empty();
+    let merge_ready = heads.len() > 1
+        && sorted_ids(state.pending_merge_parent_ids.clone()) == expected_head_ids
+        && state
+            .last_applied_snapshot_id
+            .as_ref()
+            .map(|id| expected_head_ids.contains(id))
+            .unwrap_or(false);
+    let primary_id = if heads.len() == 1 {
+        Some(heads[0].id.clone())
+    } else {
+        state
+            .last_applied_snapshot_id
+            .as_deref()
+            .and_then(|id| heads.iter().find(|item| item.id == id))
+            .or_else(|| heads.first())
+            .map(|item| item.id.clone())
+    };
+    let mut blocked_reasons = Vec::new();
+    if heads.len() > 1 && !merge_ready && !replaces_cloud_history {
+        blocked_reasons.push("Several cloud branches are visible. Review and Pull one branch before publishing a merge snapshot.".to_string());
+    }
+    if heads.len() == 1
+        && state.last_applied_snapshot_id.is_some()
+        && state.last_applied_snapshot_id.as_deref() != primary_id.as_deref()
+    {
+        blocked_reasons.push(format!(
+            "Review and Pull snapshot {} before pushing. Resolve any conflicts to combine this device's work with the incoming history.",
+            short_id(&heads[0].id)
+        ));
+    }
+    let additional_parent_ids = if merge_ready || replaces_cloud_history {
+        expected_head_ids
+            .iter()
+            .filter(|id| Some(id.as_str()) != primary_id.as_deref())
+            .cloned()
+            .collect()
+    } else {
+        Vec::new()
+    };
+    PushLineagePlan {
+        primary_id,
+        expected_head_ids,
+        additional_parent_ids,
+        replaces_cloud_history,
+        blocked_reasons,
+    }
+}
+
+fn replacement_push_warning(head_count: usize, manifest: &SnapshotManifest) -> String {
+    let visible = if head_count == 1 {
+        "the visible cloud handoff".to_string()
+    } else {
+        format!("all {head_count} visible cloud branches")
+    };
+    let selection = if manifest.threads.is_empty() && manifest.projects.is_empty() {
+        "The current selection contains no chats or projects.".to_string()
+    } else {
+        let full_projects = manifest
+            .projects
+            .iter()
+            .filter(|project| project.mode == ProjectMode::Full)
+            .count();
+        let history_only_projects = manifest
+            .projects
+            .iter()
+            .filter(|project| project.mode == ProjectMode::HistoryOnly)
+            .count();
+        format!(
+            "The current selection contains {} chats, {full_projects} full projects, and {history_only_projects} projects with chat history only.",
+            manifest.threads.len(),
+        )
+    };
+    format!(
+        "This device has no saved sync baseline. Push will supersede {visible} with this device's current selection. {selection} Items outside this selection will not appear in the new handoff. Older stored objects remain until Reset cloud history removes them."
+    )
 }
 
 fn validation_fingerprint(value: &impl serde::Serialize) -> Result<String> {
@@ -3057,6 +3147,8 @@ mod tests {
                 estimated_bytes: 0,
                 requires_codex_close: false,
                 required_mappings: Vec::new(),
+                replaces_cloud_history: false,
+                replaced_snapshot_ids: Vec::new(),
             },
             config_fingerprint: config_fingerprint(config).unwrap(),
             local_fingerprint: String::new(),
@@ -3218,6 +3310,83 @@ mod tests {
         }
     }
 
+    fn head(id: &str) -> SnapshotManifest {
+        let mut manifest = review_manifest();
+        manifest.id = id.to_string();
+        manifest.created_at = format!("2026-09-18T12:00:0{}Z", id.len() % 10);
+        manifest
+    }
+
+    #[test]
+    fn missing_baseline_push_replaces_one_visible_head() {
+        let visible = head("visible-head");
+        let state = LocalState::default();
+        let plan = plan_push_lineage(std::slice::from_ref(&visible), &state);
+
+        assert!(plan.replaces_cloud_history);
+        assert_eq!(plan.primary_id.as_deref(), Some("visible-head"));
+        assert_eq!(plan.expected_head_ids, vec!["visible-head"]);
+        assert!(plan.additional_parent_ids.is_empty());
+        assert!(plan.blocked_reasons.is_empty());
+
+        let warning = replacement_push_warning(1, &visible);
+        assert!(warning.contains("supersede the visible cloud handoff"));
+        assert!(warning.contains("no chats or projects"));
+    }
+
+    #[test]
+    fn missing_baseline_push_supersedes_every_visible_branch() {
+        let first = head("head-a");
+        let second = head("head-b");
+        let plan = plan_push_lineage(&[first, second], &LocalState::default());
+
+        assert!(plan.replaces_cloud_history);
+        assert_eq!(plan.expected_head_ids, vec!["head-a", "head-b"]);
+        assert_eq!(plan.primary_id.as_deref(), Some("head-a"));
+        assert_eq!(plan.additional_parent_ids, vec!["head-b"]);
+        assert!(plan.blocked_reasons.is_empty());
+    }
+
+    #[test]
+    fn known_baseline_keeps_incoming_history_protection_and_repeat_push_is_normal() {
+        let visible = head("visible-head");
+        let stale = LocalState {
+            last_applied_snapshot_id: Some("older-head".into()),
+            ..LocalState::default()
+        };
+        let blocked = plan_push_lineage(std::slice::from_ref(&visible), &stale);
+        assert!(!blocked.replaces_cloud_history);
+        assert_eq!(blocked.blocked_reasons.len(), 1);
+
+        let aligned = LocalState {
+            last_applied_snapshot_id: Some(visible.id.clone()),
+            ..LocalState::default()
+        };
+        let repeat = plan_push_lineage(std::slice::from_ref(&visible), &aligned);
+        assert!(!repeat.replaces_cloud_history);
+        assert!(repeat.blocked_reasons.is_empty());
+    }
+
+    #[test]
+    fn replacement_preview_is_invalidated_when_another_head_appears() {
+        let root = tempdir().unwrap();
+        let app = tempdir().unwrap();
+        let engine = Engine::new(app.path().join("engine")).unwrap();
+        let mut config = settings::default_config();
+        config.cloud_root = root.path().to_string_lossy().into_owned();
+        let snapshots = settings::cloud_store_root(&config).join("snapshots");
+        fs::create_dir_all(&snapshots).unwrap();
+        write_json(&snapshots.join("head-a.json"), &head("head-a")).unwrap();
+        engine.ensure_heads(&config, &["head-a".into()]).unwrap();
+
+        write_json(&snapshots.join("head-b.json"), &head("head-b")).unwrap();
+        let error = engine
+            .ensure_heads(&config, &["head-a".into()])
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("changed after the preview"));
+    }
+
     #[test]
     fn missing_baseline_conflicts_can_keep_local_then_record_the_reviewed_ancestor() {
         let data = tempdir().unwrap();
@@ -3246,6 +3415,8 @@ mod tests {
             blocked_reasons: Vec::new(),
             requires_codex_close: false,
             required_mappings: Vec::new(),
+            replaces_cloud_history: false,
+            replaced_snapshot_ids: Vec::new(),
         };
         let choices = HashMap::from([("thread:chat", &ConflictChoice::Local)]);
         assert!(decisions(&preview, &choices, &incoming)
@@ -3335,6 +3506,8 @@ mod tests {
             estimated_bytes: 0,
             requires_codex_close: false,
             required_mappings: vec![],
+            replaces_cloud_history: false,
+            replaced_snapshot_ids: vec![],
         };
         let chosen = decisions(&preview, &HashMap::new(), &incoming);
         assert!(!decision_incoming(&chosen, "thread:internal"));

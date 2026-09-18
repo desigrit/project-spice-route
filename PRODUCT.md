@@ -4,9 +4,9 @@
 
 ## Platform
 
-web
+native Windows desktop
 
-The current Windows desktop shell embeds React in Tauri. The requested next Windows interface uses native WinUI 3. The implementation choice is open until the user reviews the design options. macOS support is a later objective.
+The current Windows interface uses native WinUI 3 with a shared Rust sync engine. A Tauri maintenance build remains in the repository for reference. macOS support is a later objective.
 
 ## Users
 

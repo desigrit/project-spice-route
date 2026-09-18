@@ -21,7 +21,7 @@ SetCompressorDictSize 16
 !endif
 
 !define PRODUCT_NAME "Spice Route"
-; Keep the original 0.4.0 install identity so 1.4.0 upgrades it in place.
+; Keep the original 0.4.0 install identity so current releases upgrade it in place.
 ; These internal identifiers are intentionally not user-facing product names.
 !define INSTALL_FOLDER "Spice Route Native Preview"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Spice Route Native Preview"

@@ -125,6 +125,13 @@ describe("concurrent handoff actions", () => {
     expect(screen.getByRole("button", { name: /Publish merged history/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Pull latest/i })).toBeDisabled();
   });
+
+  it("allows a device without a baseline to review replacing visible branches", () => {
+    renderOverview({ ...status(false), lastAppliedSnapshotId: null, state: "ready" });
+
+    expect(screen.getByRole("button", { name: /Push this device/i })).toBeEnabled();
+    expect(screen.getAllByRole("button", { name: /Review branch/i })).toHaveLength(2);
+  });
 });
 
 const handoffPreview: OperationPreview = {
@@ -136,6 +143,7 @@ const handoffPreview: OperationPreview = {
   })),
   warnings: ["An external workspace was not captured.", "An external workspace was not captured."],
   blockedReasons: [], estimatedBytes: 3072, requiresCodexClose: false, requiredMappings: [],
+  replacesCloudHistory: false, replacedSnapshotIds: [],
 };
 
 function renderHandoff(preview = handoffPreview, onExecute = vi.fn()) {
@@ -181,6 +189,21 @@ describe("handoff review", () => {
   it("does not publish a push with no content changes", () => {
     renderHandoff({ ...handoffPreview, direction: "push", changes: [], warnings: [] });
     expect(screen.getByRole("button", { name: "Push" })).toBeDisabled();
+  });
+
+  it("allows an explicitly reviewed replacement push with no ordinary diff rows", () => {
+    const execute = renderHandoff({
+      ...handoffPreview,
+      direction: "push",
+      changes: [],
+      warnings: ["This selection will supersede the visible cloud handoff."],
+      replacesCloudHistory: true,
+      replacedSnapshotIds: ["snapshot-1"],
+    });
+    expect(screen.getByRole("heading", { name: "Review cloud replacement" })).toBeVisible();
+    expect(screen.getByText("Replace the cloud handoff")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Push" }));
+    expect(execute).toHaveBeenCalledWith([]);
   });
 
   it("keeps a transfer failure visible after refreshing status and preserves the choices", async () => {

@@ -34,6 +34,8 @@ src-tauri/core compiles the same modules as a UI-independent crate. This is the 
 
 Existing objects are reused only after verification. A corrupt object at a content-addressed cloud path is repaired before its manifest can be published.
 
+When a device has no saved baseline and cloud heads already exist, Push can enter replacement mode after an explicit review. The new manifest contains only the current selection and records every reviewed visible head as a parent, so it becomes the sole visible head without concatenating histories. Cloud heads are checked before capture and again immediately before publication. If another device publishes during that interval, execution stops and requires a fresh review. Older content objects remain immutable until the user runs Reset cloud history.
+
 Preview captures compute content identities without compressing or retaining a second object store. Status refresh reads manifest structure without hydrating cloud objects. Full content verification remains part of execution, and metadata-only workspace estimates use the same file exclusions as capture.
 
 ## Pull data flow

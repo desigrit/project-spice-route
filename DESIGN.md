@@ -23,6 +23,8 @@ Show progress inline with a named operation phase and cancel control. Use real s
 
 Use a readable date/time plus the unique suffix for handoffs. Keep copied identifiers unambiguous, and compare snapshot ancestry independently of display dates. A locally saved snapshot does not establish cloud completion.
 
+When this installation has no saved baseline, Push can replace every visible cloud head after an explicit review. The review states that only the current selection will appear in the new handoff. Older immutable objects remain stored until the user chooses Reset cloud history, which is offered as a separate action when storage needs to be reclaimed.
+
 Use native keyboard navigation, automation names, virtualization, DPI behavior, and system theme resources. Avoid blocking the UI thread with engine work or creating child console windows. Large model files remain visible and selected unless the user changes selection.
 
 Reference: `docs/design/native-options/b-board.png`. The reference contains illustrative data, not a live transfer.

@@ -10,15 +10,15 @@ Sometimes you start something at your desk and want to pick it up on your laptop
 
 Spice Route is a Windows desktop app that transfers selected Codex chats and project workspaces through a folder managed by **Google Drive, OneDrive, or iCloud Drive**. Choose what travels, push from one computer, and pull on the other. Your existing cloud client handles sign-in and delivery.
 
-[Windows installer](artifacts/Spice-Route-1.4.0-windows-x64-setup.exe) · [Getting started](#getting-started) · [Build from source](#build-from-source) · [Report an issue](https://github.com/desigrit/project-spice-route/issues)
+[Windows installer](artifacts/Spice-Route-1.4.1-windows-x64-setup.exe) · [Getting started](#getting-started) · [Build from source](#build-from-source) · [Report an issue](https://github.com/desigrit/project-spice-route/issues)
 
 ![Spice Route Overview in light mode, showing Push and Pull actions and the latest visible snapshot](docs/images/overview-light.png)
 
-*These screenshots show the earlier Tauri interface with sample data. Version 1.4 introduces the WinUI 3 Workspace interface; current runtime screenshots are still pending. No personal conversations are shown.*
+*These screenshots show the earlier Tauri interface with sample data. Version 1.4.1 uses the WinUI 3 Workspace interface; current runtime screenshots are still pending. No personal conversations are shown.*
 
 ## A little context before you begin
 
-**The current Windows version is 1.4.** Its shared Rust engine has automated coverage for selected-history transfer, compatibility, conflicts, Git restoration, and rollback. The WinUI interface compiles and its engine connection has headless contract tests. Interactive testing and a live transfer between devices remain validation steps. This is still an early testing release, so keep an independent backup of work you cannot replace.
+**The current Windows version is 1.4.1.** Its shared Rust engine has automated coverage for selected-history transfer, compatibility, conflicts, Git restoration, and rollback. The WinUI interface compiles and its engine connection has headless contract tests. Interactive testing and a live transfer between devices remain validation steps. This is still an early testing release, so keep an independent backup of work you cannot replace.
 
 The Workspace interface uses actual WinUI 3 navigation, menus, folder pickers, and virtualized lists. Review has separate Files, Attention, and Notes tabs, with project filters and large files first. Push and Pull stay in a consistent action row, while timestamped handoff labels make snapshots easier to match across computers.
 
@@ -45,17 +45,17 @@ Recognized dependencies, caches, and build outputs are excluded by default, incl
 
 ### 1. Install the desktop app
 
-Download the [Windows x64 installer](artifacts/Spice-Route-1.4.0-windows-x64-setup.exe) on each computer. It installs for your Windows user and bundles its .NET, Windows App SDK, and C++ runtimes. You do not need Node.js, Rust, or the development scripts to use it.
+Download the [Windows x64 installer](artifacts/Spice-Route-1.4.1-windows-x64-setup.exe) on each computer. It installs for your Windows user and bundles its .NET, Windows App SDK, and C++ runtimes. You do not need Node.js, Rust, or the development scripts to use it.
 
-The installer is not code-signed, so Windows may show a SmartScreen warning. A [SHA-256 checksum](artifacts/Spice-Route-1.4.0-windows-x64-setup.exe.sha256) is included alongside the download. Check your copy in PowerShell:
+The installer is not code-signed, so Windows may show a SmartScreen warning. A [SHA-256 checksum](artifacts/Spice-Route-1.4.1-windows-x64-setup.exe.sha256) is included alongside the download. Check your copy in PowerShell:
 
 ```powershell
-Get-FileHash .\Spice-Route-1.4.0-windows-x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Spice-Route-1.4.1-windows-x64-setup.exe -Algorithm SHA256
 ```
 
 You will also need Codex and an installed cloud drive client. Git must be available when transferring Git repositories. The native interface does not use WebView2.
 
-Version 1.4 updates the 0.4.0 WinUI installation in place and uses the same local Spice Route profile. The earlier Tauri app can remain installed, but close it before opening this one. Your saved device identity, folder choices, and recovery history remain in place. Do not run both interfaces against the same profile at once.
+Version 1.4.1 updates earlier WinUI installations in place and uses the same local Spice Route profile. The earlier Tauri app can remain installed, but close it before opening this one. Your saved device identity, folder choices, and recovery history remain in place. Do not run both interfaces against the same profile at once.
 
 ### 2. Connect a cloud folder
 
@@ -122,7 +122,7 @@ Spice Route compares changes with a shared ancestor, rather than choosing whiche
 
 Conversation histories are not concatenated. Choosing a version is a real content decision, not simply a way to dismiss a warning.
 
-If a computer has lost its local sync baseline, complete a Pull review before pushing again. A review that keeps all local versions can acknowledge the snapshot without replacing unchanged data. The next Push then continues from that reviewed history.
+If a computer has no saved sync baseline, it can take either path. Pull compares the visible handoff with the local copy and lets you choose versions. Push opens an explicit replacement review and can make the current selection authoritative, including a chats-only selection that omits previously shared project files. The preview becomes stale if another device publishes before execution, so a newly visible head cannot be overwritten without a fresh review.
 
 Before applying a Pull, Spice Route creates a local rollback set. Interrupted operations appear in **Recovery**, and new transfers are blocked until recovery is resolved. The latest ten completed rollback sets are retained, along with unresolved recovery data.
 
@@ -136,7 +136,7 @@ Other useful boundaries:
 
 - **Chat history only is not a read-only lock in Codex.** A managed empty folder may be used when Codex requires a project root, but the mode does not guarantee that replying is disabled.
 - **External Git resources need separate attention.** Git LFS objects outside the checkout and external submodule resources are not fully portable through this release.
-- **Old snapshots remain available.** Changing a selection stops future transfer. It does not remove content already uploaded. Cloud-history cleanup is a separate, explicit action.
+- **Old stored objects can remain.** A replacement Push removes omitted items from the new visible handoff, but content-addressed objects from older snapshots can remain in the sync folder. Reset cloud history is the explicit storage cleanup action.
 - **There is no app-level encryption.** Snapshots contain readable history and compressed project content. Use a cloud folder and account appropriate for that work.
 - **Large repositories still take time.** Previews avoid unnecessary compression, but content hashing and Git capture remain part of the comparison.
 
@@ -152,7 +152,7 @@ Spice Route checks both the runtime and the database structure before allowing w
 
 Transfers keep the destination's own database schema. Older records can move into the supported newer profile. A transfer in the reverse direction is blocked if it contains newer fields the older profile cannot represent. Those values are never silently discarded.
 
-See the [compatibility design](docs/compatibility-plan.md) and [Windows testing notes](docs/testing-1.4.0.md) for the exact boundaries. The current automated suite has **88 Rust tests, 11 headless native engine-client contract checks, and 22 Tauri frontend tests**. Real-device history display, continuation, and cloud-client behavior remain part of manual acceptance.
+See the [compatibility design](docs/compatibility-plan.md) and [Windows testing notes](docs/testing-1.4.1.md) for the exact boundaries. The current automated suite has **92 Rust tests, 11 headless native engine-client contract checks, and 24 Tauri frontend tests**. Real-device history display, continuation, and cloud-client behavior remain part of manual acceptance.
 
 ## Build from source
 
@@ -169,7 +169,7 @@ rustup toolchain install stable-x86_64-pc-windows-msvc
 ./scripts/build-native-windows.ps1
 ```
 
-The script produces `artifacts/Spice-Route-1.4.0-windows-x64-setup.exe` and its checksum. It builds and packages the application without opening it. See the [Windows verification guide](docs/testing-1.4.0.md) for the engine-client tests and interactive acceptance checks.
+The script produces `artifacts/Spice-Route-1.4.1-windows-x64-setup.exe` and its checksum. It builds and packages the application without opening it. See the [Windows verification guide](docs/testing-1.4.1.md) for the engine-client tests and interactive acceptance checks.
 
 ### Earlier Tauri interface
 

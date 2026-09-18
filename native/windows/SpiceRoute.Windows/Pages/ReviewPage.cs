@@ -27,15 +27,15 @@ public sealed class ReviewChange : INotifyPropertyChanged
 public sealed class ReviewPage : Page
 {
     private readonly SpiceRouteContext context;
-    private readonly Grid root = new() { RowSpacing = 12 };
-    private readonly TextBlock heading = Ui.Text("Review", 28, true);
-    private readonly TextBlock summary = Ui.Text("Preparing the comparison…", 13);
-    private readonly TextBlock state = Ui.Text("", 13);
+    private readonly Grid root = new() { RowSpacing = 0 };
+    private readonly TextBlock heading = Ui.PageTitle("Review");
+    private readonly TextBlock summary = Ui.Muted("Preparing the comparison…", 11);
+    private readonly TextBlock state = Ui.Muted("", 11);
     private readonly InfoBar error = new() { Severity = InfoBarSeverity.Error, IsClosable = true };
     private readonly ProgressBar progress = new() { IsIndeterminate = true, Visibility = Visibility.Collapsed };
     private readonly Button execute;
     private readonly Button cancel = Ui.Button("Cancel");
-    private readonly Button refresh = Ui.Button("Refresh review", "\uE72C");
+    private readonly Button refresh = Ui.IconButton("Refresh review", "\uE72C");
     private readonly SelectorBar tabs = new();
     private readonly SelectorBarItem filesTab = new() { Text = "Files" };
     private readonly SelectorBarItem attentionTab = new() { Text = "Attention" };
@@ -69,9 +69,11 @@ public sealed class ReviewPage : Page
         execute = Ui.Button(context.ReviewDirection == "push" ? "Push" : "Pull", context.ReviewDirection == "push" ? "\uE74A" : "\uE74B", true);
         for (var i = 0; i < 7; i++) root.RowDefinitions.Add(new() { Height = i == 5 ? new GridLength(1, GridUnitType.Star) : GridLength.Auto });
         var top = Ui.Columns(new GridLength(1, GridUnitType.Star), GridLength.Auto);
+        top.Margin = new Thickness(0, 0, 0, 5);
         heading.Text = context.ReviewDirection == "push" ? "Review push" : "Review pull";
         Ui.Add(top, heading); Ui.Add(top, refresh, column: 1); Ui.Add(root, top);
         Ui.Add(root, error, 1); Ui.Add(root, progress, 2); Ui.Add(root, summary, 3);
+        summary.Margin = new Thickness(0, 6, 0, 7);
         tabs.Items.Add(filesTab); tabs.Items.Add(attentionTab); tabs.Items.Add(notesTab); tabs.SelectedItem = filesTab;
         tabs.SelectionChanged += (_, _) => ShowTab(); Ui.Add(root, tabs, 4);
         BuildFiles();
@@ -79,10 +81,11 @@ public sealed class ReviewPage : Page
         var notesScroll = new ScrollViewer { Content = noteItems, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Visibility = Visibility.Collapsed, Tag = "notes" };
         content.Children.Add(notesScroll); contentHost.Content = content; Ui.Add(root, contentHost, 5);
         var bottom = Ui.Columns(new GridLength(1, GridUnitType.Star), GridLength.Auto);
-        bottom.Padding = new Thickness(0, 14, 0, 16);
+        bottom.Padding = new Thickness(0, 11, 0, 13);
         Ui.Add(bottom, state);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        actions.Children.Add(cancel); actions.Children.Add(execute); Ui.Add(bottom, actions, column: 1); Ui.Add(root, bottom, 6);
+        actions.Children.Add(cancel); actions.Children.Add(execute); Ui.Add(bottom, actions, column: 1);
+        Ui.Add(root, new Border { BorderBrush = Ui.Resource("SpiceLine"), BorderThickness = new Thickness(0, 1, 0, 0), Child = bottom }, 6);
         Content = root;
         execute.Click += async (_, _) => await ExecuteAsync();
         refresh.Click += async (_, _) => await PrepareAsync();
@@ -149,6 +152,8 @@ public sealed class ReviewPage : Page
     private void BuildReview()
     {
         if (preview is null) return;
+        var replacement = Wire.Bool(preview, "replacesCloudHistory");
+        heading.Text = replacement ? "Review cloud replacement" : context.ReviewDirection == "push" ? "Review push" : "Review pull";
         var projects = new Dictionary<string, string>();
         foreach (var item in Wire.Array(context.Catalog, "projects").OfType<JsonObject>()) projects[Wire.Text(item, "id")] = Wire.Text(item, "name");
         foreach (var item in Wire.Array(preview, "changes").OfType<JsonObject>().Where(item => Wire.Text(item, "kind") == "project")) projects[Wire.Text(item, "key").Replace("project:", "")] = Wire.Text(item, "label");
@@ -168,10 +173,12 @@ public sealed class ReviewPage : Page
         filters.Insert(0, new ProjectFilter("", "All projects", Wire.Number(preview, "estimatedBytes")));
         projectList.ItemsSource = filters; projectList.SelectedIndex = 0;
         var altered = changes.Count(item => item.Action != "unchanged");
-        summary.Text = $"{altered:N0} changes · {changes.Count(item => item.Action == "conflict"):N0} conflicts · {Wire.Bytes(Wire.Number(preview, "estimatedBytes"))} selected content";
+        summary.Text = replacement
+            ? $"Cloud replacement · {changes.Count:N0} reviewed items · {Wire.Bytes(Wire.Number(preview, "estimatedBytes"))} selected content"
+            : $"{altered:N0} changes · {changes.Count(item => item.Action == "conflict"):N0} conflicts · {Wire.Bytes(Wire.Number(preview, "estimatedBytes"))} selected content";
         filesTab.Text = $"Files ({changes.Count:N0})";
         BuildAttentionAndNotes(); FilterFiles(); UpdateActions();
-        tabs.SelectedItem = NeedsDecision() ? attentionTab : filesTab;
+        tabs.SelectedItem = NeedsDecision() || replacement ? attentionTab : filesTab;
     }
 
     private void BuildAttentionAndNotes()
@@ -198,7 +205,24 @@ public sealed class ReviewPage : Page
             required.Children.Add(new Expander { Header = $"Choose destinations for {mappings.Count} folders", IsExpanded = true, HorizontalAlignment = HorizontalAlignment.Stretch, Content = new ScrollViewer { Content = folders, MaxHeight = 220 } });
         }
         var warnings = Wire.Array(preview, "warnings").Select(item => item?.ToString() ?? "").Where(text => text.Length > 0).Distinct().ToList();
-        var actionable = warnings.Where(text => !text.Contains("includes complete Git history", StringComparison.OrdinalIgnoreCase) && !text.Contains("excluded", StringComparison.OrdinalIgnoreCase) && !text.Contains("selected file exclusions", StringComparison.OrdinalIgnoreCase) && !text.Contains("Git history is included", StringComparison.OrdinalIgnoreCase)).ToList();
+        var replacement = Wire.Bool(preview, "replacesCloudHistory");
+        var replacementWarning = replacement ? warnings.FirstOrDefault(text => text.StartsWith("This device has no saved sync baseline.", StringComparison.Ordinal)) : null;
+        if (replacement)
+        {
+            required.Children.Add(new InfoBar
+            {
+                IsOpen = true,
+                IsClosable = false,
+                Severity = InfoBarSeverity.Warning,
+                Title = "This Push replaces the visible cloud handoff",
+                Message = replacementWarning ?? "Only this device's current selection will appear in the new cloud handoff."
+            });
+            var clearOldContent = Ui.TextButton("Reset cloud history first");
+            ToolTipService.SetToolTip(clearOldContent, "Remove older snapshots and stored objects before creating the new handoff");
+            clearOldContent.Click += (_, _) => context.Navigate("settings");
+            required.Children.Add(clearOldContent);
+        }
+        var actionable = warnings.Where(text => text != replacementWarning && !text.Contains("includes complete Git history", StringComparison.OrdinalIgnoreCase) && !text.Contains("excluded", StringComparison.OrdinalIgnoreCase) && !text.Contains("selected file exclusions", StringComparison.OrdinalIgnoreCase) && !text.Contains("Git history is included", StringComparison.OrdinalIgnoreCase)).ToList();
         if (actionable.Count > 0)
         {
             var items = Ui.Stack(12); foreach (var warning in actionable) items.Children.Add(Ui.Text(warning, 13));
@@ -224,7 +248,7 @@ public sealed class ReviewPage : Page
             Ui.Add(attention, list, 1);
         }
         else if (required.Children.Count == 0) Ui.Add(attention, Ui.Text("No decisions are needed for this handoff.", 16), 1);
-        attentionTab.Text = $"Attention ({Wire.Array(preview, "blockedReasons").Count + mappings.Count + conflicts.Count + actionable.Count + (large.Count > 0 ? 1 : 0)})";
+        attentionTab.Text = $"Attention ({Wire.Array(preview, "blockedReasons").Count + mappings.Count + conflicts.Count + actionable.Count + (large.Count > 0 ? 1 : 0) + (replacement ? 1 : 0)})";
         noteItems.Children.Add(Ui.Text("What travels with this handoff", 20, true));
         noteItems.Children.Add(Ui.Text("Full projects include Git history and selected working files. Project configuration and secrets follow your saved choices. Codex sign-in and machine settings stay local.", 14));
         foreach (var warning in warnings.Except(actionable)) noteItems.Children.Add(Ui.Text(warning, 13));
@@ -256,12 +280,13 @@ public sealed class ReviewPage : Page
     }
     private void UpdateActions()
     {
-        execute.IsEnabled = !working && preview is not null && !NeedsDecision() && (context.ReviewDirection == "pull" || changes.Any(item => item.Action != "unchanged"));
+        execute.IsEnabled = !working && preview is not null && !NeedsDecision() && (context.ReviewDirection == "pull" || Wire.Bool(preview, "replacesCloudHistory") || changes.Any(item => item.Action != "unchanged"));
         if (working) return;
         var unresolved = changes.Count(item => item.Action == "conflict" && item.ChoiceIndex is not (1 or 2));
         if (unresolved > 0) state.Text = $"Choose a version for {unresolved} conflicts.";
         else if (Wire.Array(preview, "requiredMappings").Count > 0) state.Text = "Choose project destinations in Attention.";
         else if (Wire.Array(preview, "blockedReasons").Count > 0) state.Text = "Resolve the issues in Attention, then refresh.";
+        else if (preview is not null && Wire.Bool(preview, "replacesCloudHistory")) state.Text = "Push will replace the visible cloud handoff with this device's current selection.";
         else if (preview is not null) state.Text = Wire.Bool(preview, "requiresCodexClose") ? "Codex will be asked to close before the handoff." : "Ready to continue.";
     }
     private static string MappingKey(JsonObject mapping) => Wire.Text(mapping, "projectId") + ":" + (int)Wire.Number(mapping, "rootIndex");

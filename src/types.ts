@@ -136,6 +136,8 @@ export interface OperationPreview {
   estimatedBytes: number;
   requiresCodexClose: boolean;
   requiredMappings: RequiredMapping[];
+  replacesCloudHistory: boolean;
+  replacedSnapshotIds: string[];
 }
 
 export interface RequiredMapping {

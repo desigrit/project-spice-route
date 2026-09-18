@@ -72,6 +72,6 @@ Large new files still need to be read, hashed, stored locally, and uploaded by t
 
 New configurations include project configuration and secrets by default. Existing saved selections remain unchanged. In the native interface, enable **Include project secrets and configuration** in Settings. In the earlier Tauri interface, the corresponding toggle is **Include project configuration and secrets** in What to sync. Custom exclusions still apply. Global Codex sign-in credentials and machine settings remain local.
 
-The 0.3.2 maintenance build still uses Tauri and React. The approved Workspace direction is implemented separately in Spice Route 1.4 for Windows with WinUI 3, connected to the same Rust engine. Its build and headless connection tests pass; interactive and live transfer validation remain outstanding.
+The 0.3.2 maintenance build still uses Tauri and React. The approved Workspace direction is implemented separately in Spice Route 1.4.1 for Windows with WinUI 3, connected to the same Rust engine. Its build and headless connection tests pass; interactive and live transfer validation remain outstanding.
 
-See the [maintenance verification record](testing-0.3.2.md) and [Windows verification record](testing-1.4.0.md) for release checks and the remaining two-device validation.
+See the [maintenance verification record](testing-0.3.2.md) and [Windows verification record](testing-1.4.1.md) for release checks and the remaining two-device validation.

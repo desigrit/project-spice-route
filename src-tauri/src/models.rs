@@ -229,6 +229,13 @@ pub struct OperationPreview {
     pub estimated_bytes: u64,
     pub requires_codex_close: bool,
     pub required_mappings: Vec<RequiredMapping>,
+    /// True when this device has no saved baseline and the reviewed Push will
+    /// make its current selection authoritative over every visible cloud head.
+    #[serde(default)]
+    pub replaces_cloud_history: bool,
+    /// The visible heads that the replacement snapshot will supersede.
+    #[serde(default)]
+    pub replaced_snapshot_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

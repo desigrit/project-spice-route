@@ -233,7 +233,12 @@ public sealed class SelectionPage : Page
 
 internal static class NativePageUi
 {
-    public static TextBlock Text(string text, double size = 14, bool secondary = false) => new() { Text = text, FontSize = size, Opacity = secondary ? 0.72 : 1, TextWrapping = TextWrapping.Wrap };
+    public static TextBlock Text(string text, double size = 14, bool secondary = false)
+    {
+        var block = Ui.Text(text, size);
+        if (secondary) block.Foreground = Ui.Resource("SpiceTextSecondary");
+        return block;
+    }
     public static JsonObject EnsureObject(JsonObject owner, string key)
     {
         if (owner[key] is not JsonObject value) { value = new JsonObject(); owner[key] = value; }
@@ -241,11 +246,11 @@ internal static class NativePageUi
     }
     public static Grid PageGrid(string title, FrameworkElement? action, out Grid content)
     {
-        var grid = new Grid { Padding = new Thickness(28, 24, 28, 24), RowSpacing = 20 };
+        var grid = new Grid { Padding = new Thickness(0, 0, 0, 20), RowSpacing = 14 };
         grid.RowDefinitions.Add(new() { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         var header = RowGrid(-1, 180);
-        header.Children.Add(Text(title, 28));
+        header.Children.Add(Ui.PageTitle(title));
         if (action is not null) { Grid.SetColumn(action, 1); header.Children.Add(action); if (action is FrameworkElement control) control.HorizontalAlignment = HorizontalAlignment.Right; }
         grid.Children.Add(header);
         content = new Grid(); Grid.SetRow(content, 1); grid.Children.Add(content);
@@ -259,7 +264,7 @@ internal static class NativePageUi
     }
     public static ComboBox ModePicker(string mode)
     {
-        var combo = new ComboBox { Width = 172 };
+        var combo = new ComboBox { Width = 156, MinHeight = 32 };
         foreach (var pair in new[] { ("Full project", "full"), ("Chat history only", "historyOnly"), ("Excluded", "excluded") })
             combo.Items.Add(new ComboBoxItem { Content = pair.Item1, Tag = pair.Item2 });
         combo.SelectedIndex = mode == "historyOnly" ? 1 : mode == "excluded" ? 2 : 0;
@@ -273,7 +278,8 @@ internal static class NativePageUi
         text.TextWrapping = TextWrapping.NoWrap; text.TextTrimming = TextTrimming.CharacterEllipsis; text.VerticalAlignment = VerticalAlignment.Center;
         ToolTipService.SetToolTip(text, path);
         grid.Children.Add(text);
-        var button = new Button { Content = new SymbolIcon(Symbol.More), Padding = new Thickness(6), HorizontalAlignment = HorizontalAlignment.Right };
+        var button = Ui.IconButton(label, "\uE712");
+        button.HorizontalAlignment = HorizontalAlignment.Right;
         AutomationProperties.SetName(button, label); ToolTipService.SetToolTip(button, label);
         button.Click += async (_, _) => await choose();
         Grid.SetColumn(button, 1); grid.Children.Add(button);

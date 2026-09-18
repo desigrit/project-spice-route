@@ -18,7 +18,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         Title = "Spice Route";
         var appVersion = typeof(MainWindow).Assembly.GetName().Version;
-        VersionText.Text = appVersion is null ? string.Empty : $"{appVersion.Major}.{appVersion.Minor}";
+        BuildText.Text = appVersion is null ? "Windows app" : $"Spice Route {appVersion.Major}.{appVersion.Minor}.{appVersion.Build}";
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(TitleStrip);
         AppWindow.Resize(new SizeInt32(1180, 820));
@@ -70,6 +70,13 @@ public sealed partial class MainWindow : Window
     }
 
     private static string ProviderName(string provider) => provider switch { "oneDrive" => "OneDrive", "googleDrive" => "Google Drive", "iCloud" => "iCloud Drive", _ => "Cloud folder" };
+
+    internal void RunStartupProbe()
+    {
+        PageHost.Content = new OverviewPage(context);
+        PageHost.Content = new ReviewPage(context);
+        PageHost.Content = null;
+    }
 
     private void Navigate(string key)
     {

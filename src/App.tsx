@@ -461,6 +461,7 @@ export function Overview({
   const heads = status?.visibleHeads ?? [];
   const hasBranches = heads.length > 1;
   const mergeReady = Boolean(status?.mergeReady);
+  const canReplaceCloudHistory = heads.length > 0 && !status?.lastAppliedSnapshotId;
   const ready = environment.compatibility?.supported && Boolean(config.cloudRoot);
   return (
     <div className="page-stack">
@@ -490,7 +491,7 @@ export function Overview({
       </section>
 
       <section className="action-grid" aria-label="Handoff actions">
-        <Button className="action-card push" onClick={onPush} disabled={!ready || (hasBranches && !mergeReady)}>
+        <Button className="action-card push" onClick={onPush} disabled={!ready || (hasBranches && !mergeReady && !canReplaceCloudHistory)}>
           <span className="action-icon"><ArrowUpFromLine size={23} /></span>
           <span className="action-copy"><strong>{mergeReady ? "Publish merged history" : "Push this device"}</strong><small>{mergeReady ? "Combine every visible branch" : "Publish a new verified snapshot"}</small></span>
           <ChevronRight size={19} />
@@ -878,6 +879,7 @@ export function PreviewDialog({ preview, onCancel, onExecute, onSaveMappings, su
   useModalKeyboard(dialogRef, onCancel, preview.operationId, !suspended);
   const blocked = preview.blockedReasons.length > 0 || unresolved.length > 0 || preview.requiredMappings.length > 0;
   const hasChanges = preview.changes.some((change) => change.action !== "unchanged");
+  const replacement = preview.replacesCloudHistory;
   const acknowledge = preview.direction === "pull" && !hasChanges;
   const actionLabel = acknowledge ? "Acknowledge snapshot" : preview.direction === "push" ? "Push" : "Pull";
   const executeLabel = actionLabel;
@@ -893,7 +895,7 @@ export function PreviewDialog({ preview, onCancel, onExecute, onSaveMappings, su
   return (
     <div className="modal-backdrop" hidden={suspended}>
       <section ref={dialogRef} tabIndex={-1} className="preview-dialog" role="dialog" aria-modal="true" aria-labelledby="preview-title">
-        <header><h2 id="preview-title">Review this handoff</h2><Button className="icon-button" onClick={onCancel} aria-label="Close"><X size={18} /></Button></header>
+        <header><h2 id="preview-title">{replacement ? "Review cloud replacement" : "Review this handoff"}</h2><Button className="icon-button" onClick={onCancel} aria-label="Close"><X size={18} /></Button></header>
         <div className="preview-summary">
           {(["add", "update", "delete", "conflict"] as const).map((action) => <div key={action}><strong>{counts[action] || 0}</strong><span>{action === "add" ? "New" : action[0].toUpperCase() + action.slice(1)}</span></div>)}
           <div><strong>{formatBytes(preview.estimatedBytes)}</strong><span>Transfer</span></div>
@@ -938,16 +940,16 @@ export function PreviewDialog({ preview, onCancel, onExecute, onSaveMappings, su
               {change.action === "conflict" && <div className="conflict-choice"><Button aria-pressed={resolutions[change.key] === "local"} className={resolutions[change.key] === "local" ? "active" : ""} onClick={() => setResolutions((current) => ({ ...current, [change.key]: "local" }))}>Keep mine</Button><Button aria-pressed={resolutions[change.key] === "incoming"} className={resolutions[change.key] === "incoming" ? "active" : ""} onClick={() => setResolutions((current) => ({ ...current, [change.key]: "incoming" }))}>Use incoming</Button></div>}
             </div>
           ))}
-          {!hasChanges && preview.blockedReasons.length === 0 && preview.requiredMappings.length === 0 && <EmptyState icon={Check} title="No content changes" detail={acknowledge ? "Acknowledge this snapshot to record that this device has reviewed it. Your files stay as they are." : "There are no changes to publish."} />}
+          {!hasChanges && preview.blockedReasons.length === 0 && preview.requiredMappings.length === 0 && <EmptyState icon={Check} title={replacement ? "Replace the cloud handoff" : "No content changes"} detail={replacement ? "Push to make this device's current selection the visible cloud handoff." : acknowledge ? "Acknowledge this snapshot to record that this device has reviewed it. Your files stay as they are." : "There are no changes to publish."} />}
         </div>
         <footer>
-          <span>{preview.requiredMappings.length > 0 ? "Save project destinations to continue." : preview.blockedReasons.length > 0 ? "Resolve the errors above, then refresh this review." : unresolved.length > 0 ? "Choose a version for every conflict to continue." : preview.requiresCodexClose ? "Codex will be asked to close before the final check." : "Codex is already closed."}</span>
+          <span>{preview.requiredMappings.length > 0 ? "Save project destinations to continue." : preview.blockedReasons.length > 0 ? "Resolve the errors above, then refresh this review." : unresolved.length > 0 ? "Choose a version for every conflict to continue." : replacement ? "Push will replace the visible cloud handoff with this selection." : preview.requiresCodexClose ? "Codex will be asked to close before the final check." : "Codex is already closed."}</span>
           <div>
             <Button className="secondary-button" onClick={onCancel}>Cancel</Button>
             {preview.requiredMappings.length > 0 ? (
               <Button className="primary-button" disabled={!mappingsReady} onClick={saveMappings}>Save destinations & refresh</Button>
             ) : (
-              <Button className="primary-button" disabled={blocked || (!hasChanges && !acknowledge)} onClick={() => onExecute(Object.entries(resolutions).map(([key, choice]) => ({ key, choice })))}>{preview.direction === "push" && <ArrowUpFromLine size={16} aria-hidden="true" />}{executeLabel}</Button>
+              <Button className="primary-button" disabled={blocked || (!hasChanges && !acknowledge && !replacement)} onClick={() => onExecute(Object.entries(resolutions).map(([key, choice]) => ({ key, choice })))}>{preview.direction === "push" && <ArrowUpFromLine size={16} aria-hidden="true" />}{executeLabel}</Button>
             )}
           </div>
         </footer>
