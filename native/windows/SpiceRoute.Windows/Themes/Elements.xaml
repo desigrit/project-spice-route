@@ -1,0 +1,41 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- Keep color resolution on each element so an in-app theme change updates it. -->
+  <Style x:Key="SpiceAccentIconStyle" TargetType="FontIcon">
+    <Setter Property="Foreground" Value="{ThemeResource SpiceAccent}" />
+  </Style>
+  <Style x:Key="SpiceMutedIconStyle" TargetType="FontIcon">
+    <Setter Property="Foreground" Value="{ThemeResource SpiceTextSecondary}" />
+  </Style>
+  <Style x:Key="SpiceRuleStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource SpiceLine}" />
+  </Style>
+  <Style x:Key="SpiceSubtleBorderStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource SpiceSubtle}" />
+  </Style>
+  <Style x:Key="SpiceLineBottomGridStyle" TargetType="Grid">
+    <Setter Property="BorderBrush" Value="{ThemeResource SpiceLine}" />
+  </Style>
+  <Style x:Key="SpiceLineTopGridStyle" TargetType="Grid">
+    <Setter Property="BorderBrush" Value="{ThemeResource SpiceLine}" />
+  </Style>
+  <Style x:Key="SpiceLineBottomBorderStyle" TargetType="Border">
+    <Setter Property="BorderBrush" Value="{ThemeResource SpiceLine}" />
+  </Style>
+  <Style x:Key="SpiceLineTopBorderStyle" TargetType="Border">
+    <Setter Property="BorderBrush" Value="{ThemeResource SpiceLine}" />
+  </Style>
+  <Style x:Key="SpiceSubtleGridStyle" TargetType="Grid">
+    <Setter Property="Background" Value="{ThemeResource SpiceSubtle}" />
+  </Style>
+  <Style x:Key="SpiceSuccessTextStyle" TargetType="TextBlock">
+    <Setter Property="Foreground" Value="{ThemeResource SpiceSuccess}" />
+  </Style>
+  <Style x:Key="SpiceWarningTextStyle" TargetType="TextBlock">
+    <Setter Property="Foreground" Value="{ThemeResource SpiceWarning}" />
+  </Style>
+  <Style x:Key="SpiceSuccessBorderStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource SpiceSuccessSoft}" />
+  </Style>
+</ResourceDictionary>

@@ -8,8 +8,8 @@ namespace SpiceRoute.Windows;
 
 internal static class Ui
 {
-    internal static TextBlock Text(string text, double size = 14, bool semibold = false) => new() { Text = text, FontSize = size, FontWeight = semibold ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal, TextWrapping = TextWrapping.Wrap };
-    internal static TextBlock Muted(string text, double size = 11) => new() { Text = text, FontSize = size, Foreground = Resource("SpiceTextSecondary"), TextWrapping = TextWrapping.Wrap };
+    internal static TextBlock Text(string text, double size = 14, bool semibold = false) => new() { Text = text, FontSize = size, FontWeight = semibold ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal, Style = (Style)Application.Current.Resources["SpiceBodyTextStyle"] };
+    internal static TextBlock Muted(string text, double size = 11) => new() { Text = text, FontSize = size, Style = (Style)Application.Current.Resources["SpiceMetaTextStyle"] };
     internal static TextBlock PageTitle(string text) => new() { Text = text, Style = (Style)Application.Current.Resources["SpicePageTitleStyle"] };
     internal static TextBlock SectionTitle(string text) => new() { Text = text, Style = (Style)Application.Current.Resources["SpiceSectionTitleStyle"] };
     internal static FontIcon Icon(string glyph, double size = 18) => new() { FontFamily = new FontFamily("Segoe Fluent Icons"), Glyph = glyph, FontSize = size };
@@ -17,7 +17,8 @@ internal static class Ui
     {
         var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         if (glyph is not null) content.Children.Add(Icon(glyph, 16));
-        content.Children.Add(Text(label));
+        // Let the native button presenter supply foreground for every visual state.
+        content.Children.Add(new TextBlock { Text = label, FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
         var button = new Button
         {
             Content = content,
@@ -48,10 +49,10 @@ internal static class Ui
     internal static Border StatusPill(string text, bool positive)
     {
         var label = Text(text, 10, true);
-        label.Foreground = Resource(positive ? "SpiceSuccess" : "SpiceWarning");
+        label.Style = Style(positive ? "SpiceSuccessTextStyle" : "SpiceWarningTextStyle");
         return new Border
         {
-            Background = Resource(positive ? "SpiceSuccessSoft" : "SpiceSubtle"),
+            Style = Style(positive ? "SpiceSuccessBorderStyle" : "SpiceSubtleBorderStyle"),
             CornerRadius = new CornerRadius(4),
             Padding = new Thickness(7, 3, 7, 3),
             Child = label,
@@ -60,8 +61,8 @@ internal static class Ui
         };
     }
     internal static StackPanel Stack(double spacing = 12) => new() { Spacing = spacing };
-    internal static SolidColorBrush Resource(string name) => (SolidColorBrush)Application.Current.Resources[name];
-    internal static Border Rule(double top = 0, double bottom = 0) => new() { Height = 1, Margin = new Thickness(0, top, 0, bottom), Background = Resource("SpiceLine") };
+    internal static Style Style(string name) => (Style)Application.Current.Resources[name];
+    internal static Border Rule(double top = 0, double bottom = 0) => new() { Height = 1, Margin = new Thickness(0, top, 0, bottom), Style = Style("SpiceRuleStyle") };
     internal static Grid Columns(params GridLength[] lengths)
     {
         var grid = new Grid { ColumnSpacing = 16 };

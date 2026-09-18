@@ -1,8 +1,8 @@
 # README screenshots
 
-These images show Spice Route 0.3.1 components rendered with fabricated projects, chats, device names, and locations. They illustrate the interface rather than a live cloud transfer. The static render does not include Windows title-bar decorations.
+The `native-*` images show the actual Spice Route 1.4.2 WinUI interface with fabricated projects, chats, device names, and locations. They come from the offscreen visual probe documented in [Windows verification](../testing-1.4.2.md). They illustrate the interface rather than a live cloud transfer. Native operating-system caption buttons are outside the captured XAML tree.
 
-To regenerate the visual QA output, install Playwright separately from the app dependencies:
+The older images without the `native-` prefix show the earlier Tauri interface. To regenerate those legacy images, install Playwright separately from the app dependencies:
 
 ```powershell
 npm install --no-save --package-lock=false playwright

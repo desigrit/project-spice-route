@@ -6,6 +6,7 @@
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>
         <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+        <ResourceDictionary Source="Themes/Elements.xaml" />
       </ResourceDictionary.MergedDictionaries>
 
       <ResourceDictionary.ThemeDictionaries>
@@ -16,6 +17,7 @@
           <SolidColorBrush x:Key="SpiceSubtle" Color="#ECEFEA" />
           <SolidColorBrush x:Key="SpiceAccent" Color="#123B59" />
           <SolidColorBrush x:Key="SpiceAccentHover" Color="#0D3049" />
+          <SolidColorBrush x:Key="SpiceAccentPressed" Color="#09283D" />
           <SolidColorBrush x:Key="SpiceAccentSoft" Color="#DDE8ED" />
           <SolidColorBrush x:Key="SpiceText" Color="#15354C" />
           <SolidColorBrush x:Key="SpiceTextSecondary" Color="#587083" />
@@ -33,6 +35,7 @@
           <SolidColorBrush x:Key="SpiceSubtle" Color="#193644" />
           <SolidColorBrush x:Key="SpiceAccent" Color="#F1E5C3" />
           <SolidColorBrush x:Key="SpiceAccentHover" Color="#FFF1CC" />
+          <SolidColorBrush x:Key="SpiceAccentPressed" Color="#D8CCAD" />
           <SolidColorBrush x:Key="SpiceAccentSoft" Color="#25495C" />
           <SolidColorBrush x:Key="SpiceText" Color="#F3EEE2" />
           <SolidColorBrush x:Key="SpiceTextSecondary" Color="#B3C2CC" />
@@ -50,6 +53,7 @@
           <SolidColorBrush x:Key="SpiceSubtle" Color="{ThemeResource SystemColorWindowColor}" />
           <SolidColorBrush x:Key="SpiceAccent" Color="{ThemeResource SystemColorHighlightColor}" />
           <SolidColorBrush x:Key="SpiceAccentHover" Color="{ThemeResource SystemColorHighlightColor}" />
+          <SolidColorBrush x:Key="SpiceAccentPressed" Color="{ThemeResource SystemColorHighlightColor}" />
           <SolidColorBrush x:Key="SpiceAccentSoft" Color="{ThemeResource SystemColorWindowColor}" />
           <SolidColorBrush x:Key="SpiceText" Color="{ThemeResource SystemColorWindowTextColor}" />
           <SolidColorBrush x:Key="SpiceTextSecondary" Color="{ThemeResource SystemColorWindowTextColor}" />
@@ -61,7 +65,7 @@
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
 
-      <Style x:Key="SpicePrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+      <Style x:Key="SpicePrimaryButtonStyle" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}">
         <Setter Property="Background" Value="{ThemeResource SpiceAccent}" />
         <Setter Property="Foreground" Value="{ThemeResource SpiceOnAccent}" />
         <Setter Property="BorderThickness" Value="0" />
@@ -70,6 +74,56 @@
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="MinHeight" Value="32" />
         <Setter Property="Padding" Value="12,5" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="Button">
+              <ContentPresenter x:Name="ContentPresenter"
+                  Background="{TemplateBinding Background}"
+                  BackgroundSizing="{TemplateBinding BackgroundSizing}"
+                  Foreground="{TemplateBinding Foreground}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  Content="{TemplateBinding Content}"
+                  ContentTemplate="{TemplateBinding ContentTemplate}"
+                  ContentTransitions="{TemplateBinding ContentTransitions}"
+                  CornerRadius="{TemplateBinding CornerRadius}"
+                  Padding="{TemplateBinding Padding}"
+                  HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                  VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                  AutomationProperties.AccessibilityView="Raw">
+                <ContentPresenter.BackgroundTransition>
+                  <BrushTransition Duration="0:0:0.083" />
+                </ContentPresenter.BackgroundTransition>
+                <VisualStateManager.VisualStateGroups>
+                  <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal" />
+                    <VisualState x:Name="PointerOver">
+                      <VisualState.Setters>
+                        <Setter Target="ContentPresenter.Background" Value="{ThemeResource SpiceAccentHover}" />
+                        <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource SpiceOnAccent}" />
+                      </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Pressed">
+                      <VisualState.Setters>
+                        <Setter Target="ContentPresenter.Background" Value="{ThemeResource SpiceAccentPressed}" />
+                        <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource SpiceOnAccent}" />
+                      </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="Disabled">
+                      <VisualState.Setters>
+                        <Setter Target="ContentPresenter.Background" Value="{ThemeResource AccentButtonBackgroundDisabled}" />
+                        <Setter Target="ContentPresenter.Foreground" Value="{ThemeResource AccentButtonForegroundDisabled}" />
+                      </VisualState.Setters>
+                    </VisualState>
+                  </VisualStateGroup>
+                </VisualStateManager.VisualStateGroups>
+              </ContentPresenter>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
       </Style>
       <Style x:Key="SpiceSecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
         <Setter Property="Background" Value="{ThemeResource SpiceSurface}" />
@@ -113,6 +167,10 @@
       <Style x:Key="SpiceMetaTextStyle" TargetType="TextBlock">
         <Setter Property="Foreground" Value="{ThemeResource SpiceTextSecondary}" />
         <Setter Property="FontSize" Value="11" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+      </Style>
+      <Style x:Key="SpiceBodyTextStyle" TargetType="TextBlock">
+        <Setter Property="Foreground" Value="{ThemeResource SpiceText}" />
         <Setter Property="TextWrapping" Value="Wrap" />
       </Style>
     </ResourceDictionary>

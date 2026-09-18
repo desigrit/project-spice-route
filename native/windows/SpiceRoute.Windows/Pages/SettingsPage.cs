@@ -3,6 +3,7 @@ using System.Linq;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 
 namespace SpiceRoute.Windows;
@@ -11,9 +12,10 @@ public sealed class SettingsPage : Page
 {
     private readonly SpiceRouteContext _context;
     private readonly JsonObject _draft;
-    private readonly Button _save = new() { Content = "Save settings", IsEnabled = false };
+    private readonly Button _save = Ui.Button("Save settings", primary: true);
+    private readonly Button _discard = Ui.TextButton("Discard changes");
     private readonly InfoBar _feedback = new() { IsOpen = false, IsClosable = true };
-    private readonly TextBlock _saved = NativePageUi.Text("", 12, true);
+    private readonly TextBlock _saved = Ui.Muted("", 12);
     private readonly DispatcherTimer _savedTimer = new() { Interval = TimeSpan.FromSeconds(4) };
     private bool _policyChanged;
     private bool _dirty;
@@ -22,78 +24,167 @@ public sealed class SettingsPage : Page
     {
         _context = context;
         _draft = (JsonObject)context.Config.DeepClone();
-        _save.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
-        var page = NativePageUi.PageGrid("Settings", _save, out var content);
-        var form = new StackPanel { Spacing = 24, MaxWidth = 820, HorizontalAlignment = HorizontalAlignment.Stretch };
+        _save.IsEnabled = false;
+        _discard.IsEnabled = false;
+        var page = NativePageUi.PageGrid("Settings", null, out var content);
+        content.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
+        content.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        var form = new StackPanel { Spacing = 24, MaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 12, 16) };
         form.Children.Add(_feedback);
-        form.Children.Add(_saved);
-        var device = Section(form, "This device");
-        var name = new TextBox { Header = "Device name", Text = Wire.Text(_draft, "deviceName"), MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Left };
+        var device = Group(form, "This device");
+        var name = new TextBox { Text = Wire.Text(_draft, "deviceName"), MinHeight = 32, HorizontalAlignment = HorizontalAlignment.Stretch };
+        AutomationProperties.SetName(name, "Device name");
         name.TextChanged += (_, _) => { _draft["deviceName"] = name.Text; Changed(); };
-        device.Children.Add(name);
-        device.Children.Add(Choice("Appearance", "theme", new[] { ("Use Windows setting", "system"), ("Light", "light"), ("Dark", "dark") }));
-        var cloud = Section(form, "Cloud drive");
-        cloud.Children.Add(NativePageUi.Text("Your drive's desktop app handles sign-in and cloud delivery.", secondary: true));
-        cloud.Children.Add(Choice("Provider", "cloudProvider", new[] { ("OneDrive", "oneDrive"), ("Google Drive", "googleDrive"), ("iCloud Drive", "iCloud"), ("Another folder", "custom") }));
-        cloud.Children.Add(Folder("Sync folder", "cloudRoot", "Only Spice Route snapshots go here. Keep live Codex data and project folders outside it."));
-        var folders = Section(form, "Local folders");
-        folders.Children.Add(Folder("Codex tasks and history", "codexHome", "The Codex data folder, usually .codex. Contains session metadata, history databases, and transcripts."));
-        folders.Children.Add(Folder("Projectless chat workspaces", "projectlessRoot", "Files and artifacts created in chats that do not belong to a project. This is separate from the history folder."));
-        folders.Children.Add(Folder("Default location for new restores", "projectsRoot", "A starting location only. Choose each project's actual folder in What to sync or during Pull."));
-        var projectLink = new HyperlinkButton { Content = "Choose individual project folders", HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(0) };
-        projectLink.Click += (_, _) => context.Navigate("selection"); folders.Children.Add(projectLink);
-        var policy = Section(form, "What files travel");
-        policy.Children.Add(Toggle("Include archived chats", "includeArchived", "Archived conversations follow your individual chat selections."));
-        policy.Children.Add(Toggle("Include project secrets and configuration", "includeSensitiveFiles", "Includes project .env files, credentials, keys, and certificates. They are readable in your chosen cloud folder. Codex account credentials remain local."));
-        policy.Children.Add(Toggle("Include dependencies and build outputs", "includeBuildOutputs", "Usually unnecessary on another PC. This can add large caches, packages, and compiled files to the handoff."));
-        var patterns = new TextBox { Header = "Additional file exclusions", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 82,
+        AddRow(device, SettingRow("\uE77B", "Device name", "Shown beside the handoffs saved from this PC.", name));
+        AddRow(device, Choice("\uE790", "Appearance", "Choose a theme or follow Windows.", "theme", new[] { ("Use Windows setting", "system"), ("Light", "light"), ("Dark", "dark") }));
+
+        var cloud = Group(form, "Cloud drive");
+        AddRow(cloud, Choice("\uE753", "Provider", "Your drive app handles sign-in and cloud delivery.", "cloudProvider", new[] { ("OneDrive", "oneDrive"), ("Google Drive", "googleDrive"), ("iCloud Drive", "iCloud"), ("Another folder", "custom") }));
+        AddRow(cloud, Folder("Sync folder", "cloudRoot", "Shared snapshots only. Keep active Codex data and projects outside this folder."));
+
+        var folders = Group(form, "Local folders");
+        AddRow(folders, Folder("Codex tasks and history", "codexHome", "The .codex folder containing history databases and conversation transcripts."));
+        AddRow(folders, Folder("Projectless chat workspaces", "projectlessRoot", "Working files and artifacts for chats outside a project."));
+        AddRow(folders, Folder("New project restores", "projectsRoot", "The starting location for incoming projects. Each project can use its own folder."));
+        var projectLink = Ui.TextButton("Manage project folders", "\uE76C");
+        projectLink.Click += async (_, _) =>
+        {
+            if (await ConfirmDiscardAsync()) context.Navigate("selection");
+        };
+        AddRow(folders, SettingRow("\uE8B7", "Individual projects", "Choose each project's folder in What to sync.", projectLink));
+
+        var policy = Group(form, "Content preferences");
+        AddRow(policy, Toggle("\uE81C", "Archived chats", "Include archived conversations selected in What to sync.", "includeArchived"));
+        AddRow(policy, Toggle("\uE72E", "Project secrets and configuration", "Include .env files, keys, and credentials in your cloud folder. Codex account credentials stay on this PC.", "includeSensitiveFiles"));
+        AddRow(policy, Toggle("\uE7B8", "Dependencies and build outputs", "Include packages, caches, and compiled files. These can make handoffs much larger.", "includeBuildOutputs"));
+
+        var exclusions = new StackPanel { Spacing = 10, Padding = new Thickness(40, 4, 0, 4) };
+        exclusions.Children.Add(Ui.Muted("Skip matching project files during Push. Enter one pattern per line.", 12));
+        var patterns = new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 86, MaxHeight = 180,
             Text = string.Join(Environment.NewLine, Wire.Array(Selection, "extraExcludePatterns").Select(n => n?.GetValue<string>()).Where(v => v is not null)),
-            PlaceholderText = "One pattern per line, for example **/local-backups/**" };
+            PlaceholderText = "For example, **/local-backups/**" };
+        AutomationProperties.SetName(patterns, "Additional file exclusions, one pattern per line");
         patterns.TextChanged += (_, _) =>
         {
             Selection["extraExcludePatterns"] = new JsonArray(patterns.Text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Select(p => (JsonNode?)JsonValue.Create(p.Trim())).ToArray());
             Changed(true);
         };
-        policy.Children.Add(patterns);
-        var compatibility = Section(form, "Codex compatibility");
-        compatibility.Children.Add(NativePageUi.Text(Wire.Text(context.Environment, "codexVersion", "Runtime not detected")));
-        compatibility.Children.Add(NativePageUi.Text(Wire.Text(Wire.Object(context.Environment, "compatibility"), "explanation", "Refresh Overview to check the configured Codex installation."), secondary: true));
-        var cleanup = new StackPanel { Spacing = 12 };
-        cleanup.Children.Add(NativePageUi.Text("Snapshots stay in your cloud folder until you explicitly remove them. Resetting cloud history keeps local Codex data and your sync choices.", secondary: true));
-        var reset = new Button { Content = "Reset cloud history…", HorizontalAlignment = HorizontalAlignment.Left };
+        exclusions.Children.Add(patterns);
+        policy.Children.Add(Details("\uE71C", "Additional exclusions", "Custom rules for project files", exclusions));
+
+        var maintenance = Group(form, "About and storage");
+        var version = Ui.Text(Wire.Text(context.Environment, "codexVersion", "Runtime not detected"), 13);
+        version.HorizontalAlignment = HorizontalAlignment.Right;
+        AddRow(maintenance, SettingRow("\uE946", "Codex compatibility", Wire.Text(Wire.Object(context.Environment, "compatibility"), "explanation", "Refresh Overview to check the configured Codex installation."), version));
+        var cleanup = new StackPanel { Spacing = 12, Padding = new Thickness(40, 4, 0, 4) };
+        cleanup.Children.Add(Ui.Muted("Shared snapshots remain in your cloud folder until you remove them. Resetting cloud history keeps local Codex data and your sync choices.", 12));
+        var reset = Ui.Button("Reset cloud history…");
         reset.Click += async (_, _) => await ResetCloudAsync();
         cleanup.Children.Add(reset);
-        form.Children.Add(new Expander { Header = "Cloud history", Content = cleanup, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
-        content.Children.Add(new ScrollViewer { Content = form, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled });
+        maintenance.Children.Add(Details("\uE74D", "Cloud history", "Remove older snapshots and stored content", cleanup));
+        var scroll = new ScrollViewer { Content = form, HorizontalContentAlignment = HorizontalAlignment.Left, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        content.Children.Add(scroll);
+
+        var footer = Ui.ColumnsWithSpacing(12, new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto);
+        footer.MaxWidth = 920;
+        footer.HorizontalAlignment = HorizontalAlignment.Left;
+        scroll.SizeChanged += (_, args) => form.Width = footer.Width = Math.Max(0, Math.Min(920, args.NewSize.Width - 12));
+        footer.Margin = new Thickness(0, 12, 12, 0);
+        footer.Style = Ui.Style("SpiceLineTopGridStyle");
+        footer.BorderThickness = new Thickness(0, 1, 0, 0);
+        footer.Padding = new Thickness(0, 12, 0, 0);
+        _saved.VerticalAlignment = VerticalAlignment.Center;
+        Ui.Add(footer, _saved);
+        Ui.Add(footer, _discard, column: 1);
+        Ui.Add(footer, _save, column: 2);
+        Grid.SetRow(footer, 1); content.Children.Add(footer);
         Content = page;
         _save.Click += async (_, _) => await SaveAsync();
+        _discard.Click += (_, _) => context.Navigate("settings");
         _savedTimer.Tick += (_, _) => { _saved.Text = ""; _savedTimer.Stop(); };
         Unloaded += (_, _) => _savedTimer.Stop();
     }
 
     private JsonObject Selection => NativePageUi.EnsureObject(_draft, "selection");
-    private void Changed(bool policy = false) { _dirty = true; _save.IsEnabled = true; _policyChanged |= policy; _saved.Text = "Unsaved changes"; }
+    private void Changed(bool policy = false)
+    {
+        _savedTimer.Stop();
+        _dirty = true; _save.IsEnabled = true; _discard.IsEnabled = true; _policyChanged |= policy; _saved.Text = "Unsaved changes";
+    }
     internal static StackPanel Section(StackPanel form, string title)
     {
         var group = new StackPanel { Spacing = 12 };
         group.Children.Add(NativePageUi.Text(title, 18)); form.Children.Add(group); return group;
     }
-    private StackPanel Choice(string label, string key, (string Label, string Value)[] options)
+    private static StackPanel Group(StackPanel form, string title)
     {
-        var block = new StackPanel { Spacing = 6 };
-        var combo = new ComboBox { Header = label, Width = 230 };
+        var section = new StackPanel { Spacing = 6 };
+        section.Children.Add(Ui.SectionTitle(title));
+        var rows = new StackPanel { Spacing = 0 };
+        section.Children.Add(rows); form.Children.Add(section);
+        return rows;
+    }
+    private static void AddRow(StackPanel group, FrameworkElement row)
+    {
+        if (group.Children.Count > 0) group.Children.Add(Ui.WithMargin(Ui.Rule(), new Thickness(42, 0, 0, 0)));
+        group.Children.Add(row);
+    }
+    private static Grid SettingRow(string glyph, string label, string description, FrameworkElement control)
+    {
+        var row = Ui.ColumnsWithSpacing(16, new GridLength(24), new GridLength(1, GridUnitType.Star), new GridLength(250));
+        row.Padding = new Thickness(2, 13, 0, 13);
+        row.MinHeight = 66;
+        row.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        row.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        var icon = Ui.Icon(glyph, 18);
+        icon.Style = Ui.Style("SpiceMutedIconStyle");
+        icon.VerticalAlignment = VerticalAlignment.Center;
+        Ui.Add(row, icon);
+        var copy = new StackPanel { Spacing = 3, VerticalAlignment = VerticalAlignment.Center };
+        copy.Children.Add(Ui.Text(label, 14));
+        copy.Children.Add(Ui.Muted(description, 12));
+        Ui.Add(row, copy, column: 1);
+        var controlHost = new Grid { MaxWidth = 280, VerticalAlignment = VerticalAlignment.Center };
+        controlHost.Children.Add(control);
+        Ui.Add(row, controlHost, column: 2);
+        row.SizeChanged += (_, args) =>
+        {
+            var narrow = args.NewSize.Width < 680;
+            row.ColumnDefinitions[2].Width = narrow ? new GridLength(0) : new GridLength(250);
+            Grid.SetColumnSpan(copy, narrow ? 2 : 1);
+            Grid.SetRow(controlHost, narrow ? 1 : 0);
+            Grid.SetColumn(controlHost, narrow ? 1 : 2);
+            Grid.SetColumnSpan(controlHost, narrow ? 2 : 1);
+            controlHost.HorizontalAlignment = narrow ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
+            controlHost.Margin = new Thickness(0, narrow ? 10 : 0, 0, 0);
+            controlHost.Width = narrow ? Math.Min(280, Math.Max(0, args.NewSize.Width - 42)) : double.NaN;
+        };
+        return row;
+    }
+    private static Expander Details(string glyph, string label, string description, FrameworkElement content)
+    {
+        var header = Ui.ColumnsWithSpacing(16, new GridLength(24), new GridLength(1, GridUnitType.Star));
+        var icon = Ui.Icon(glyph, 18); icon.Style = Ui.Style("SpiceMutedIconStyle"); icon.VerticalAlignment = VerticalAlignment.Center;
+        Ui.Add(header, icon);
+        var copy = new StackPanel { Spacing = 3 };
+        copy.Children.Add(Ui.Text(label, 14)); copy.Children.Add(Ui.Muted(description, 12));
+        Ui.Add(header, copy, column: 1);
+        return new Expander { Header = header, Content = content, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, 8, 0, 0) };
+    }
+    private Grid Choice(string glyph, string label, string description, string key, (string Label, string Value)[] options)
+    {
+        var combo = new ComboBox { MinHeight = 32, HorizontalAlignment = HorizontalAlignment.Stretch };
+        AutomationProperties.SetName(combo, label);
         foreach (var item in options) combo.Items.Add(new ComboBoxItem { Content = item.Label, Tag = item.Value });
         combo.SelectedIndex = Math.Max(0, Array.FindIndex(options, o => o.Value == Wire.Text(_draft, key)));
         combo.SelectionChanged += (_, _) => { _draft[key] = (combo.SelectedItem as ComboBoxItem)?.Tag?.ToString(); Changed(); };
-        block.Children.Add(combo); return block;
+        return SettingRow(glyph, label, description, combo);
     }
-    private StackPanel Folder(string title, string key, string description)
+    private Grid Folder(string title, string key, string description)
     {
-        var block = new StackPanel { Spacing = 4 };
-        block.Children.Add(NativePageUi.Text(title));
-        var control = NativePageUi.FolderControl(Wire.Text(_draft, key), Choose, $"Change {title.ToLowerInvariant()} folder");
-        block.Children.Add(control); block.Children.Add(NativePageUi.Text(description, 12, true));
-        return block;
+        var host = new Grid();
+        host.Children.Add(NativePageUi.FolderControl(Wire.Text(_draft, key), Choose, $"Change {title.ToLowerInvariant()} folder"));
+        return SettingRow("\uE8B7", title, description, host);
         async Task Choose()
         {
             try
@@ -101,17 +192,24 @@ public sealed class SettingsPage : Page
                 var path = await _context.PickFolderAsync(Wire.Text(_draft, key));
                 if (string.IsNullOrEmpty(path)) return;
                 _draft[key] = path; Changed();
-                block.Children[1] = NativePageUi.FolderControl(path, Choose, $"Change {title.ToLowerInvariant()} folder");
+                host.Children.Clear();
+                host.Children.Add(NativePageUi.FolderControl(path, Choose, $"Change {title.ToLowerInvariant()} folder"));
             }
             catch (Exception error) { NativePageUi.Error(_feedback, error); }
         }
     }
-    private StackPanel Toggle(string label, string key, string explanation)
+    private Grid Toggle(string glyph, string label, string explanation, string key)
     {
-        var group = new StackPanel { Spacing = 4 };
-        var toggle = new ToggleSwitch { Header = label, IsOn = Wire.Bool(Selection, key) };
+        var toggle = new ToggleSwitch { IsOn = Wire.Bool(Selection, key), HorizontalAlignment = HorizontalAlignment.Right };
+        AutomationProperties.SetName(toggle, label);
         toggle.Toggled += (_, _) => { Selection[key] = toggle.IsOn; Changed(true); };
-        group.Children.Add(toggle); group.Children.Add(NativePageUi.Text(explanation, 12, true)); return group;
+        return SettingRow(glyph, label, explanation, toggle);
+    }
+    private async Task<bool> ConfirmDiscardAsync()
+    {
+        if (!_dirty) return true;
+        var dialog = new ContentDialog { XamlRoot = XamlRoot, Title = "Discard unsaved settings?", Content = "Your saved settings will stay as they are.", PrimaryButtonText = "Discard changes", CloseButtonText = "Keep editing", DefaultButton = ContentDialogButton.Close };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
     private async Task SaveAsync()
     {
@@ -122,7 +220,7 @@ public sealed class SettingsPage : Page
         {
             if (_policyChanged) Selection["revision"] = Guid.NewGuid().ToString();
             await _context.SaveConfigAsync((JsonObject)_draft.DeepClone());
-            _dirty = false; _policyChanged = false; _feedback.IsOpen = false; _saved.Text = "Settings saved.";
+            _dirty = false; _policyChanged = false; _discard.IsEnabled = false; _feedback.IsOpen = false; _saved.Text = "Settings saved.";
             _savedTimer.Stop(); _savedTimer.Start();
         }
         catch (Exception error) { _save.IsEnabled = true; NativePageUi.Error(_feedback, error); }

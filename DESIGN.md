@@ -14,7 +14,8 @@ Review occupies a full page. Files, Attention, and Notes use separate tabs. A pr
 
 - Remove Open Codex controls throughout the application.
 - Label the review action **Push**, retaining its up-arrow icon. Codex closure remains an execution check; the button does not need to explain that implementation detail.
-- Preserve the selected Workspace arrangement and the supplied ship icon.
+- Preserve the selected Workspace arrangement. Keep the native hamburger toggle at the top of the navigation rail and the ship icon in the title bar.
+- Simplify the ship into flat navy and ivory shapes. Present options for selection before replacing installed brand assets.
 - Do not use em dashes in public content.
 
 ## Behavior
@@ -26,5 +27,9 @@ Use a readable date/time plus the unique suffix for handoffs. Keep copied identi
 When this installation has no saved baseline, Push can replace every visible cloud head after an explicit review. The review states that only the current selection will appear in the new handoff. Older immutable objects remain stored until the user chooses Reset cloud history, which is offered as a separate action when storage needs to be reclaimed.
 
 Use native keyboard navigation, automation names, virtualization, DPI behavior, and system theme resources. Avoid blocking the UI thread with engine work or creating child console windows. Large model files remain visible and selected unless the user changes selection.
+
+Primary actions use the native accent-button template, including hover, pressed, disabled, and keyboard focus states. Keep the accent fill on hover. All foreground and surface brushes must resolve through theme resources, including when appearance changes inside Settings.
+
+What to sync uses visible scope tabs and aligned project rows: identity and selected size, local folder with an ellipsis action, and sync mode. Settings uses grouped icon-led rows with controls on the right, moving below the label at narrower widths. Advanced exclusions and cloud cleanup sit in expanders. Save feedback stays brief and local to its page.
 
 Reference: `docs/design/native-options/b-board.png`. The reference contains illustrative data, not a live transfer.

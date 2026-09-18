@@ -13,7 +13,7 @@ public sealed partial class MainWindow : Window
     private bool navigating;
     private string currentPage = "overview";
 
-    public MainWindow()
+    public MainWindow(bool visualProbe = false)
     {
         InitializeComponent();
         Title = "Spice Route";
@@ -23,7 +23,8 @@ public sealed partial class MainWindow : Window
         SetTitleBar(TitleStrip);
         AppWindow.Resize(new SizeInt32(1180, 820));
         AppWindow.SetIcon(Path.Combine(System.AppContext.BaseDirectory, "Assets", "SpiceRoute.ico"));
-        context = new(this) { NavigateAction = Navigate };
+        context = visualProbe ? new(this, new VisualProbeFixture()) : new(this);
+        context.NavigateAction = Navigate;
         context.MessageRequested += ShowMessage;
         context.StateChanged += ApplyState;
         noticeTimer.Tick += (_, _) => { Notice.IsOpen = false; noticeTimer.Stop(); };
@@ -34,7 +35,7 @@ public sealed partial class MainWindow : Window
             ShowMessage("An operation is running. Wait for it to finish, or cancel the handoff at a safe checkpoint, before closing Spice Route.", true);
         };
         Closed += async (_, _) => { noticeTimer.Stop(); await context.Engine.DisposeAsync(); };
-        Root.Loaded += async (_, _) => await InitializeAsync();
+        if (!visualProbe) Root.Loaded += async (_, _) => await InitializeAsync();
     }
 
     private async Task InitializeAsync()
@@ -74,8 +75,21 @@ public sealed partial class MainWindow : Window
     internal void RunStartupProbe()
     {
         PageHost.Content = new OverviewPage(context);
+        PageHost.Content = new SelectionPage(context);
+        PageHost.Content = new SettingsPage(context);
+        PageHost.Content = new SetupPage(context);
         PageHost.Content = new ReviewPage(context);
         PageHost.Content = null;
+    }
+
+    internal FrameworkElement VisualProbeRoot => Root;
+    internal NavigationView VisualProbeNavigation => Navigation;
+    internal SpiceRouteContext VisualProbeContext => context;
+    internal void ShowVisualProbePage(string page, ElementTheme theme)
+    {
+        context.Config["theme"] = theme == ElementTheme.Dark ? "dark" : "light";
+        ApplyState();
+        Navigate(page);
     }
 
     private void Navigate(string key)

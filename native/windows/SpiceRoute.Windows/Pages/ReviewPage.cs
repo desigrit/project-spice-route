@@ -85,7 +85,7 @@ public sealed class ReviewPage : Page
         Ui.Add(bottom, state);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         actions.Children.Add(cancel); actions.Children.Add(execute); Ui.Add(bottom, actions, column: 1);
-        Ui.Add(root, new Border { BorderBrush = Ui.Resource("SpiceLine"), BorderThickness = new Thickness(0, 1, 0, 0), Child = bottom }, 6);
+        Ui.Add(root, new Border { Style = Ui.Style("SpiceLineTopBorderStyle"), BorderThickness = new Thickness(0, 1, 0, 0), Child = bottom }, 6);
         Content = root;
         execute.Click += async (_, _) => await ExecuteAsync();
         refresh.Click += async (_, _) => await PrepareAsync();

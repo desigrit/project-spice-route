@@ -9,7 +9,7 @@ public sealed class SpiceRouteContext
 {
     private int generation;
     public Window Window { get; }
-    public EngineClient Engine { get; } = new();
+    public EngineClient Engine { get; }
     public JsonObject Config { get; private set; } = new();
     public JsonObject Environment { get; private set; } = new();
     public JsonObject Catalog { get; private set; } = new();
@@ -21,7 +21,20 @@ public sealed class SpiceRouteContext
     public event Action? StateChanged;
     public event Action<string, bool>? MessageRequested;
     public Action<string>? NavigateAction { get; set; }
-    public SpiceRouteContext(Window window) => Window = window;
+    public SpiceRouteContext(Window window)
+    {
+        Window = window;
+        Engine = new();
+    }
+    internal SpiceRouteContext(Window window, VisualProbeFixture fixture)
+    {
+        Window = window;
+        Engine = new(fixture.Respond);
+        Config = Wire.Clone(fixture.Config);
+        Environment = Wire.Clone(fixture.Environment);
+        Catalog = Wire.Clone(fixture.Catalog);
+        Status = Wire.Clone(fixture.Status);
+    }
     public void Navigate(string key) => NavigateAction?.Invoke(key);
     public void ShowMessage(string message, bool error = false) => MessageRequested?.Invoke(message, error);
     public void NotifyChanged() => StateChanged?.Invoke();

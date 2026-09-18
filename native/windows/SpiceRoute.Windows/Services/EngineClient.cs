@@ -18,6 +18,16 @@ public sealed class EngineClient : IAsyncDisposable
     private readonly string executablePath;
     private readonly string dataDirectory;
     private readonly ConcurrentQueue<string> diagnostics = new();
+    private readonly Func<string, JsonObject?, JsonNode?>? fixtureResponder;
+
+    internal bool HasStartedProcess => process is not null;
+
+    internal EngineClient(Func<string, JsonObject?, JsonNode?> fixtureResponder)
+    {
+        this.fixtureResponder = fixtureResponder;
+        executablePath = "";
+        dataDirectory = "";
+    }
 
     public EngineClient(string? executablePath = null, string? dataDirectory = null)
     {
@@ -37,6 +47,7 @@ public sealed class EngineClient : IAsyncDisposable
 
     public void Start()
     {
+        if (fixtureResponder is not null) return;
         if (process is not null) return;
         ObjectDisposedException.ThrowIf(disposed, this);
         var executable = executablePath;
@@ -57,6 +68,12 @@ public sealed class EngineClient : IAsyncDisposable
 
     public async Task<JsonNode?> CallAsync(string method, JsonObject? parameters = null, CancellationToken cancellationToken = default)
     {
+        if (fixtureResponder is not null)
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            cancellationToken.ThrowIfCancellationRequested();
+            return fixtureResponder(method, parameters)?.DeepClone();
+        }
         Start();
         var id = Interlocked.Increment(ref nextId).ToString(System.Globalization.CultureInfo.InvariantCulture);
         var completion = new TaskCompletionSource<JsonNode?>(TaskCreationOptions.RunContinuationsAsynchronously);

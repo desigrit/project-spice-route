@@ -150,12 +150,15 @@ public sealed class OverviewPage : Page
         var identity = Ui.ColumnsWithSpacing(13, new GridLength(28), new GridLength(1, GridUnitType.Star));
         identity.Margin = new Thickness(0, 13, 0, 0);
         var icon = Ui.Icon("\uE7F4", 24);
-        icon.Foreground = Ui.Resource("SpiceAccent");
+        icon.Style = Ui.Style("SpiceAccentIconStyle");
         icon.VerticalAlignment = VerticalAlignment.Top;
         Ui.Add(identity, icon);
         var identityText = new StackPanel { Spacing = 2 };
         identityText.Children.Add(Ui.Text(Wire.Text(context.Config, "deviceName", "This PC"), 17, true));
-        identityText.Children.Add(Ui.Muted(Wire.Text(context.Status, "message", "Connect a cloud folder to begin."), 11));
+        var deviceMessage = ready && context.Status["latestSnapshot"] is not JsonObject
+            ? "Choose what to sync, then Push to save your first handoff."
+            : Wire.Text(context.Status, "message", "Connect a cloud folder to begin.");
+        identityText.Children.Add(Ui.Muted(deviceMessage, 11));
         Ui.Add(identity, identityText, column: 1);
         section.Children.Add(identity);
 
@@ -166,7 +169,7 @@ public sealed class OverviewPage : Page
             {
                 var callout = new Border
                 {
-                    Background = Ui.Resource("SpiceSubtle"),
+                    Style = Ui.Style("SpiceSubtleBorderStyle"),
                     CornerRadius = new CornerRadius(5),
                     Padding = new Thickness(10, 8, 10, 8),
                     Margin = new Thickness(0, 12, 0, 0)
@@ -206,7 +209,7 @@ public sealed class OverviewPage : Page
         section.Children.Add(new Border
         {
             Margin = new Thickness(0, 7, 0, 0),
-            BorderBrush = Ui.Resource("SpiceLine"),
+            Style = Ui.Style("SpiceLineBottomBorderStyle"),
             BorderThickness = new Thickness(0, 1, 0, 0),
             Padding = new Thickness(0, 10, 0, 0),
             Child = selectionRow
@@ -231,7 +234,7 @@ public sealed class OverviewPage : Page
         row.MinHeight = 43;
         row.Padding = new Thickness(0, 6, 0, 5);
         var icon = Ui.Icon(glyph, 15);
-        icon.Foreground = Ui.Resource("SpiceAccent");
+        icon.Style = Ui.Style("SpiceAccentIconStyle");
         icon.VerticalAlignment = VerticalAlignment.Top;
         icon.Margin = new Thickness(0, 2, 0, 0);
         Ui.Add(row, icon);
@@ -248,7 +251,7 @@ public sealed class OverviewPage : Page
         cloud.Children.Add(Ui.SectionTitle("Cloud folder"));
         var provider = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 12, 0, 0) };
         var cloudIcon = Ui.Icon("\uE753", 15);
-        cloudIcon.Foreground = Ui.Resource("SpiceAccent");
+        cloudIcon.Style = Ui.Style("SpiceAccentIconStyle");
         provider.Children.Add(cloudIcon);
         provider.Children.Add(Ui.Text(ProviderName(Wire.Text(context.Config, "cloudProvider")), 12, true));
         cloud.Children.Add(provider);
@@ -287,7 +290,7 @@ public sealed class OverviewPage : Page
 
         return new Border
         {
-            Background = Ui.Resource("SpiceSubtle"),
+            Style = Ui.Style("SpiceSubtleBorderStyle"),
             Padding = new Thickness(19, 17, 19, 17),
             CornerRadius = new CornerRadius(6),
             Child = cloud,
@@ -329,7 +332,7 @@ public sealed class OverviewPage : Page
         row.MinHeight = 40;
         row.Padding = new Thickness(4, 7, 4, 7);
         var icon = Ui.Icon(Wire.Text(handoff, "id") == Wire.Text(context.Status, "lastAppliedSnapshotId") ? "\uE73E" : "\uE753", 13);
-        icon.Foreground = Ui.Resource("SpiceAccent");
+        icon.Style = Ui.Style("SpiceAccentIconStyle");
         icon.VerticalAlignment = VerticalAlignment.Center;
         Ui.Add(row, icon);
         Ui.Add(row, Ui.WithAlignment(Ui.Muted(Wire.Time(Wire.Text(handoff, "createdAt")), 10), VerticalAlignment.Center), column: 1);
@@ -341,7 +344,7 @@ public sealed class OverviewPage : Page
             10), VerticalAlignment.Center, HorizontalAlignment.Right), column: 3);
         return new Border
         {
-            BorderBrush = Ui.Resource("SpiceLine"),
+            Style = Ui.Style("SpiceLineBottomBorderStyle"),
             BorderThickness = new Thickness(0, 0, 0, 1),
             Child = row
         };

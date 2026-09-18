@@ -22,7 +22,7 @@ public sealed class SetupPage : Page
         // Start from the complete engine config. Device identity, exclusions,
         // path mappings, and existing policy survive setup and app upgrades.
         _draft = (JsonObject)context.Config.DeepClone();
-        _continue.Style = (Style)Application.Current.Resources["AccentButtonStyle"];
+        _continue.Style = Ui.Style("SpicePrimaryButtonStyle");
         if (string.IsNullOrWhiteSpace(Wire.Text(_draft, "codexHome")) && !string.IsNullOrEmpty(Wire.Text(context.Environment, "codexHome")))
             _draft["codexHome"] = Wire.Text(context.Environment, "codexHome");
         var page = NativePageUi.PageGrid("Welcome to Spice Route", null, out var content);
