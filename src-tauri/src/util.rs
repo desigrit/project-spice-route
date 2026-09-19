@@ -143,9 +143,54 @@ pub fn directory_size(path: &Path) -> u64 {
 }
 
 pub fn paths_overlap(a: &Path, b: &Path) -> bool {
-    let a = dunce::canonicalize(a).unwrap_or_else(|_| a.to_path_buf());
-    let b = dunce::canonicalize(b).unwrap_or_else(|_| b.to_path_buf());
+    let a = resolve_for_overlap(a);
+    let b = resolve_for_overlap(b);
     path_starts_with(&a, &b) || path_starts_with(&b, &a)
+}
+
+/// Resolve links in the nearest existing ancestor while retaining any missing
+/// suffix. This keeps comparisons consistent when a platform aliases a common
+/// root, such as `/var` pointing at `/private/var` on macOS, and the project
+/// folder being validated has not been created yet.
+fn resolve_for_overlap(path: &Path) -> PathBuf {
+    for ancestor in path.ancestors() {
+        if let Ok(mut resolved) = dunce::canonicalize(ancestor) {
+            if let Ok(suffix) = path.strip_prefix(ancestor) {
+                for component in suffix.components() {
+                    match component {
+                        Component::Normal(_) => resolved.push(component.as_os_str()),
+                        Component::CurDir => {}
+                        Component::ParentDir => {
+                            resolved.pop();
+                        }
+                        Component::Prefix(_) | Component::RootDir => {}
+                    }
+                }
+                return resolved;
+            }
+        }
+    }
+    lexically_normalized(path)
+}
+
+fn lexically_normalized(path: &Path) -> PathBuf {
+    let mut result = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                result.push(component.as_os_str());
+            }
+            Component::CurDir => {}
+            Component::ParentDir => match result.components().next_back() {
+                Some(Component::Normal(_)) => {
+                    result.pop();
+                }
+                Some(Component::ParentDir) | None if !result.has_root() => result.push(".."),
+                _ => {}
+            },
+        }
+    }
+    result
 }
 
 fn path_starts_with(path: &Path, base: &Path) -> bool {
@@ -194,6 +239,26 @@ mod tests {
         assert!(!paths_overlap(
             Path::new(r"C:\Users\Example\Cloud"),
             Path::new(r"C:\Users\Example\Cloudy")
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn overlap_resolves_links_before_appending_missing_folders() {
+        use std::os::unix::fs::symlink;
+
+        let fixture = tempfile::tempdir().unwrap();
+        let real = fixture.path().join("real");
+        let nested = real.join("nested");
+        let alias = fixture.path().join("alias");
+        fs::create_dir_all(&nested).unwrap();
+        symlink(&nested, &alias).unwrap();
+
+        assert!(paths_overlap(&real, &alias.join("missing/project")));
+        assert!(!paths_overlap(&real.join("first"), &alias.join("second")));
+        assert!(paths_overlap(
+            &real.join("sibling"),
+            &alias.join("../sibling")
         ));
     }
 }

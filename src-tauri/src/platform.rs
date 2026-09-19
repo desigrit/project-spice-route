@@ -489,13 +489,17 @@ pub fn codex_version(executable: Option<&Path>) -> Option<String> {
 /// Run a console tool without creating a console window in the desktop app.
 /// Callers still configure and capture stdin/stdout/stderr normally.
 pub(crate) fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
-    let mut command = Command::new(program);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        let mut command = Command::new(program);
         command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        command
     }
-    command
+    #[cfg(not(windows))]
+    {
+        Command::new(program)
+    }
 }
 
 pub fn open_codex() -> Result<()> {
@@ -810,7 +814,9 @@ mod tests {
         );
         let system_bundle_end = candidates
             .iter()
-            .position(|path| path == Path::new("/Applications/Codex.app/Contents/Resources/codex/codex"))
+            .position(|path| {
+                path == Path::new("/Applications/Codex.app/Contents/Resources/codex/codex")
+            })
             .unwrap();
         let standalone_start = candidates
             .iter()
