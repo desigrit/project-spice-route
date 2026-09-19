@@ -1,0 +1,51 @@
+name: Publish Spice Route 1.5.2 assets
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish-1.5.2-assets.yml
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download verified desktop artifacts
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: desigrit/project-spice-route
+          run-id: 35457842725
+          path: release-artifacts
+
+      - name: Create uniquely named release bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release-bundles
+          for directory in release-artifacts/*; do
+            name="$(basename "$directory")"
+            (cd "$directory" && zip -q -r "../../release-bundles/${name}.zip" .)
+          done
+          test "$(find release-bundles -maxdepth 1 -type f -name '*.zip' | wc -l)" -eq 4
+
+      - name: Publish release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! gh release view v1.5.2 >/dev/null 2>&1; then
+            gh release create v1.5.2 \
+              --repo desigrit/project-spice-route \
+              --title "Spice Route 1.5.2" \
+              --notes "Windows ARM64 startup hardening and Codex patch-runtime compatibility. The four native packages passed the release workflow before publication."
+          fi
+          gh release upload v1.5.2 release-bundles/*.zip \
+            --repo desigrit/project-spice-route \
+            --clobber
