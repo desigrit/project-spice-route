@@ -149,6 +149,10 @@ jobs:
       - name: Lint sync engine
         run: cargo clippy --release --manifest-path src-tauri/core/Cargo.toml --target ${{ matrix.rust_target }} --all-targets -- -D warnings
 
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis --no-progress --yes
+
       - name: Build native installer and run startup probe
         shell: pwsh
         run: >-

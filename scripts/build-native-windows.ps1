@@ -254,19 +254,41 @@ if (-not $SkipStartupProbe -and $canRunTarget) {
         $engineProbe = [Diagnostics.Process]::Start($engineProbeInfo)
         if (-not $engineProbe) { throw 'The packaged sync engine could not start.' }
         $engineProbe.StandardInput.WriteLine('{"id":"startup","method":"get_protocol_info","params":{}}')
-        $engineProbe.StandardInput.Close()
-        if (-not $engineProbe.WaitForExit(15000)) {
+        $engineProbe.StandardInput.Flush()
+        $responseTask = $engineProbe.StandardOutput.ReadLineAsync()
+        if (-not $responseTask.Wait(15000)) {
             $engineProbe.Kill($true)
             throw 'The packaged sync engine did not answer its startup check within 15 seconds.'
         }
-        $engineOutput = $engineProbe.StandardOutput.ReadToEnd()
+        $engineOutput = $responseTask.Result
+        # Keep stdin open until the worker has returned its response. Closing it
+        # earlier asks the engine to cancel outstanding work and can race a fast
+        # one-request probe on slower ARM computers.
+        $engineProbe.StandardInput.Close()
+        if (-not $engineProbe.WaitForExit(15000)) {
+            $engineProbe.Kill($true)
+            throw 'The packaged sync engine did not stop after its startup check.'
+        }
         $engineError = $engineProbe.StandardError.ReadToEnd()
         if ($engineProbe.ExitCode -ne 0) {
             throw "The packaged sync engine failed its startup check with exit code $($engineProbe.ExitCode): $engineError"
         }
-        $engineResponse = $engineOutput.Trim() | ConvertFrom-Json -ErrorAction Stop
-        if ($engineResponse.id -ne 'startup' -or $engineResponse.result.protocolVersion -ne 1) {
-            throw 'The packaged sync engine returned an invalid startup response.'
+        if ([string]::IsNullOrWhiteSpace($engineOutput)) {
+            throw "The packaged sync engine returned no startup response: $engineError"
+        }
+        $engineResponse = $engineOutput | ConvertFrom-Json -ErrorAction Stop
+        $resultProperty = $engineResponse.PSObject.Properties['result']
+        $result = if ($resultProperty) { $resultProperty.Value } else { $null }
+        if ($engineResponse.id -ne 'startup' -or -not $result -or $result.protocolVersion -ne 1) {
+            $errorProperty = $engineResponse.PSObject.Properties['error']
+            $engineMessage = if ($errorProperty -and $errorProperty.Value) {
+                $messageProperty = $errorProperty.Value.PSObject.Properties['message']
+                if ($messageProperty) { $messageProperty.Value } else { $null }
+            } else {
+                $null
+            }
+            if (-not $engineMessage) { $engineMessage = 'The response did not contain protocol version 1.' }
+            throw "The packaged sync engine returned an invalid startup response: $engineMessage"
         }
     } finally {
         if ($engineProbe) { $engineProbe.Dispose() }
