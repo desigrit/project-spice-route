@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+$')]
-    [string]$Version = '1.4.4',
+    [string]$Version = '1.4.5',
     [string]$EnginePath,
     [string]$NsisPath,
     [string]$CrtDirectory,

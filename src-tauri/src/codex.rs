@@ -11,6 +11,7 @@ use rusqlite::types::{Value, ValueRef};
 use rusqlite::{params_from_iter, Connection, OpenFlags, OptionalExtension};
 use serde_json::{Map, Value as JsonValue};
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::fs::File;
@@ -18,8 +19,8 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-pub const ADAPTER_NAME: &str = "codex-state-v5.52-54/history-v1.6";
-pub const SUPPORTED_CODEX_BUILDS: &[&str] = &["0.153.4", "0.154.0-alpha.6.2"];
+pub const ADAPTER_NAME: &str = "codex-state-v5.52-54-55/history-v1.6";
+pub const SUPPORTED_CODEX_BUILDS: &[&str] = &["0.153.4", "0.154.0-alpha.6.2", "0.155.0-alpha.9.2"];
 const LOCAL_ONLY_THREAD_COLUMNS: &[&str] = &["sandbox_policy", "approval_mode", "agent_path"];
 const SAFE_IMPORTED_SANDBOX_POLICY: &str =
     r#"{"type":"managed","file_system":{"type":"restricted","entries":[]},"network":"restricted"}"#;
@@ -39,6 +40,50 @@ const HISTORY_THREAD_TABLES: &[(&str, &str)] = &[
     ("thread_turns", "thread_id"),
     ("thread_history_projection_state", "thread_id"),
 ];
+
+// Keep portable rows in the legacy artifact representation so an unchanged chat
+// has the same fingerprint before and after Codex's schema 55 rename.
+fn artifact_table(state_migration: Option<i64>) -> &'static str {
+    match state_migration {
+        Some(55) => "thread_attachments",
+        _ => "thread_artifacts",
+    }
+}
+
+fn state_storage_table(table: &str, state_migration: Option<i64>) -> &str {
+    if table == "thread_artifacts" {
+        artifact_table(state_migration)
+    } else {
+        table
+    }
+}
+
+fn rename_artifact_type(rows: &mut [DatabaseRow], from: &str, to: &str) -> Result<()> {
+    for row in rows {
+        if row.values.contains_key(to) {
+            return Err(SpiceError::UnsupportedCodex(format!(
+                "The attachment row contains an unexpected {to} column. Nothing was discarded."
+            )));
+        }
+        if let Some(value) = row.values.remove(from) {
+            row.values.insert(to.to_string(), value);
+        }
+    }
+    Ok(())
+}
+
+fn state_rows_for_storage<'a>(
+    table: &str,
+    rows: &'a [DatabaseRow],
+    state_migration: Option<i64>,
+) -> Result<Cow<'a, [DatabaseRow]>> {
+    if table != "thread_artifacts" || state_migration != Some(55) {
+        return Ok(Cow::Borrowed(rows));
+    }
+    let mut rows = rows.to_vec();
+    rename_artifact_type(&mut rows, "artifact_type", "attachment_type")?;
+    Ok(Cow::Owned(rows))
+}
 
 #[derive(Clone, Debug)]
 pub struct PendingFile {
@@ -101,7 +146,7 @@ pub fn inspect(home: &Path) -> Result<CompatibilityInfo> {
         "projects",
         "project_roots",
         "thread_sections",
-        "thread_artifacts",
+        artifact_table(state_migration),
         "thread_dynamic_tools",
         "thread_spawn_edges",
     ];
@@ -139,10 +184,14 @@ pub fn inspect(home: &Path) -> Result<CompatibilityInfo> {
     };
     let explanation = if supported {
         format!("Database schema {}/6 matches a tested storage profile, including indexes and triggers.", state_migration.unwrap_or_default())
+    } else if !crate::compatibility::PROFILES
+        .iter()
+        .any(|p| Some(p.state) == state_migration)
+        || history_migration != Some(6)
+    {
+        format!("Found database migrations {}/{}; tested profiles are 52/6, 54/6, and 55/6. Update Spice Route for this Codex format. Push and Pull remain blocked.", state_migration.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()), history_migration.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()))
     } else if !missing.is_empty() {
         format!("Required tables are missing: {}. Diagnostics are available, but Push and Pull are blocked.", missing.join(", "))
-    } else if !matches!(state_migration, Some(52 | 54)) || history_migration != Some(6) {
-        format!("Found database migrations {}/{}; tested profiles are 52/6 and 54/6. Update Spice Route for this Codex format. Push and Pull remain blocked.", state_migration.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()), history_migration.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()))
     } else {
         format!("Database migrations match, but the layout, triggers, or migration completion do not match a tested profile (fingerprint {fingerprint}). Export a compatibility report for an adapter update. Push and Pull remain blocked.")
     };
@@ -185,7 +234,7 @@ pub fn with_build_gate(
         compatibility.supported = false;
         compatibility.explanation = match version {
             Some(version) => format!(
-                "Runtime {version} and database schema {}/{} are not a tested pair. Tested pairs: 0.153.4 with 52/6; 0.154.0-alpha.6.2 with 54/6. Update Spice Route, or finish updating and restart Codex if an update is pending.",
+                "Runtime {version} and database schema {}/{} are not a tested pair. Tested pairs: 0.153.4 with 52/6; 0.154.0-alpha.6.2 with 54/6; 0.155.0-alpha.9.2 with 55/6. Update Spice Route, or finish updating and restart Codex if an update is pending.",
                 compatibility.state_migration.unwrap_or_default(), compatibility.history_migration.unwrap_or_default()
             ),
             None => format!(
@@ -224,7 +273,7 @@ pub fn transfer_issues(
             thread.state_rows.get("threads").into_iter().flatten().any(|row|
                 row.values.get(*field).is_some_and(|value| !matches!(value, SqlValue::Null)))
         }).collect();
-        (!fields.is_empty()).then(|| format!("Chat ‘{}’ contains newer Codex fields ({}). This destination's schema 52 cannot preserve them. Update Codex on this PC to the supported 54/6 build, or exclude this chat and Push again from the source. No data has been changed.", thread.title, fields.join(", ")))
+        (!fields.is_empty()).then(|| format!("Chat ‘{}’ contains newer Codex fields ({}). This destination's schema 52 cannot preserve them. Update Codex on this PC to a supported 54/6 or 55/6 build, or exclude this chat and Push again from the source. No data has been changed.", thread.title, fields.join(", ")))
     }).collect()
 }
 
@@ -880,10 +929,12 @@ pub fn export_selected(
     for summary in selected_threads {
         let mut state_rows = BTreeMap::new();
         for (table, key) in STATE_THREAD_TABLES {
-            state_rows.insert(
-                (*table).to_string(),
-                query_rows_eq(&state, table, key, &summary.id)?,
-            );
+            let storage_table = state_storage_table(table, compatibility.state_migration);
+            let mut rows = query_rows_eq(&state, storage_table, key, &summary.id)?;
+            if *table == "thread_artifacts" && compatibility.state_migration == Some(55) {
+                rename_artifact_type(&mut rows, "attachment_type", "artifact_type")?;
+            }
+            state_rows.insert((*table).to_string(), rows);
         }
         let edges = state_rows
             .entry("thread_spawn_edges".to_string())
@@ -1632,7 +1683,9 @@ pub fn apply_bundle(
                     "Unknown source table: {table}"
                 )));
             }
-            validate_row_columns(&state, table, rows)?;
+            let storage_table = state_storage_table(table, compatibility.state_migration);
+            let storage_rows = state_rows_for_storage(table, rows, compatibility.state_migration)?;
+            validate_row_columns(&state, storage_table, &storage_rows)?;
         }
         for (table, rows) in &thread.history_rows {
             if !HISTORY_THREAD_TABLES.iter().any(|(name, _)| name == table) {
@@ -1673,7 +1726,10 @@ pub fn apply_bundle(
                     [thread_id],
                 )?;
             }
-            for table in ["thread_artifacts", "thread_dynamic_tools"] {
+            for table in [
+                artifact_table(compatibility.state_migration),
+                "thread_dynamic_tools",
+            ] {
                 state.execute(
                     &format!("DELETE FROM \"{table}\" WHERE thread_id = ?1"),
                     [thread_id],
@@ -1742,7 +1798,10 @@ pub fn apply_bundle(
                 rewrite_local_image_paths_in_rows(&mut state_rows, replacements);
                 rewrite_local_image_paths_in_rows(&mut history_rows, replacements);
             }
-            for table in ["thread_artifacts", "thread_dynamic_tools"] {
+            for table in [
+                artifact_table(compatibility.state_migration),
+                "thread_dynamic_tools",
+            ] {
                 state.execute(
                     &format!("DELETE FROM \"{table}\" WHERE thread_id = ?1"),
                     [&thread.id],
@@ -1779,10 +1838,13 @@ pub fn apply_bundle(
                 "thread_dynamic_tools",
                 "thread_spawn_edges",
             ] {
+                let rows = state_rows.get(table).map(Vec::as_slice).unwrap_or(&[]);
+                let storage_rows =
+                    state_rows_for_storage(table, rows, compatibility.state_migration)?;
                 upsert_rows(
                     &state,
-                    table,
-                    state_rows.get(table).map(Vec::as_slice).unwrap_or(&[]),
+                    state_storage_table(table, compatibility.state_migration),
+                    &storage_rows,
                     None,
                 )?;
             }
@@ -2527,8 +2589,14 @@ mod tests {
              VALUES(?1, ?2, 1, 1, ?3, ?4, ?4, ?4, ?4, ?5, 0, 1, NULL, '{\"type\":\"disabled\"}', 'never', 'source-agent.toml', 'cli', 'openai')",
             rusqlite::params![id, rollout.to_string_lossy(), cwd.to_string_lossy(), title, project_id],
         ).unwrap();
+        let table = artifact_table(migration_version(&state));
+        let type_column = if table == "thread_attachments" {
+            "attachment_type"
+        } else {
+            "artifact_type"
+        };
         state.execute(
-            "INSERT INTO thread_artifacts(id, thread_id, artifact_type, identity_key, payload, created_at) VALUES(?1, ?2, 'file', 'artifact', ?3, 1)",
+            &format!("INSERT INTO {table}(id, thread_id, {type_column}, identity_key, payload, created_at) VALUES(?1, ?2, 'file', 'artifact', ?3, 1)"),
             rusqlite::params![format!("artifact-{id}"), id, format!("payload-{id}")],
         ).unwrap();
         let history = Connection::open(home.join("thread_history_1.sqlite")).unwrap();
@@ -3143,6 +3211,116 @@ mod tests {
         }
         let result = inspect(dir.path()).unwrap();
         assert!(!result.supported);
+    }
+
+    #[test]
+    fn schema55_requires_attachments_and_unknown_versions_explain_the_format() {
+        let missing = tempdir().unwrap();
+        create_profile_schema(missing.path(), 55);
+        let state = Connection::open(missing.path().join("state_5.sqlite")).unwrap();
+        state
+            .execute_batch("DROP TABLE thread_attachments;")
+            .unwrap();
+        let result = inspect(missing.path()).unwrap();
+        assert!(!result.supported);
+        assert!(result
+            .explanation
+            .contains("Required tables are missing: thread_attachments"));
+        assert!(!result.explanation.contains("thread_artifacts"));
+
+        let unknown = tempdir().unwrap();
+        create_profile_schema(unknown.path(), 55);
+        let state = Connection::open(unknown.path().join("state_5.sqlite")).unwrap();
+        state
+            .execute("UPDATE _sqlx_migrations SET version = 56", [])
+            .unwrap();
+        let result = inspect(unknown.path()).unwrap();
+        assert!(!result.supported);
+        assert!(result
+            .explanation
+            .contains("Found database migrations 56/6"));
+        assert!(!result.explanation.contains("thread_artifacts"));
+    }
+
+    #[test]
+    fn schema55_artifact_preflight_rejects_collisions_and_unknown_fields_without_mutation() {
+        let source = tempdir().unwrap();
+        create_profile_schema(source.path(), 55);
+        insert_thread(
+            source.path(),
+            "incoming",
+            "Incoming",
+            source.path(),
+            None,
+            "history",
+        );
+        let original = fixture_manifest(source.path(), vec![]);
+        for destination_version in [52, 54, 55] {
+            let destination = tempdir().unwrap();
+            create_profile_schema(destination.path(), destination_version);
+            insert_thread(
+                destination.path(),
+                "local",
+                "Local",
+                destination.path(),
+                None,
+                "local",
+            );
+            let before: Vec<_> = ["state_5.sqlite", "thread_history_1.sqlite"]
+                .into_iter()
+                .map(|database| fs::read(destination.path().join(database)).unwrap())
+                .collect();
+            for malformed in [
+                "collision",
+                "native_column",
+                "unknown_column",
+                "native_table",
+            ] {
+                let mut manifest = original.clone();
+                let state_rows = &mut manifest.threads[0].state_rows;
+                if malformed == "native_table" {
+                    let rows = state_rows.remove("thread_artifacts").unwrap();
+                    state_rows.insert("thread_attachments".into(), rows);
+                } else {
+                    let row = &mut state_rows.get_mut("thread_artifacts").unwrap()[0];
+                    if malformed == "native_column" {
+                        row.values.remove("artifact_type");
+                    }
+                    let column = if malformed == "unknown_column" {
+                        "future_attachment_field"
+                    } else {
+                        "attachment_type"
+                    };
+                    row.values.insert(column.into(), SqlValue::Null);
+                }
+                let error = apply_bundle(
+                    destination.path(),
+                    &manifest,
+                    &HashSet::from(["incoming".into()]),
+                    &HashSet::new(),
+                    &HashSet::from(["local".into()]),
+                    &HashSet::new(),
+                    &crate::settings::default_config(),
+                    &HashMap::new(),
+                    &HashMap::new(),
+                )
+                .unwrap_err();
+                assert!(
+                    matches!(error, SpiceError::UnsupportedCodex(_)),
+                    "{malformed}"
+                );
+                for (index, database) in ["state_5.sqlite", "thread_history_1.sqlite"]
+                    .into_iter()
+                    .enumerate()
+                {
+                    assert_eq!(
+                        before[index],
+                        fs::read(destination.path().join(database)).unwrap(),
+                        "{destination_version}: {malformed}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

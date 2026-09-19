@@ -1,8 +1,10 @@
-# Compatibility plan: Codex database migrations 52 and 54
+# Compatibility plan: Codex database migrations 52, 54, and 55
 
 ## Scope and evidence
 
-The two validated installations use desktop 26.903.71938 with runtime 0.153.4 and state/history migrations 52/6, and desktop 26.908.40834 with runtime 0.154.0-alpha.6.2 and migrations 54/6. The supplied database definitions differ only by nullable `threads.originator TEXT` and `threads.daybreak_enabled BOOLEAN`. History tables, indexes, and triggers match. Sanitized schema fixtures contain structure only, not user records or paths.
+The original schema fixtures come from desktop 26.903.71938 with runtime 0.153.4 and state/history migrations 52/6, and desktop 26.908.40834 with runtime 0.154.0-alpha.6.2 and migrations 54/6. These definitions differ only by nullable `threads.originator TEXT` and `threads.daybreak_enabled BOOLEAN`.
+
+Runtime 0.155.0-alpha.9.2 uses state/history migrations 55/6. Read-only inspection found a successfully completed migration 55. Compared with schema 54, `thread_artifacts` becomes `thread_attachments`, `artifact_type` becomes `attachment_type`, and the associated index is renamed. The other state objects and the history schema match. Sanitized fixtures contain structure only, not user records or paths.
 
 ## Contract
 
@@ -12,8 +14,18 @@ Null/missing extension fields compare equally, keeping pre-existing migration-52
 
 Snapshot format 2 marks this stricter transfer contract so older Spice Route versions cannot silently discard extension values. New readers accept format 1 and 2, including the already-published source snapshot. Every device should update Spice Route before publishing format 2.
 
+For schema 55, the adapter translates attachment table and column names at the database boundary. Snapshots retain the existing canonical `thread_artifacts` and `artifact_type` representation. Payloads retain their values, with recognized operational file paths mapped during restoration. Equivalent chats keep the same fingerprints across the table rename, and existing snapshots remain readable. Imports preserve the destination's native schema and migration ledger. Install Spice Route 1.4.5 on both computers before exchanging schema-55 snapshots; older releases do not recognize that source profile.
+
+## Why this is more than a folder copy
+
+Selective handoffs must leave excluded and unrelated destination chats intact. They also preserve destination credentials, permissions, and device settings while mapping operational paths to that computer. Replacing whole databases cannot provide those guarantees. SQLite backup captures consistent staged databases, including committed changes still in the write-ahead log; file copying while a writer is active would not establish that consistency.
+
+A full-profile replacement would be a different transfer mode. It would overwrite destination history and local state, still require compatible Codex versions, and still need a way to handle machine-specific paths. Codex's own forward migrations do not establish that an older runtime can read a newer database. The current selective mode therefore keeps explicit, tested schema adapters.
+
 ## Validation and release limits
 
 Use exact schema fixtures with disposable records to exercise 52→54, 54→52→54 with null fields, refusal of non-representable non-null fields before mutations, 52→54→52, repeated import, same-identity edits, exclusions, local-only field preservation, null equivalence, deletion, rollback, unknown columns, unsupported triggers, and runtime/schema mismatches. Verify schema and migration-ledger preservation and SQLite integrity. Keep existing snapshot, Git, ancestry, interruption, and recovery tests.
+
+Schema-55 coverage adds 52→55, 54→55, 55→54, 55→55, and 55→52 with representable values. It exercises attachment objects, path mapping, replacement, deletion, exclusions, repeated imports, canonical fingerprints, and refusal of malformed attachment rows before any database mutation. Non-null newer thread fields remain blocked when the destination is schema 52.
 
 This proves the tested storage contract. A real cross-device Pull followed by history display and session continuation is still the manual acceptance gate. Future Codex features can change payload semantics without changing SQL; supporting every future build automatically would be an unsupported guarantee. New profiles require evidence and regression tests.

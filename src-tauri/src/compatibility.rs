@@ -22,6 +22,12 @@ pub const PROFILES: &[Profile] = &[
         fingerprint: "9422fcd06e5ff2ed83657ad39ff5247b27150bdd85d38f6cc4159641a52c5434",
         schema: include_str!("fixtures/schema-54.json"),
     },
+    Profile {
+        state: 55,
+        runtime: "0.155.0-alpha.9.2",
+        fingerprint: "c5d97837b0ea23df607c69a6721ba2612a6169733dee2b1d795a96af759208de",
+        schema: include_str!("fixtures/schema-55.json"),
+    },
 ];
 
 pub fn profile(info: &CompatibilityInfo) -> Option<&'static Profile> {

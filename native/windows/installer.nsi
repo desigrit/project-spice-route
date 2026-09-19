@@ -21,12 +21,10 @@ SetCompressorDictSize 16
 !endif
 
 !define PRODUCT_NAME "Spice Route"
-; Keep the original 0.4.0 install identity so current releases upgrade it in place.
-; These internal identifiers are intentionally not user-facing product names.
-!define INSTALL_FOLDER "Spice Route Native Preview"
-!define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Spice Route Native Preview"
-!define PRODUCT_MARKER "Spice Route Native Preview"
-!define LEGACY_SHORTCUT "Spice Route Native Preview"
+; Clean installations use a dedicated per-user program folder.
+!define INSTALL_FOLDER "Programs\Spice Route"
+!define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\SpiceRoute.Windows"
+!define PRODUCT_MARKER "SpiceRoute.Windows"
 
 !macro RequireAppClosed executable
   ${If} ${FileExists} "$INSTDIR\app\${executable}"
@@ -56,7 +54,7 @@ VIAddVersionKey "LegalCopyright" "Copyright 2026 Spice Route contributors"
 !define MUI_UNICON "${PROJECT_ROOT}\src-tauri\icons\icon.ico"
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TITLE "Welcome to Spice Route"
-!define MUI_WELCOMEPAGE_TEXT "Install Spice Route for your Windows account.$\r$\n$\r$\nAn existing 0.4.0 installation is updated in place. Your Codex history, workspaces, settings, and recovery data stay in place."
+!define MUI_WELCOMEPAGE_TEXT "Install Spice Route for your Windows account.$\r$\n$\r$\nThe app installs in Local AppData\Programs\Spice Route. Uninstall an earlier version first. Your Codex history, workspaces, settings, and recovery data stay in place."
 !define MUI_FINISHPAGE_TITLE "Spice Route is ready"
 !define MUI_FINISHPAGE_TEXT "Open Spice Route from Start when you are ready.$\r$\n$\r$\nUse one Spice Route app at a time."
 !insertmacro MUI_PAGE_WELCOME
@@ -84,11 +82,19 @@ Function .onInit
   ${EndIf}
   ; Use a dedicated fixed folder. Never replace the existing Tauri installation.
   StrCpy $INSTDIR "$LOCALAPPDATA\${INSTALL_FOLDER}"
+  System::Call 'kernel32::GetFileAttributesW(w "$LOCALAPPDATA\Programs") i.r0'
+  ${If} $0 != -1
+    IntOp $1 $0 & 0x400
+    ${If} $1 != 0
+      MessageBox MB_OK|MB_ICONSTOP "The Programs folder is a filesystem link. No files were installed."
+      Abort
+    ${EndIf}
+  ${EndIf}
   System::Call 'kernel32::GetFileAttributesW(w "$INSTDIR") i.r0'
   ${If} $0 != -1
     IntOp $1 $0 & 0x400
     ${If} $1 != 0
-      MessageBox MB_OK|MB_ICONSTOP "The Spice Route installation folder is a filesystem link. Choose a regular installation folder before continuing."
+      MessageBox MB_OK|MB_ICONSTOP "The Spice Route installation folder is a filesystem link. No files were installed."
       Abort
     ${EndIf}
   ${EndIf}
@@ -113,11 +119,10 @@ Section "Spice Route"
   File /r "${PUBLISH_DIR}\*"
   IfErrors installation_failed
   SetOutPath "$INSTDIR"
-  FileOpen $0 "$INSTDIR\.spice-route-native-installed" w
+  FileOpen $0 "$INSTDIR\.spice-route-installed" w
   FileWrite $0 "${PRODUCT_MARKER}"
   FileClose $0
   WriteUninstaller "$INSTDIR\uninstall.exe"
-  Delete "$SMPROGRAMS\${LEGACY_SHORTCUT}.lnk"
   CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}.lnk" "$INSTDIR\app\SpiceRoute.exe" "" "$INSTDIR\app\SpiceRoute.exe" 0
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "${PRODUCT_NAME}"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayVersion" "${VERSION}"
@@ -144,6 +149,9 @@ Function un.onInit
   GetFullPathName $0 "$INSTDIR"
   GetFullPathName $1 "$LOCALAPPDATA\${INSTALL_FOLDER}"
   StrCmp $0 $1 0 unsafe_uninstall
+  System::Call 'kernel32::GetFileAttributesW(w "$LOCALAPPDATA\Programs") i.r0'
+  IntOp $1 $0 & 0x400
+  IntCmp $1 0 0 unsafe_uninstall unsafe_uninstall
   System::Call 'kernel32::GetFileAttributesW(w "$INSTDIR") i.r0'
   IntOp $1 $0 & 0x400
   IntCmp $1 0 0 unsafe_uninstall unsafe_uninstall
@@ -153,7 +161,7 @@ Function un.onInit
     IntCmp $1 0 0 unsafe_uninstall unsafe_uninstall
   ${EndIf}
   ClearErrors
-  FileOpen $0 "$INSTDIR\.spice-route-native-installed" r
+  FileOpen $0 "$INSTDIR\.spice-route-installed" r
   IfErrors unsafe_uninstall
   FileRead $0 $1
   FileClose $0
@@ -175,8 +183,7 @@ Section "Uninstall"
     Abort
   ${EndIf}
   Delete "$SMPROGRAMS\${PRODUCT_NAME}.lnk"
-  Delete "$SMPROGRAMS\${LEGACY_SHORTCUT}.lnk"
-  Delete "$INSTDIR\.spice-route-native-installed"
+  Delete "$INSTDIR\.spice-route-installed"
   Delete "$INSTDIR\uninstall.exe"
   RMDir "$INSTDIR"
   DeleteRegKey HKCU "${UNINSTALL_KEY}"
