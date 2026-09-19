@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+$')]
-    [string]$Version = '1.5.1',
+    [string]$Version = '1.5.2',
     [ValidateSet('x64', 'arm64')]
     [string]$Architecture = 'x64',
     [string]$EnginePath,
@@ -205,22 +205,46 @@ if (-not $CrtDirectory) {
 if (-not $CrtDirectory -or -not (Test-Path -LiteralPath $CrtDirectory -PathType Container)) {
     throw "The Visual C++ $Architecture CRT redistribution folder was not found. Pass -CrtDirectory from your Visual Studio installation."
 }
-Get-ChildItem -LiteralPath $CrtDirectory -File -Filter '*.dll' | ForEach-Object {
-    $destination = Join-Path $publishDirectory $_.Name
-    $replace = -not (Test-Path -LiteralPath $destination -PathType Leaf)
-    if (-not $replace) {
-        $existingInfo = (Get-Item -LiteralPath $destination).VersionInfo
-        $sourceInfo = $_.VersionInfo
-        $existingVersion = [version]"$($existingInfo.FileMajorPart).$($existingInfo.FileMinorPart).$($existingInfo.FileBuildPart).$($existingInfo.FilePrivatePart)"
-        $sourceVersion = [version]"$($sourceInfo.FileMajorPart).$($sourceInfo.FileMinorPart).$($sourceInfo.FileBuildPart).$($sourceInfo.FilePrivatePart)"
-        $replace = $sourceVersion -gt $existingVersion
+$crtFiles = @(Get-ChildItem -LiteralPath $CrtDirectory -File -Filter '*.dll')
+if ($crtFiles.Count -eq 0) {
+    throw "The Visual C++ $Architecture CRT redistribution folder contains no DLLs."
+}
+foreach ($crtFile in $crtFiles) {
+    $crtArchitecture = Get-PeArchitecture -Path $crtFile.FullName
+    # The current VC ARM64 redist includes an x64-only vcruntime140_1.dll even
+    # though ARM64 .NET and WinUI payloads do not import it. Never carry that
+    # wrong-architecture, unused file into the app directory.
+    if ($Architecture -eq 'arm64' -and
+        $crtFile.Name -eq 'vcruntime140_1.dll' -and
+        $crtArchitecture -eq 'x64') {
+        $staleCrt = Join-Path $publishDirectory $crtFile.Name
+        if (Test-Path -LiteralPath $staleCrt -PathType Leaf) {
+            [IO.File]::Delete($staleCrt)
+        }
+        continue
     }
-    if ($replace) { Copy-Item -LiteralPath $_.FullName -Destination $destination -Force }
+    if ($crtArchitecture -ne $Architecture) {
+        throw "The selected Visual C++ runtime contains $($crtFile.Name) for $crtArchitecture, but this package targets $Architecture."
+    }
+    # Architecture takes precedence over file version. dotnet publish can leave
+    # a same-version CRT from the build host in a cross-architecture output.
+    Copy-Item -LiteralPath $crtFile.FullName -Destination (Join-Path $publishDirectory $crtFile.Name) -Force
 }
 
-foreach ($requiredFile in @('SpiceRoute.exe', 'SpiceRoute.Engine.exe', 'SpiceRoute.runtimeconfig.json', 'SpiceRoute.pri', 'App.xbf', 'MainWindow.xbf', 'coreclr.dll', 'hostfxr.dll', 'Microsoft.UI.Xaml.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll')) {
+$requiredFiles = @('SpiceRoute.exe', 'SpiceRoute.Engine.exe', 'SpiceRoute.runtimeconfig.json', 'SpiceRoute.pri', 'App.xbf', 'MainWindow.xbf', 'coreclr.dll', 'hostfxr.dll', 'Microsoft.UI.Xaml.dll', 'vcruntime140.dll', 'msvcp140.dll')
+if ($Architecture -eq 'x64') { $requiredFiles += 'vcruntime140_1.dll' }
+foreach ($requiredFile in $requiredFiles) {
     if (-not (Test-Path -LiteralPath (Join-Path $publishDirectory $requiredFile) -PathType Leaf)) {
         throw "The self-contained package is missing $requiredFile. The installer was not produced."
+    }
+}
+$packagedCrtFiles = @(Get-ChildItem -LiteralPath $publishDirectory -File | Where-Object {
+    $_.Name -match '^(vcruntime|msvcp|concrt|vccorlib)140.*\.dll$'
+})
+foreach ($crtFile in $packagedCrtFiles) {
+    $crtArchitecture = Get-PeArchitecture -Path $crtFile.FullName
+    if ($crtArchitecture -ne $Architecture) {
+        throw "The packaged Visual C++ runtime $($crtFile.Name) is $crtArchitecture, but this package targets $Architecture. The installer was not produced."
     }
 }
 $appArchitecture = Get-PeArchitecture -Path (Join-Path $publishDirectory 'SpiceRoute.exe')
@@ -297,14 +321,14 @@ if (-not $SkipStartupProbe -and $canRunTarget) {
         }
     }
 
-    Write-Host 'Loading the packaged WinUI resources in a hidden startup probe...'
+    Write-Host 'Running the packaged app with a disposable profile in a hidden full startup probe...'
     $appExecutable = Join-Path $publishDirectory 'SpiceRoute.exe'
     $startupProbe = Start-Process -FilePath $appExecutable -ArgumentList '--startup-probe' `
         -WorkingDirectory $publishDirectory -WindowStyle Hidden -PassThru
     try {
-        if (-not $startupProbe.WaitForExit(15000)) {
+        if (-not $startupProbe.WaitForExit(30000)) {
             $startupProbe.Kill($true)
-            throw 'The packaged app did not finish its hidden startup probe within 15 seconds.'
+            throw 'The packaged app did not finish its hidden full startup probe within 30 seconds.'
         }
         $startupProbe.Refresh()
         if ($startupProbe.ExitCode -ne 0) {

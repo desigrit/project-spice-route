@@ -1,6 +1,6 @@
 # Validation and release gate
 
-Spice Route 1.5.1 has native Windows x64 and ARM64 packages plus macOS Apple Silicon and Intel packages. Current checks pass 109 Rust tests on Windows and macOS, 13 headless native engine-client contract checks, and 24 frontend tests. The shared engine covers compatibility, selective history transfer, snapshot capture, conflicts, project reconstruction, diagnostics, and recovery. See the [1.5.1 desktop verification record](testing-1.5.1.md) for package evidence and remaining physical-device checks.
+Spice Route 1.5.2 has native Windows x64 and ARM64 packages plus macOS Apple Silicon and Intel packages. Current checks cover the shared compatibility engine, selective history transfer, snapshot capture, conflicts, project reconstruction, diagnostics, recovery, and target-architecture validation for the Windows runtime payload. See the [1.5.2 desktop verification record](testing-1.5.2.md) for package evidence and remaining physical-device checks.
 
 Version 0.3.1 passes 47 Rust tests, 19 frontend tests, release Clippy with warnings denied, TypeScript, and the Windows MSVC/NSIS build. It removes compression from previews and cloud hydration from status refresh, repairs conflict feedback and missing-baseline acknowledgment, and extends recovery protection. See [the 0.3.1 testing guide](testing-0.3.1.md). No live transfer or installed-app launch was performed for this patch.
 
@@ -14,7 +14,7 @@ The Rust core suite covers:
 
 - Stable snapshot hashes and rejection of unsafe relative paths.
 - Junction-aware and case-insensitive path overlap behavior on Windows.
-- Exact Codex build gating and fail-closed migration behavior.
+- Exact storage-profile gating, advisory runtime reporting, and fail-closed migration behavior.
 - Selective task and project export, archived and projectless handling, individual exclusions, database-backed history, sidebar state, and continuation without duplicate task rows.
 - Local-image attachment capture and destination path rewriting without changing historical text.
 - Preservation of destination-only sessions, settings, queues, task permission fields, and agent paths.

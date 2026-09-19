@@ -32,10 +32,10 @@ public sealed class SpiceRouteContext
     public event Action? BusyChanged;
     public event Action<string, bool>? MessageRequested;
     public Action<string>? NavigateAction { get; set; }
-    public SpiceRouteContext(Window window)
+    public SpiceRouteContext(Window window, string? dataDirectory = null)
     {
         Window = window;
-        Engine = new();
+        Engine = new(dataDirectory: dataDirectory);
     }
     internal SpiceRouteContext(Window window, VisualProbeFixture fixture)
     {

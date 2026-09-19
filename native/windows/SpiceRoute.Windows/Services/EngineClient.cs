@@ -128,7 +128,8 @@ public sealed class EngineClient : IAsyncDisposable
             throw new FileNotFoundException($"The sync engine is missing. Reinstall Spice Route. Details were saved to {StartupLog.LogPath}.");
         }
         var engineArchitecture = ReadExecutableArchitecture(executable);
-        StartupLog.WriteProcessContext($"Starting sync engine. engineArchitecture={engineArchitecture}; engineFile={Path.GetFileName(executable)}");
+        var engineBytes = new FileInfo(executable).Length;
+        StartupLog.WriteProcessContext($"Starting sync engine. engineArchitecture={engineArchitecture}; engineFile={Path.GetFileName(executable)}; engineBytes={engineBytes}; appDirectory={System.AppContext.BaseDirectory}; dataDirectory={dataDirectory}");
         if (engineArchitecture != "unknown" && !string.Equals(engineArchitecture, RuntimeInformation.ProcessArchitecture.ToString(), StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException($"The installed sync engine is {engineArchitecture}, but the app is {RuntimeInformation.ProcessArchitecture}. Reinstall the matching Spice Route package.");
@@ -145,6 +146,7 @@ public sealed class EngineClient : IAsyncDisposable
         try
         {
             process = Process.Start(start) ?? throw new InvalidOperationException("The sync engine could not start.");
+            StartupLog.Write($"Sync engine process started. processId={process.Id}");
         }
         catch (Exception error) when (error is Win32Exception or InvalidOperationException or BadImageFormatException)
         {
@@ -171,6 +173,9 @@ public sealed class EngineClient : IAsyncDisposable
             return fixtureResponder(method, parameters)?.DeepClone();
         }
         Start();
+        var logStartupRequest = method is "get_protocol_info" or "discover_environment" or "load_config" or "list_content_quick" or "get_sync_status";
+        var startedAt = logStartupRequest ? Stopwatch.GetTimestamp() : 0;
+        if (logStartupRequest) StartupLog.Write($"Sync engine request started. method={method}");
         using var startupDeadline = method == "get_protocol_info" ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken) : null;
         if (startupDeadline is not null) startupDeadline.CancelAfter(StartupTimeout);
         var requestCancellation = startupDeadline?.Token ?? cancellationToken;
@@ -189,7 +194,9 @@ public sealed class EngineClient : IAsyncDisposable
                 await process.StandardInput.FlushAsync(requestCancellation).ConfigureAwait(false);
             }
             finally { writer.Release(); }
-            return await completion.Task.ConfigureAwait(false);
+            var result = await completion.Task.ConfigureAwait(false);
+            if (logStartupRequest) StartupLog.Write($"Sync engine request completed. method={method}; elapsedMs={Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds:0}");
+            return result;
         }
         catch (OperationCanceledException error) when (startupDeadline?.IsCancellationRequested == true && !cancellationToken.IsCancellationRequested)
         {
@@ -197,7 +204,12 @@ public sealed class EngineClient : IAsyncDisposable
             StopUnresponsiveProcess();
             throw new TimeoutException($"The sync engine did not answer within {StartupTimeout.TotalSeconds:0} seconds. Restart Spice Route and try again. Details were saved to {StartupLog.LogPath}.", error);
         }
-        catch { pending.TryRemove(id, out _); throw; }
+        catch (Exception error)
+        {
+            pending.TryRemove(id, out _);
+            if (logStartupRequest) StartupLog.WriteException($"Sync engine request failed. method={method}; elapsedMs={Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds:0}", error);
+            throw;
+        }
     }
 
     private async Task ReadResponsesAsync(Process engine)
@@ -234,8 +246,10 @@ public sealed class EngineClient : IAsyncDisposable
         {
             while (await engine.StandardError.ReadLineAsync().ConfigureAwait(false) is { } line)
             {
-                diagnostics.Enqueue(line.Length > 1000 ? line[..1000] : line);
+                var diagnostic = line.Length > 1000 ? line[..1000] : line;
+                diagnostics.Enqueue(diagnostic);
                 while (diagnostics.Count > 8) diagnostics.TryDequeue(out _);
+                StartupLog.Write($"Sync engine stderr: {diagnostic}");
             }
         }
         catch (IOException) { }

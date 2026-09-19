@@ -13,7 +13,7 @@ public sealed partial class MainWindow : Window
     private bool navigating;
     private string currentPage = "overview";
 
-    public MainWindow(bool visualProbe = false)
+    public MainWindow(bool visualProbe = false, string? engineDataDirectory = null, bool deferInitialization = false)
     {
         InitializeComponent();
         Title = "Spice Route";
@@ -23,7 +23,7 @@ public sealed partial class MainWindow : Window
         SetTitleBar(TitleStrip);
         AppWindow.Resize(new SizeInt32(1180, 820));
         AppWindow.SetIcon(Path.Combine(System.AppContext.BaseDirectory, "Assets", "SpiceRoute.ico"));
-        context = visualProbe ? new(this, new VisualProbeFixture()) : new(this);
+        context = visualProbe ? new(this, new VisualProbeFixture()) : new(this, engineDataDirectory);
         context.NavigateAction = Navigate;
         context.MessageRequested += ShowMessage;
         context.StateChanged += ApplyState;
@@ -36,32 +36,72 @@ public sealed partial class MainWindow : Window
             ShowMessage("An operation is running. Wait for it to finish, or cancel the handoff at a safe checkpoint, before closing Spice Route.", true);
         };
         Closed += async (_, _) => { noticeTimer.Stop(); await context.Engine.DisposeAsync(); };
-        if (!visualProbe) Root.Loaded += async (_, _) => await InitializeAsync();
+        if (!visualProbe && !deferInitialization) Root.Loaded += async (_, _) => await InitializeAsync();
     }
 
-    private async Task InitializeAsync()
+    private async Task InitializeAsync(bool throwOnFailure = false)
     {
+        StartupLog.Write("Workspace initialization started.");
         var loading = new StackPanel { Spacing = 14 };
         loading.Children.Add(Ui.Text("Loading your workspace…", 24, true));
         loading.Children.Add(new ProgressBar { IsIndeterminate = true });
         PageHost.Content = loading;
         try
         {
+            StartupLog.Write("Checking for a stopped sync engine.");
             await context.Engine.RestartIfStoppedAsync();
+            StartupLog.Write("Starting the sync-engine protocol handshake.");
             var protocol = await context.Engine.CallAsync("get_protocol_info");
             if (Wire.Number(protocol, "protocolVersion") != 1) throw new InvalidOperationException("This app and sync engine use different protocol versions. Reinstall the matching release.");
+            StartupLog.Write("Loading Codex discovery, configuration, content inventory, and cloud status.");
             await context.RefreshAsync();
+            StartupLog.Write("Workspace data loaded. Opening the initial page.");
             Navigate(Wire.Bool(context.Config, "onboardingComplete") ? "overview" : "setup");
+            StartupLog.Write("Workspace initialization completed.");
         }
         catch (Exception error)
         {
+            StartupLog.WriteException("Workspace initialization failed", error);
             loading.Children.Clear();
             loading.Children.Add(Ui.Text("The workspace could not open", 24, true));
             loading.Children.Add(Ui.Text(error.Message));
+            var logPath = Ui.Muted($"Startup log: {StartupLog.LogPath}", 11);
+            logPath.IsTextSelectionEnabled = true;
+            loading.Children.Add(logPath);
             var retry = Ui.Button("Try again", "\uE72C");
             retry.Click += async (_, _) => await InitializeAsync();
             loading.Children.Add(retry);
             ConnectionText.Text = "Sync engine unavailable";
+            if (throwOnFailure) throw;
+        }
+    }
+
+    internal bool TryShowUnhandledFailure(Exception error)
+    {
+        try
+        {
+            noticeTimer.Stop();
+            var failure = new StackPanel { Spacing = 14, MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Left };
+            failure.Children.Add(Ui.Text("Spice Route ran into a problem", 24, true));
+            failure.Children.Add(Ui.Text(error.Message));
+            failure.Children.Add(Ui.Muted("Spice Route kept this window open so you can copy the diagnostic log path below.", 12));
+            var logPath = Ui.Muted(StartupLog.LogPath, 11);
+            logPath.IsTextSelectionEnabled = true;
+            failure.Children.Add(logPath);
+            if (!context.IsBusy)
+            {
+                var retry = Ui.Button("Retry workspace", "\uE72C");
+                retry.Click += async (_, _) => await InitializeAsync();
+                failure.Children.Add(retry);
+            }
+            PageHost.Content = failure;
+            ConnectionText.Text = "App needs attention";
+            return true;
+        }
+        catch (Exception surfaceError)
+        {
+            StartupLog.WriteException("Could not show the in-app failure surface", surfaceError);
+            return false;
         }
     }
 
@@ -73,16 +113,58 @@ public sealed partial class MainWindow : Window
 
     private static string ProviderName(string provider) => provider switch { "oneDrive" => "OneDrive", "googleDrive" => "Google Drive", "iCloud" => "iCloud Drive", _ => "Cloud folder" };
 
-    internal void RunStartupProbe()
+    internal async Task RunStartupProbeAsync(string dataDirectory)
     {
-        PageHost.Content = new OverviewPage(context);
-        PageHost.Content = new SelectionPage(context);
-        PageHost.Content = new SettingsPage(context);
-        PageHost.Content = new SetupPage(context);
-        PageHost.Content = new DiagnosticsPage(context);
-        PageHost.Content = new ReviewPage(context);
+        var codexHome = Path.Combine(dataDirectory, "codex");
+        var projectlessRoot = Path.Combine(dataDirectory, "projectless");
+        Directory.CreateDirectory(codexHome);
+        Directory.CreateDirectory(projectlessRoot);
+        var config = new JsonObject
+        {
+            ["schemaVersion"] = 1,
+            ["deviceId"] = "startup-probe",
+            ["deviceName"] = "Startup probe",
+            ["codexHome"] = codexHome,
+            ["projectlessRoot"] = projectlessRoot,
+            ["projectsRoot"] = "",
+            ["cloudRoot"] = "",
+            ["cloudProvider"] = "custom",
+            ["theme"] = "system",
+            ["onboardingComplete"] = false,
+            ["sourceRoots"] = new JsonObject(),
+            ["destinationRoots"] = new JsonObject(),
+            ["selection"] = new JsonObject
+            {
+                ["revision"] = "startup-probe",
+                ["defaultProjectMode"] = "full",
+                ["projectModes"] = new JsonObject(),
+                ["excludedThreadIds"] = new JsonArray(),
+                ["includeArchived"] = true,
+                ["includeBuildOutputs"] = false,
+                ["includeSensitiveFiles"] = true,
+                ["extraExcludePatterns"] = new JsonArray()
+            }
+        };
+        await context.Engine.CallAsync("save_config", new JsonObject { ["config"] = config });
+        await InitializeAsync(throwOnFailure: true);
+
+        foreach (var page in new Page[]
+        {
+            new OverviewPage(context),
+            new SelectionPage(context),
+            new SettingsPage(context),
+            new SetupPage(context),
+            new DiagnosticsPage(context),
+            new ReviewPage(context)
+        })
+        {
+            PageHost.Content = page;
+            await Task.Yield();
+        }
         PageHost.Content = null;
     }
+
+    internal ValueTask StopEngineForProbeAsync() => context.Engine.DisposeAsync();
 
     internal FrameworkElement VisualProbeRoot => Root;
     internal NavigationView VisualProbeNavigation => Navigation;

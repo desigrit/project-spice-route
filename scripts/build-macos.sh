@@ -19,7 +19,7 @@ case "$target" in
 esac
 
 if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "Provide a release version such as 1.5.1." >&2
+  echo "Provide a release version such as 1.5.2." >&2
   exit 2
 fi
 if [[ ! "$artifact_arch" =~ ^[a-z0-9-]+$ ]]; then

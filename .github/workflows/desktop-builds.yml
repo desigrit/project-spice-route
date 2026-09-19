@@ -6,7 +6,7 @@ on:
       version:
         description: Release version, without a leading v
         required: true
-        default: 1.5.1
+        default: 1.5.2
   push:
     tags:
       - "v*"
@@ -160,13 +160,35 @@ jobs:
           -Version $env:SPICE_ROUTE_VERSION
           -Architecture ${{ matrix.architecture }}
 
-      - name: Test native engine connection
+      - name: Test installed native package
         shell: pwsh
         run: |
-          $engine = Get-ChildItem -LiteralPath artifacts -Filter SpiceRoute.Engine.exe -File -Recurse |
-            Select-Object -First 1
-          if (-not $engine) { throw 'The packaged sync engine was not found.' }
-          dotnet run --project native/tests/EngineContract/EngineContract.csproj --configuration Release -- $engine.FullName
+          $installer = Get-Item -LiteralPath "artifacts/Spice-Route-$env:SPICE_ROUTE_VERSION-windows-${{ matrix.architecture }}-setup.exe"
+          $install = Start-Process -FilePath $installer.FullName -ArgumentList '/S' -WindowStyle Hidden -PassThru -Wait
+          if ($install.ExitCode -ne 0) { throw "The installer returned exit code $($install.ExitCode)." }
+          $installRoot = Join-Path $env:LOCALAPPDATA 'Programs\Spice Route'
+          $app = Join-Path $installRoot 'app\SpiceRoute.exe'
+          $engine = Join-Path $installRoot 'app\SpiceRoute.Engine.exe'
+          $uninstaller = Join-Path $installRoot 'uninstall.exe'
+          try {
+            foreach ($file in @($app, $engine, $uninstaller)) {
+              if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "The installed package is missing $file." }
+            }
+            $probe = Start-Process -FilePath $app -ArgumentList '--startup-probe' -WorkingDirectory (Split-Path $app) -WindowStyle Hidden -PassThru
+            if (-not $probe.WaitForExit(30000)) {
+              $probe.Kill($true)
+              throw 'The installed app did not finish its full startup probe within 30 seconds.'
+            }
+            if ($probe.ExitCode -ne 0) { throw "The installed app startup probe returned exit code $($probe.ExitCode)." }
+            dotnet run --project native/tests/EngineContract/EngineContract.csproj --configuration Release -- $engine
+            if ($LASTEXITCODE -ne 0) { throw 'The installed engine contract check failed.' }
+          }
+          finally {
+            if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
+              $uninstall = Start-Process -FilePath $uninstaller -ArgumentList '/S' -WindowStyle Hidden -PassThru -Wait
+              if ($uninstall.ExitCode -ne 0) { Write-Warning "The test uninstall returned exit code $($uninstall.ExitCode)." }
+            }
+          }
 
       - name: Upload unsigned Windows installer
         uses: actions/upload-artifact@v4

@@ -589,13 +589,13 @@ fn schema55_nonnull_fields_block_downgrade_before_database_or_ui_mutation() {
 }
 
 #[test]
-fn schema55_build_pair_and_complete_layout_are_required() {
+fn schema55_complete_layout_is_required_and_runtime_is_advisory() {
     let home = tempdir().unwrap();
     create_home(home.path(), 55);
     let info = codex::inspect(home.path()).unwrap();
     assert!(codex::with_build_gate(info.clone(), Some("codex-cli 0.155.0-alpha.9.2")).supported);
     for version in [None, Some("0.154.0-alpha.6.2"), Some("0.155.0-alpha.9.3")] {
-        assert!(!codex::with_build_gate(info.clone(), version).supported);
+        assert!(codex::with_build_gate(info.clone(), version).supported);
     }
     let state = Connection::open(home.path().join("state_5.sqlite")).unwrap();
     state

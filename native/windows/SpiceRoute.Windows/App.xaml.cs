@@ -43,6 +43,7 @@ public partial class App : Application
     {
         StartupLog.WriteException("Unhandled WinUI failure", args.Exception);
         args.Handled = true;
+        if (window?.TryShowUnhandledFailure(args.Exception) == true) return;
         if (!suppressStartupDialog && Interlocked.Exchange(ref startupFailureShown, 1) == 0) ShowStartupFailure(args.Exception);
         Environment.ExitCode = 1;
         Exit();
@@ -61,6 +62,7 @@ public partial class App : Application
     {
         try
         {
+            StartupLog.Write("Application launch started.");
             var arguments = Environment.GetCommandLineArgs();
             var visualProbeIndex = Array.IndexOf(arguments, "--visual-probe");
             if (visualProbeIndex >= 0)
@@ -81,15 +83,45 @@ public partial class App : Application
                 finally { window?.Close(); Exit(); }
                 return;
             }
-            window = new MainWindow();
             if (arguments.Any(argument => string.Equals(argument, "--startup-probe", StringComparison.Ordinal)))
             {
-                window.RunStartupProbe();
-                window.Close();
+                var temporaryRoot = Path.GetFullPath(Path.GetTempPath());
+                var probeDirectory = Path.GetFullPath(Path.Combine(temporaryRoot, $"SpiceRoute.AppProbe.{Guid.NewGuid():N}"));
+                if (!probeDirectory.StartsWith(temporaryRoot, StringComparison.OrdinalIgnoreCase)
+                    || !Path.GetFileName(probeDirectory).StartsWith("SpiceRoute.AppProbe.", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("The disposable startup-probe folder could not be confirmed.");
+                }
+                Directory.CreateDirectory(probeDirectory);
+                try
+                {
+                    window = new MainWindow(engineDataDirectory: probeDirectory, deferInitialization: true);
+                    window.AppWindow.IsShownInSwitchers = false;
+                    window.AppWindow.MoveAndResize(new global::Windows.Graphics.RectInt32(-32000, -32000, 1180, 820));
+                    window.Activate();
+                    await window.RunStartupProbeAsync(probeDirectory);
+                    await window.StopEngineForProbeAsync();
+                    window.Close();
+                    window = null;
+                }
+                finally
+                {
+                    if (window is not null)
+                    {
+                        await window.StopEngineForProbeAsync();
+                        window.Close();
+                        window = null;
+                    }
+                    if (Directory.Exists(probeDirectory)) Directory.Delete(probeDirectory, true);
+                }
+                Environment.ExitCode = 0;
                 Exit();
                 return;
             }
+            window = new MainWindow();
+            StartupLog.Write("Main window created.");
             window.Activate();
+            StartupLog.Write("Main window activated.");
         }
         catch (Exception error)
         {

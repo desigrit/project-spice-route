@@ -57,7 +57,7 @@ VIAddVersionKey "LegalCopyright" "Copyright 2026 Spice Route contributors"
 !define MUI_UNICON "${PROJECT_ROOT}\src-tauri\icons\icon.ico"
 !define MUI_ABORTWARNING
 !define MUI_WELCOMEPAGE_TITLE "Welcome to Spice Route"
-!define MUI_WELCOMEPAGE_TEXT "Install Spice Route for your Windows account.$\r$\n$\r$\nThe app installs in Local AppData\Programs\Spice Route. Uninstall an earlier version first. Your Codex history, workspaces, settings, and recovery data stay in place."
+!define MUI_WELCOMEPAGE_TEXT "Install Spice Route for your Windows account.$\r$\n$\r$\nClose Spice Route before continuing. Setup replaces the app files in Local AppData\Programs\Spice Route. Your Codex history, workspaces, settings, and recovery data stay in place."
 !define MUI_FINISHPAGE_TITLE "Spice Route is ready"
 !define MUI_FINISHPAGE_TEXT "Open Spice Route from Start when you are ready.$\r$\n$\r$\nUse one Spice Route app at a time."
 !insertmacro MUI_PAGE_WELCOME
@@ -125,6 +125,16 @@ FunctionEnd
 Section "Spice Route"
   SetShellVarContext current
   SetRegView 64
+  ; Replace the complete versioned app payload so obsolete runtime files from
+  ; an earlier build cannot be loaded beside the current ARM64 or x64 binaries.
+  ${If} ${FileExists} "$INSTDIR\app\*.*"
+    ClearErrors
+    RMDir /r "$INSTDIR\app"
+    ${If} ${Errors}
+      MessageBox MB_OK|MB_ICONSTOP "The previous app files could not be replaced. Close Spice Route and run this installer again."
+      Abort
+    ${EndIf}
+  ${EndIf}
   SetOutPath "$INSTDIR\app"
   SetOverwrite on
   ClearErrors

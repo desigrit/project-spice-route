@@ -4,7 +4,7 @@
 
 Version 1.5.1 fixes a false compatibility block for Codex databases created on macOS. SQLite preserves the line endings used by migration SQL in `sqlite_master`. Equivalent schema 54 databases therefore produced different raw hashes on Windows and macOS.
 
-The adapter now normalizes CRLF, LF, and CR line endings before calculating the schema fingerprint. It continues to compare the complete normalized layout, including tables, indexes, and triggers, and it still requires successful migrations and a tested Codex runtime pair. Existing Windows snapshot fingerprints from version 1.5.0 remain recognized.
+The adapter now normalizes CRLF, LF, and CR line endings before calculating the schema fingerprint. It continues to compare the complete normalized layout, including tables, indexes, and triggers, and it still requires successful migrations. Version 1.5.1 also required an exact reference runtime. Version 1.5.2 makes that runtime comparison advisory after the storage profile is validated. Existing Windows snapshot fingerprints from version 1.5.0 remain recognized.
 
 The reported macOS fingerprint `8082e27f46c7a5691ae4dca5b004ce2103bacaafb3989f7be95607d34685c205` is the canonical schema 54 fingerprint.
 
@@ -22,6 +22,6 @@ Regression coverage verifies all tested schema versions across Windows and macOS
 
 ## Manual acceptance
 
-Install version 1.5.1 on every participating computer. On the affected Mac, refresh Spice Route after installation and confirm that compatibility changes from blocked to supported. A different message about the Codex runtime means the schema has passed and the separately detected runtime is outside the tested pair.
+Install version 1.5.2 on every participating computer when Codex patch runtimes differ. Version 1.5.1 can still show a runtime-pair block after the database schema itself has passed.
 
 No personal profile, Push, Pull, or interactive app launch was used during automated verification.

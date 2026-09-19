@@ -831,7 +831,7 @@ pub fn report(data: &Path, config: &AppConfig) -> DiagnosticsReport {
         summary,
         findings,
         report: json!({
-            "engineVersion":env!("CARGO_PKG_VERSION"),"adapter":codex::ADAPTER_NAME,"supportedCodexBuilds":codex::SUPPORTED_CODEX_BUILDS,
+            "engineVersion":env!("CARGO_PKG_VERSION"),"adapter":codex::ADAPTER_NAME,"referenceCodexBuilds":codex::REFERENCE_CODEX_BUILDS,
             "codexRunning":platform::codex_running(),"configuredProfile":current,"candidateProfiles":candidates,
             "activeRuntimeProfile":"notEstablishedByReadOnlyDiscovery","latestPull":latest,"recentPulls":journals,
             "lastAppliedSnapshotId":applied.map(opaque),"sourceSnapshot":source,"currentSourceRecords":current_source_records,

@@ -104,7 +104,7 @@ try {
         'aria-current': page === id ? 'page' : undefined }, h(Icon, { size: 18 }), h('span', null, label)))),
       h('div', { className: 'sidebar-footer' }, h('div', { className: 'device-chip' }, h(Laptop, { size: 16 }),
         h('span', null, h('small', null, 'This device'), config.deviceName)),
-        h('div', { className: 'sidebar-version' }, 'Spice Route 1.5.1'))),
+        h('div', { className: 'sidebar-version' }, 'Spice Route 1.5.2'))),
     h('main', { className: 'main-content' }, h('header', { className: 'topbar' },
       h('div', null, h('p', { className: 'eyebrow' }, page === 'selection' ? 'Sync policy' : page),
         h('h1', null, nav.find(([id]) => id === page)?.[1] || 'Overview')),

@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub const ADAPTER_NAME: &str = "codex-state-v5.52-54-55/history-v1.6";
-pub const SUPPORTED_CODEX_BUILDS: &[&str] = &["0.153.4", "0.154.0-alpha.6.2", "0.155.0-alpha.9.2"];
+pub const REFERENCE_CODEX_BUILDS: &[&str] = &["0.153.4", "0.154.0-alpha.6.2", "0.155.0-alpha.9.2"];
 const LOCAL_ONLY_THREAD_COLUMNS: &[&str] = &["sandbox_policy", "approval_mode", "agent_path"];
 const SAFE_IMPORTED_SANDBOX_POLICY: &str =
     r#"{"type":"managed","file_system":{"type":"restricted","entries":[]},"network":"restricted"}"#;
@@ -208,6 +208,12 @@ pub fn inspect(home: &Path) -> Result<CompatibilityInfo> {
     })
 }
 
+/// Attach runtime information after storage compatibility has been established.
+///
+/// Codex patch releases can retain an identical database format. The complete
+/// schema profile, including indexes, triggers, and migration completion, is
+/// therefore authoritative. The executable version is useful diagnostics, but
+/// it must not disable transfers for an otherwise exact profile match.
 pub fn with_build_gate(
     mut compatibility: CompatibilityInfo,
     version: Option<&str>,
@@ -215,6 +221,11 @@ pub fn with_build_gate(
     if !compatibility.supported {
         return compatibility;
     }
+    let Some(profile) = crate::compatibility::profile(&compatibility) else {
+        compatibility.supported = false;
+        compatibility.explanation = "The database profile is not recognized by this Spice Route release. Push and Pull remain blocked.".into();
+        return compatibility;
+    };
     let build = version.and_then(|value| {
         value
             .split(|character: char| {
@@ -226,26 +237,20 @@ pub fn with_build_gate(
                     .is_some_and(|first| first.is_ascii_digit())
             })
     });
-    let profile = crate::compatibility::profile(&compatibility);
-    if profile.is_some_and(|profile| Some(profile.runtime) == build) {
-        compatibility.explanation = format!(
-            "{} Codex build {} is also validated.",
-            compatibility.explanation,
-            build.unwrap_or_default()
-        );
-    } else {
-        compatibility.supported = false;
-        compatibility.explanation = match version {
-            Some(version) => format!(
-                "Runtime {version} and database schema {}/{} are not a tested pair. Tested pairs: 0.153.4 with 52/6; 0.154.0-alpha.6.2 with 54/6; 0.155.0-alpha.9.2 with 55/6. Update Spice Route, or finish updating and restart Codex if an update is pending.",
-                compatibility.state_migration.unwrap_or_default(), compatibility.history_migration.unwrap_or_default()
-            ),
-            None => format!(
-                "The Codex build could not be detected. This release enables Push and Pull only for validated build {}.",
-                SUPPORTED_CODEX_BUILDS.join(", ")
-            ),
-        };
-    }
+    compatibility.explanation = match build {
+        Some(build) if build == profile.runtime => format!(
+            "{} Codex runtime {} matches the reference build for this storage profile.",
+            compatibility.explanation, build
+        ),
+        Some(build) => format!(
+            "{} Codex runtime {} differs from reference build {}, but the complete database storage profile is validated. Push and Pull remain available.",
+            compatibility.explanation, build, profile.runtime
+        ),
+        None => format!(
+            "{} The Codex runtime could not be identified, but the complete database storage profile is validated. Push and Pull remain available.",
+            compatibility.explanation
+        ),
+    };
     compatibility
 }
 
@@ -3789,7 +3794,7 @@ mod tests {
     }
 
     #[test]
-    fn build_gate_accepts_only_the_validated_codex_build() {
+    fn runtime_is_advisory_after_the_complete_storage_profile_is_validated() {
         let compatibility = CompatibilityInfo {
             supported: true,
             adapter: ADAPTER_NAME.to_string(),
@@ -3798,9 +3803,22 @@ mod tests {
             schema_fingerprint: crate::compatibility::PROFILES[0].fingerprint.to_string(),
             explanation: "schema supported".to_string(),
         };
-        assert!(with_build_gate(compatibility.clone(), Some("codex-cli 0.153.4")).supported);
-        assert!(!with_build_gate(compatibility.clone(), Some("codex-cli 0.154.0")).supported);
-        assert!(!with_build_gate(compatibility, None).supported);
+        let reference = with_build_gate(compatibility.clone(), Some("codex-cli 0.153.4"));
+        assert!(reference.supported);
+        assert!(reference
+            .explanation
+            .contains("matches the reference build"));
+
+        let newer = with_build_gate(compatibility.clone(), Some("codex-cli 0.153.5"));
+        assert!(newer.supported);
+        assert!(newer.explanation.contains("differs from reference build"));
+        assert!(newer.explanation.contains("Push and Pull remain available"));
+
+        let unknown = with_build_gate(compatibility, None);
+        assert!(unknown.supported);
+        assert!(unknown
+            .explanation
+            .contains("runtime could not be identified"));
     }
 
     fn fixture_manifest(home: &Path, excluded: Vec<String>) -> SnapshotManifest {
@@ -4078,13 +4096,13 @@ mod tests {
     }
 
     #[test]
-    fn rejects_trigger_drift_unknown_columns_and_build_schema_mismatches() {
+    fn rejects_trigger_drift_and_unknown_columns_while_allowing_runtime_variation() {
         let home = tempdir().unwrap();
         create_profile_schema(home.path(), 54);
         let valid = inspect(home.path()).unwrap();
         assert!(with_build_gate(valid.clone(), Some("0.154.0-alpha.6.2")).supported);
-        assert!(!with_build_gate(valid.clone(), Some("0.153.4")).supported);
-        assert!(!with_build_gate(valid, Some("0.154.1")).supported);
+        assert!(with_build_gate(valid.clone(), Some("0.153.4")).supported);
+        assert!(with_build_gate(valid, Some("0.154.1")).supported);
         let state = Connection::open(home.path().join("state_5.sqlite")).unwrap();
         state
             .execute_batch("DROP TRIGGER threads_updated_at_ms_after_update")
@@ -4120,6 +4138,10 @@ mod tests {
         validate_snapshot_source(&manifest).unwrap();
         manifest.compatibility.schema_fingerprint =
             crate::compatibility::PROFILES[0].legacy_fingerprints[0].into();
+        validate_snapshot_source(&manifest).unwrap();
+        manifest.codex_version = Some("codex-cli 0.999.0".into());
+        validate_snapshot_source(&manifest).unwrap();
+        manifest.codex_version = None;
         validate_snapshot_source(&manifest).unwrap();
         manifest.compatibility.supported = false;
         validate_snapshot_source(&manifest).unwrap();
