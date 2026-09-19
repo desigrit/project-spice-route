@@ -8,6 +8,7 @@ namespace SpiceRoute.Windows;
 public sealed class SpiceRouteContext
 {
     private int generation;
+    private bool isBusy;
     public Window Window { get; }
     public EngineClient Engine { get; }
     public JsonObject Config { get; private set; } = new();
@@ -15,10 +16,20 @@ public sealed class SpiceRouteContext
     public JsonObject Catalog { get; private set; } = new();
     public JsonObject Status { get; private set; } = new();
     public JsonObject? CurrentPreview { get; set; }
-    public bool IsBusy { get; set; }
+    public bool IsBusy
+    {
+        get => isBusy;
+        set
+        {
+            if (isBusy == value) return;
+            isBusy = value;
+            BusyChanged?.Invoke();
+        }
+    }
     public string ReviewDirection { get; set; } = "push";
     public string? ReviewSnapshotId { get; set; }
     public event Action? StateChanged;
+    public event Action? BusyChanged;
     public event Action<string, bool>? MessageRequested;
     public Action<string>? NavigateAction { get; set; }
     public SpiceRouteContext(Window window)

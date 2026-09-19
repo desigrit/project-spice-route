@@ -19,22 +19,22 @@
     <NavigationView
         x:Name="Navigation"
         Grid.Row="1"
-        PaneDisplayMode="LeftCompact"
-        IsPaneOpen="False"
+        PaneDisplayMode="Left"
+        IsPaneOpen="True"
         IsPaneToggleButtonVisible="True"
-        CompactPaneLength="64"
-        OpenPaneLength="220"
+        CompactPaneLength="48"
+        OpenPaneLength="208"
         IsBackButtonVisible="Collapsed"
         AlwaysShowHeader="False"
         IsSettingsVisible="True"
         SelectionChanged="OnNavigationChanged"
         Background="{ThemeResource SpiceSidebar}">
       <NavigationView.MenuItems>
-        <NavigationViewItem Content="Overview" Tag="overview" Icon="Home" Margin="8,2" MinHeight="40" ToolTipService.ToolTip="Overview" />
-        <NavigationViewItem Content="What to sync" Tag="selection" Icon="Folder" Margin="8,2" MinHeight="40" ToolTipService.ToolTip="What to sync" />
-        <NavigationViewItem Content="Recovery" Tag="recovery" Icon="Clock" Margin="8,2" MinHeight="40" ToolTipService.ToolTip="Recovery" />
+        <NavigationViewItem Content="Overview" Tag="overview" Icon="Home" ToolTipService.ToolTip="Overview" />
+        <NavigationViewItem Content="What to sync" Tag="selection" Icon="Folder" ToolTipService.ToolTip="What to sync" />
+        <NavigationViewItem Content="Recovery" Tag="recovery" Icon="Clock" ToolTipService.ToolTip="Recovery" />
       </NavigationView.MenuItems>
-      <Grid Background="{ThemeResource SpiceSurface}" Padding="32,22,32,0">
+      <Grid Background="{ThemeResource SpiceSurface}" Padding="24,22,24,0">
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto" />
           <RowDefinition Height="*" />

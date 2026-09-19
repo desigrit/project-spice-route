@@ -1,4 +1,5 @@
 use crate::codex;
+use crate::diagnostics::{self, PullLog};
 use crate::error::{Result, SpiceError};
 use crate::models::*;
 use crate::platform;
@@ -90,6 +91,10 @@ impl Engine {
     pub fn save_config(&self, config: AppConfig) -> Result<AppConfig> {
         settings::save_config(&self.data_dir, &config)?;
         Ok(config)
+    }
+
+    pub fn diagnostics_report(&self, config: &AppConfig) -> diagnostics::DiagnosticsReport {
+        diagnostics::report(&self.data_dir, config)
     }
 
     pub fn discover_environment(&self) -> Result<EnvironmentDiscovery> {
@@ -406,6 +411,18 @@ impl Engine {
         config: &AppConfig,
         snapshot_id: Option<&str>,
     ) -> Result<OperationPreview> {
+        let mut log = PullLog::start(&self.data_dir, config, None, "previewValidation");
+        let result = self.preview_pull_logged(config, snapshot_id, &mut log);
+        log.finish(&result, "previewReady");
+        result
+    }
+
+    fn preview_pull_logged(
+        &self,
+        config: &AppConfig,
+        snapshot_id: Option<&str>,
+        log: &mut PullLog,
+    ) -> Result<OperationPreview> {
         self.validate_operation(config)?;
         ensure_disk_space(
             &self.data_dir,
@@ -420,11 +437,14 @@ impl Engine {
             None if heads.len() > 1 => return Err(SpiceError::User("Several cloud branches are visible. Choose one branch to review.".to_string())),
             None => return Err(SpiceError::User("No complete snapshot is visible. Push from the source computer first.".to_string())),
         };
+        log.source(&incoming);
+        log.phase("previewInspectingSource");
         snapshot::inspect_manifest(config, &incoming)?;
         codex::validate_snapshot_source(&incoming)?;
         let operation_id = Uuid::new_v4().to_string();
         let stage = self.preview_directory(&operation_id)?;
         let current = self.capture_local(config, &stage, None)?;
+        log.destination_version(current.codex_version.as_deref());
         let state = settings::load_local_state(&self.data_dir)?;
         let baseline = snapshot::common_ancestor(
             config,
@@ -615,6 +635,19 @@ impl Engine {
         operation_id: &str,
         resolutions: &[ConflictResolution],
     ) -> Result<OperationResult> {
+        let mut log = PullLog::start(&self.data_dir, config, Some(operation_id), "validation");
+        let result = self.execute_pull_logged(config, operation_id, resolutions, &mut log);
+        log.finish(&result, "succeeded");
+        result
+    }
+
+    fn execute_pull_logged(
+        &self,
+        config: &AppConfig,
+        operation_id: &str,
+        resolutions: &[ConflictResolution],
+        log: &mut PullLog,
+    ) -> Result<OperationResult> {
         self.validate_operation(config)?;
         let prepared = self.prepared(operation_id, Direction::Pull)?;
         validate_prepared(config, &prepared)?;
@@ -628,12 +661,15 @@ impl Engine {
         platform::assert_codex_closed()?;
         let writer_monitor = platform::WriterMonitor::start(prepared.cancel.clone())?;
         let result = (|| -> Result<OperationResult> {
+            log.phase("recheckingCloudHeads");
             self.ensure_heads(config, &prepared.expected_head_ids)?;
             let incoming_id = prepared
                 .expected_latest
                 .as_deref()
                 .ok_or_else(|| SpiceError::User("Pull preview has no snapshot.".to_string()))?;
             let incoming = snapshot::load_manifest(config, incoming_id)?;
+            log.source(&incoming);
+            log.phase("verifyingSourceObjects");
             codex::validate_snapshot_source(&incoming)?;
             set_progress(
                 &prepared,
@@ -685,6 +721,7 @@ impl Engine {
                 return Err(SpiceError::User("Choose a destination for every incoming project root, save it, and preview Pull again.".to_string()));
             }
             let recheck_stage = self.preview_directory(&format!("{}-recheck", operation_id))?;
+            log.phase("recheckingDestination");
             set_progress(
                 &prepared,
                 OperationPhase::Capturing,
@@ -699,6 +736,7 @@ impl Engine {
                 false,
                 false,
             )?;
+            log.destination_version(current.codex_version.as_deref());
             if pull_local_fingerprint(config, &current, &incoming)? != prepared.local_fingerprint {
                 return Err(SpiceError::User("Codex or a destination project changed after the preview. Review a fresh Pull preview before applying it.".to_string()));
             }
@@ -718,6 +756,9 @@ impl Engine {
                 self.ensure_heads(config, &prepared.expected_head_ids)?;
                 writer_monitor.check()?;
                 record_pull_baseline(&self.data_dir, &incoming, &prepared.expected_head_ids)?;
+                log.selection(&HashSet::new(), &HashSet::new());
+                log.verified(config, &HashSet::new(), &HashSet::new());
+                log.phase("keptLocalVersions");
                 set_progress(
                     &prepared,
                     OperationPhase::Complete,
@@ -757,6 +798,8 @@ impl Engine {
                 .filter(|project| decision_incoming(&decisions, &format!("project:{}", project.id)))
                 .map(|project| project.id.clone())
                 .collect();
+            log.selection(&incoming_threads, &incoming_projects);
+            log.phase("stagingRestore");
             let deleted_threads: HashSet<String> = decisions
                 .iter()
                 .filter(|(key, action)| {
@@ -921,6 +964,7 @@ impl Engine {
                 "Creating a durable local rollback set…",
                 4,
             )?;
+            log.phase("creatingRecovery");
             let recovery_id = recovery::create_cancellable(
                 &self.data_dir,
                 &format!("Before pulling {}", short_id(&incoming.id)),
@@ -928,6 +972,8 @@ impl Engine {
                 &recovery_targets,
                 Some(&prepared.cancel),
             )?;
+            log.recovery(&recovery_id);
+            log.phase("applyingRestore");
             set_progress(
                 &prepared,
                 OperationPhase::Applying,
@@ -1035,6 +1081,7 @@ impl Engine {
                     "Verifying restored databases, files, transcripts, and Git state…",
                     6,
                 )?;
+                log.phase("verifyingRestore");
                 verify_applied_state(
                     config,
                     &incoming_threads,
@@ -1048,6 +1095,7 @@ impl Engine {
                     &rollout_fingerprints,
                     &history_roots,
                 )?;
+                log.verified(config, &incoming_threads, &incoming_projects);
                 writer_monitor.check()?;
                 record_pull_baseline(&self.data_dir, &incoming, &prepared.expected_head_ids)?;
                 Ok(())
@@ -1059,6 +1107,7 @@ impl Engine {
                 )));
             }
             recovery::complete(&self.data_dir, &recovery_id)?;
+            log.phase("complete");
             set_progress(
                 &prepared,
                 OperationPhase::Complete,

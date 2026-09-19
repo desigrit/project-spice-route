@@ -2,6 +2,8 @@
 pub mod codex;
 #[path = "../../src/compatibility.rs"]
 pub mod compatibility;
+#[path = "../../src/diagnostics.rs"]
+pub mod diagnostics;
 #[path = "../../src/engine.rs"]
 pub mod engine;
 #[path = "../../src/error.rs"]

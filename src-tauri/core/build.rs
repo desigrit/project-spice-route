@@ -5,6 +5,7 @@ fn main() {
     for source in [
         "../src/codex.rs",
         "../src/compatibility.rs",
+        "../src/diagnostics.rs",
         "../src/engine.rs",
         "../src/error.rs",
         "../src/models.rs",

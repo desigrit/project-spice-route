@@ -27,6 +27,7 @@ public sealed partial class MainWindow : Window
         context.NavigateAction = Navigate;
         context.MessageRequested += ShowMessage;
         context.StateChanged += ApplyState;
+        context.BusyChanged += UpdateNavigationAvailability;
         noticeTimer.Tick += (_, _) => { Notice.IsOpen = false; noticeTimer.Stop(); };
         AppWindow.Closing += (_, args) =>
         {
@@ -78,6 +79,7 @@ public sealed partial class MainWindow : Window
         PageHost.Content = new SelectionPage(context);
         PageHost.Content = new SettingsPage(context);
         PageHost.Content = new SetupPage(context);
+        PageHost.Content = new DiagnosticsPage(context);
         PageHost.Content = new ReviewPage(context);
         PageHost.Content = null;
     }
@@ -97,9 +99,8 @@ public sealed partial class MainWindow : Window
         if (context.IsBusy)
         {
             navigating = true;
-            Navigation.SelectedItem = currentPage == "settings" ? Navigation.SettingsItem : Navigation.MenuItems.OfType<NavigationViewItem>().FirstOrDefault(item => item.Tag?.ToString() == (currentPage == "review" ? "overview" : currentPage));
+            Navigation.SelectedItem = currentPage == "settings" ? Navigation.SettingsItem : Navigation.MenuItems.OfType<NavigationViewItem>().FirstOrDefault(item => item.Tag?.ToString() == NavigationKey(currentPage));
             navigating = false;
-            ShowMessage("Wait for the current operation to finish before changing pages. A running handoff can be cancelled from its review.", true);
             return;
         }
         Notice.IsOpen = false;
@@ -109,10 +110,11 @@ public sealed partial class MainWindow : Window
         {
             "selection" => new SelectionPage(context), "recovery" => new RecoveryPage(context),
             "settings" => new SettingsPage(context), "setup" => new SetupPage(context),
+            "diagnostics" => new DiagnosticsPage(context),
             "review" => new ReviewPage(context), _ => new OverviewPage(context)
         };
         navigating = true;
-        Navigation.SelectedItem = key == "settings" ? Navigation.SettingsItem : Navigation.MenuItems.OfType<NavigationViewItem>().FirstOrDefault(item => item.Tag?.ToString() == (key == "review" ? "overview" : key));
+        Navigation.SelectedItem = key == "settings" ? Navigation.SettingsItem : Navigation.MenuItems.OfType<NavigationViewItem>().FirstOrDefault(item => item.Tag?.ToString() == NavigationKey(key));
         navigating = false;
     }
 
@@ -122,6 +124,16 @@ public sealed partial class MainWindow : Window
         var key = args.IsSettingsSelected ? "settings" : (args.SelectedItem as NavigationViewItem)?.Tag?.ToString();
         if (key is null || key == currentPage) return;
         Navigate(key);
+    }
+
+    private static string NavigationKey(string page) => page switch { "review" => "overview", "diagnostics" => "recovery", _ => page };
+
+    private void UpdateNavigationAvailability()
+    {
+        foreach (var item in Navigation.MenuItems.OfType<NavigationViewItem>())
+            item.IsEnabled = !context.IsBusy;
+        if (Navigation.SettingsItem is NavigationViewItem settings)
+            settings.IsEnabled = !context.IsBusy;
     }
 
     private void ShowMessage(string message, bool error)

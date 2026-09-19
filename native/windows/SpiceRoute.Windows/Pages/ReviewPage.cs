@@ -20,10 +20,24 @@ public sealed class ReviewChange : INotifyPropertyChanged
     public double Bytes { get; set; }
     public string Size => Wire.Bytes(Bytes);
     public string ActionLabel => Action switch { "add" => "New", "update" => "Updated", "delete" => "Deleted", "conflict" => "Conflict", _ => "Unchanged" };
+    public override string ToString() => $"{Label}, {ActionLabel}, {Size}, {Detail}";
     private int choiceIndex;
     public int ChoiceIndex { get => choiceIndex; set { if (choiceIndex == value) return; choiceIndex = value; PropertyChanged?.Invoke(this, new(nameof(ChoiceIndex))); } }
     public event PropertyChangedEventHandler? PropertyChanged;
 }
+
+[Microsoft.UI.Xaml.Data.Bindable]
+public sealed class ReviewProjectFilter(string id, string name, int count, double bytes)
+{
+    public string Id { get; } = id;
+    public string Name { get; } = name;
+    public int Count { get; } = count;
+    public double Bytes { get; } = bytes;
+    public string Summary => $"{Count:N0} {(Count == 1 ? "item" : "items")} · {Wire.Bytes(Bytes)}";
+    public string AccessibleName => Name + ", " + Summary;
+    public override string ToString() => AccessibleName;
+}
+
 public sealed class ReviewPage : Page
 {
     private readonly SpiceRouteContext context;
@@ -46,10 +60,15 @@ public sealed class ReviewPage : Page
     private readonly Grid attention = new();
     private readonly StackPanel noteItems = Ui.Stack(15);
     private readonly ListView fileList = new() { SelectionMode = ListViewSelectionMode.Single, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-    private readonly ListView projectList = new() { SelectionMode = ListViewSelectionMode.Single, Width = 176 };
-    private readonly TextBox search = new() { PlaceholderText = "Find a file or project", MaxWidth = 350, HorizontalAlignment = HorizontalAlignment.Stretch };
-    private readonly ComboBox sort = new() { Width = 150 };
-    private readonly ComboBox actionFilter = new() { Width = 145 };
+    private readonly ListView projectList = new() { SelectionMode = ListViewSelectionMode.Single, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+    private readonly ComboBox projectPicker = new() { Name = "ReviewProjectPicker", Header = "Project", DisplayMemberPath = nameof(ReviewProjectFilter.Name), FontSize = 13, MinWidth = 0, HorizontalAlignment = HorizontalAlignment.Stretch, Visibility = Visibility.Collapsed };
+    private readonly TextBox search = new() { Name = "ReviewFileSearch", PlaceholderText = "Find a file or project", MinWidth = 0, FontSize = 13, HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly ComboBox sort = new() { Width = 132, FontSize = 13 };
+    private readonly ComboBox actionFilter = new() { Width = 136, FontSize = 13 };
+    private readonly StackPanel emptyFiles = new() { Name = "ReviewEmptyResults", Spacing = 8, Margin = new Thickness(12, 28, 12, 0), Visibility = Visibility.Collapsed };
+    private readonly TextBlock emptyTitle = Ui.Text("No matching items", 16, true);
+    private readonly TextBlock emptyDetail = Ui.Muted("Try another search or clear the filters.", 13);
+    private readonly Button clearFilters = Ui.TextButton("Clear filters");
     private readonly Dictionary<string, string> destinations = new();
     private readonly DispatcherTimer pollTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly List<ReviewChange> changes = new();
@@ -61,7 +80,7 @@ public sealed class ReviewPage : Page
     private bool cancelled;
     private int generation;
     private string projectFilter = "";
-    private sealed record ProjectFilter(string Id, string Name, double Bytes) { public override string ToString() => Name + (Bytes > 0 ? "\n" + Wire.Bytes(Bytes) : ""); }
+    private bool synchronizingProject;
 
     public ReviewPage(SpiceRouteContext context)
     {
@@ -98,33 +117,82 @@ public sealed class ReviewPage : Page
 
     private void BuildFiles()
     {
-        files.RowDefinitions.Add(new() { Height = GridLength.Auto }); files.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-        var toolbar = Ui.Columns(new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto);
-        toolbar.Margin = new Thickness(0, 6, 0, 14);
+        files.ColumnDefinitions.Add(new() { Width = new GridLength(184) });
+        files.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+        files.ColumnSpacing = 16;
+        files.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        files.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        files.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
+        projectPicker.Margin = new Thickness(0, 12, 0, 0);
+        Grid.SetColumnSpan(projectPicker, 2); Ui.Add(files, projectPicker);
+        AutomationProperties.SetName(projectPicker, "Choose a project filter");
+        var projectHeading = Ui.Text("Projects", 13, true);
+        projectHeading.Margin = new Thickness(12, 12, 0, 12); projectHeading.VerticalAlignment = VerticalAlignment.Center;
+        Ui.Add(files, projectHeading, 1);
+        var toolbar = Ui.ColumnsWithSpacing(8, new GridLength(1, GridUnitType.Star), GridLength.Auto, GridLength.Auto);
+        toolbar.ColumnDefinitions[0].MaxWidth = 360;
+        toolbar.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        toolbar.RowDefinitions.Add(new() { Height = GridLength.Auto });
+        toolbar.Name = "ReviewFileToolbar";
+        toolbar.Margin = new Thickness(0, 12, 0, 12);
         sort.Items.Add("Largest first"); sort.Items.Add("Name"); sort.Items.Add("Change"); sort.SelectedIndex = 0;
         actionFilter.Items.Add("All changes"); actionFilter.Items.Add("Conflicts"); actionFilter.Items.Add("New files"); actionFilter.Items.Add("Updates"); actionFilter.Items.Add("Deletions"); actionFilter.Items.Add("Unchanged"); actionFilter.SelectedIndex = 0;
         AutomationProperties.SetName(search, "Find a file or project"); AutomationProperties.SetName(sort, "Sort files"); AutomationProperties.SetName(actionFilter, "Filter changes");
         search.TextChanged += (_, _) => FilterFiles(); sort.SelectionChanged += (_, _) => FilterFiles(); actionFilter.SelectionChanged += (_, _) => FilterFiles();
-        Ui.Add(toolbar, search); Ui.Add(toolbar, sort, column: 1); Ui.Add(toolbar, actionFilter, column: 2); Ui.Add(files, toolbar);
-        var lists = Ui.Columns(GridLength.Auto, new GridLength(1, GridUnitType.Star));
-        projectList.SelectionChanged += (_, _) => { projectFilter = (projectList.SelectedItem as ProjectFilter)?.Id ?? ""; FilterFiles(); };
+        Ui.Add(toolbar, search); Ui.Add(toolbar, sort, column: 1); Ui.Add(toolbar, actionFilter, column: 2); Ui.Add(files, toolbar, 1, 1);
+        projectList.SelectionChanged += (_, _) => SelectProject(projectList.SelectedItem as ReviewProjectFilter);
+        projectPicker.SelectionChanged += (_, _) => SelectProject(projectPicker.SelectedItem as ReviewProjectFilter);
         AutomationProperties.SetName(projectList, "Project filter"); AutomationProperties.SetName(fileList, "Files and conversations in this handoff");
-        fileList.ItemContainerStyle = StretchedRowStyle();
-        fileList.ItemTemplate = (DataTemplate)XamlReader.Load("""
-          <DataTemplate xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
-            <Grid ColumnSpacing="12" Padding="4,9" ToolTipService.ToolTip="{Binding Detail}">
-              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="76"/><ColumnDefinition Width="70"/></Grid.ColumnDefinitions>
-              <StackPanel Spacing="3"><TextBlock Text="{Binding Label}" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Detail}" FontSize="12" Opacity="0.7" TextTrimming="CharacterEllipsis"/></StackPanel>
-              <TextBlock Grid.Column="1" Text="{Binding ActionLabel}" FontSize="12" VerticalAlignment="Center"/>
-              <TextBlock Grid.Column="2" Text="{Binding Size}" FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-            </Grid>
-          </DataTemplate>
-          """);
+        fileList.Style = Ui.Style("SpiceReviewListStyle"); projectList.Style = Ui.Style("SpiceReviewListStyle");
+        fileList.ItemContainerStyle = Ui.Style("SpiceReviewRowStyle"); projectList.ItemContainerStyle = Ui.Style("SpiceReviewRowStyle");
+        fileList.ItemTemplate = (DataTemplate)Application.Current.Resources["SpiceReviewFileTemplate"];
+        projectList.ItemTemplate = (DataTemplate)Application.Current.Resources["SpiceReviewProjectTemplate"];
         var listPanel = new Grid(); listPanel.RowDefinitions.Add(new() { Height = GridLength.Auto }); listPanel.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
-        var labels = Ui.Columns(new GridLength(1, GridUnitType.Star), new GridLength(76), new GridLength(70));
-        labels.Padding = new Thickness(16, 8, 16, 8); Ui.Add(labels, Ui.Text("Name and location", 12)); Ui.Add(labels, Ui.Text("Change", 12), column: 1); Ui.Add(labels, Ui.Text("Size", 12), column: 2);
+        var labels = Ui.ColumnsWithSpacing(12, new GridLength(1, GridUnitType.Star), new GridLength(76), new GridLength(70));
+        labels.Padding = new Thickness(12, 8, 12, 8);
+        var nameLabel = Ui.Muted("Name and location", 12); nameLabel.Name = "ReviewNameHeader";
+        var changeLabel = Ui.Muted("Change", 12); changeLabel.Name = "ReviewChangeHeader";
+        var sizeLabel = Ui.Muted("Size", 12); sizeLabel.Name = "ReviewSizeHeader"; sizeLabel.HorizontalAlignment = HorizontalAlignment.Right;
+        Ui.Add(labels, nameLabel); Ui.Add(labels, changeLabel, column: 1); Ui.Add(labels, sizeLabel, column: 2);
+        emptyTitle.Name = "ReviewEmptyTitle";
+        emptyFiles.Children.Add(emptyTitle); emptyFiles.Children.Add(emptyDetail); emptyFiles.Children.Add(clearFilters);
+        clearFilters.Click += (_, _) => { search.Text = ""; actionFilter.SelectedIndex = 0; projectList.SelectedIndex = 0; FilterFiles(); };
+        Ui.Add(listPanel, emptyFiles, 1);
         Ui.Add(listPanel, labels); Ui.Add(listPanel, fileList, 1);
-        Ui.Add(lists, projectList); Ui.Add(lists, listPanel, column: 1); Ui.Add(files, lists, 1);
+        var projectSidebar = new Border { Style = Ui.Style("SpiceReviewSidebarStyle"), BorderThickness = new Thickness(0, 0, 1, 0), Padding = new Thickness(0, 0, 8, 0), Child = projectList };
+        Ui.Add(files, projectSidebar, 2);
+        Ui.Add(files, listPanel, 2, 1);
+        files.SizeChanged += (_, args) =>
+        {
+            var compact = args.NewSize.Width < 700;
+            var stacked = args.NewSize.Width < 560;
+            projectHeading.Visibility = projectSidebar.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+            projectPicker.Visibility = compact ? Visibility.Visible : Visibility.Collapsed;
+            files.ColumnDefinitions[0].Width = new GridLength(compact ? 0 : 184);
+            files.ColumnSpacing = compact ? 0 : 16;
+            Grid.SetColumn(toolbar, compact ? 0 : 1); Grid.SetColumnSpan(toolbar, compact ? 2 : 1);
+            Grid.SetColumn(listPanel, compact ? 0 : 1); Grid.SetColumnSpan(listPanel, compact ? 2 : 1);
+            toolbar.Margin = new Thickness(0, compact ? 8 : 12, 0, 12);
+            toolbar.RowSpacing = stacked ? 8 : 0;
+            toolbar.ColumnDefinitions[0].MaxWidth = stacked ? double.PositiveInfinity : 360;
+            toolbar.ColumnDefinitions[0].Width = stacked ? new GridLength(132) : new GridLength(1, GridUnitType.Star);
+            toolbar.ColumnDefinitions[1].Width = stacked ? new GridLength(136) : GridLength.Auto;
+            toolbar.ColumnDefinitions[2].Width = stacked ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+            Grid.SetColumnSpan(search, stacked ? 3 : 1);
+            Grid.SetRow(sort, stacked ? 1 : 0); Grid.SetColumn(sort, stacked ? 0 : 1);
+            Grid.SetRow(actionFilter, stacked ? 1 : 0); Grid.SetColumn(actionFilter, stacked ? 1 : 2);
+        };
+    }
+
+    private void SelectProject(ReviewProjectFilter? selected)
+    {
+        if (synchronizingProject) return;
+        synchronizingProject = true;
+        projectFilter = selected?.Id ?? "";
+        projectList.SelectedItem = selected;
+        projectPicker.SelectedItem = selected;
+        synchronizingProject = false;
+        FilterFiles();
     }
 
     private async Task PrepareAsync()
@@ -169,9 +237,9 @@ public sealed class ReviewPage : Page
             var row = new ReviewChange { Key = key, Label = Wire.Text(item, "label"), Detail = Wire.Text(item, "detail"), Bytes = Wire.Number(item, "bytes"), Action = Wire.Text(item, "action"), ProjectId = projectId, ProjectName = projects.GetValueOrDefault(projectId, projectId == "" ? "Chats and other items" : "Incoming project") };
             row.PropertyChanged += (_, _) => UpdateActions(); changes.Add(row);
         }
-        var filters = changes.GroupBy(item => item.ProjectId).Select(group => new ProjectFilter(group.Key == "" ? "__other" : group.Key, group.First().ProjectName, group.Where(item => item.Key.StartsWith("file:", StringComparison.Ordinal)).Sum(item => item.Bytes))).OrderByDescending(item => item.Bytes).ToList();
-        filters.Insert(0, new ProjectFilter("", "All projects", Wire.Number(preview, "estimatedBytes")));
-        projectList.ItemsSource = filters; projectList.SelectedIndex = 0;
+        var filters = changes.GroupBy(item => item.ProjectId).Select(group => new ReviewProjectFilter(group.Key == "" ? "__other" : group.Key, group.First().ProjectName, group.Count(), group.Sum(item => item.Bytes))).OrderByDescending(item => item.Bytes).ThenBy(item => item.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+        filters.Insert(0, new ReviewProjectFilter("", "All projects", changes.Count, Wire.Number(preview, "estimatedBytes")));
+        projectList.ItemsSource = filters; projectPicker.ItemsSource = filters; projectList.SelectedIndex = 0;
         var altered = changes.Count(item => item.Action != "unchanged");
         summary.Text = replacement
             ? $"Cloud replacement · {changes.Count:N0} reviewed items · {Wire.Bytes(Wire.Number(preview, "estimatedBytes"))} selected content"
@@ -263,7 +331,15 @@ public sealed class ReviewPage : Page
         var action = actionFilter.SelectedIndex switch { 1 => "conflict", 2 => "add", 3 => "update", 4 => "delete", 5 => "unchanged", _ => "" };
         if (action.Length > 0) result = result.Where(item => item.Action == action);
         result = sort.SelectedIndex switch { 1 => result.OrderBy(item => item.Label, StringComparer.CurrentCultureIgnoreCase), 2 => result.OrderBy(item => item.Action).ThenBy(item => item.Label), _ => result.OrderByDescending(item => item.Bytes).ThenBy(item => item.Label) };
-        fileList.ItemsSource = result.ToList();
+        var visible = result.ToList();
+        fileList.ItemsSource = visible;
+        var isEmpty = preview is not null && visible.Count == 0;
+        emptyFiles.Visibility = isEmpty ? Visibility.Visible : Visibility.Collapsed;
+        fileList.Visibility = isEmpty ? Visibility.Collapsed : Visibility.Visible;
+        var filtered = projectFilter.Length > 0 || search.Text.Length > 0 || action.Length > 0;
+        emptyTitle.Text = filtered ? "No matching items" : "No items to review";
+        emptyDetail.Text = filtered ? "Try another search or clear the filters." : "Change what you sync to include conversations or project files.";
+        clearFilters.Visibility = filtered ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void ShowTab()

@@ -103,6 +103,7 @@ impl Server {
             "list_content" => value(self.engine.list_content(&config(params)?)?),
             "list_content_quick" => value(self.engine.list_content_quick(&config(params)?)?),
             "get_sync_status" => value(self.engine.sync_status(&config(params)?)?),
+            "get_diagnostics_report" => value(self.engine.diagnostics_report(&config(params)?)),
             "list_snapshots" => {
                 let config = config(params)?;
                 let mut manifests = snapshot::list_manifests(&config)?;

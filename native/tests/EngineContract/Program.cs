@@ -42,6 +42,11 @@ await using (var client = new EngineClient(enginePath, profile))
     var loaded = await client.CallAsync("load_config", cancellationToken: deadline.Token);
     Require(Wire.Text(loaded, "deviceId") == deviceId && Wire.Text(loaded, "theme") == "dark", "Settings round trip");
 
+    var diagnostics = await client.CallAsync("get_diagnostics_report", new() { ["config"] = config.DeepClone() }, deadline.Token);
+    Require(Wire.Number(diagnostics, "schemaVersion") == 1 && Wire.Array(diagnostics, "findings").Count > 0, "Diagnostics report reaches the native client");
+    var inspectedProfile = Wire.Object(Wire.Object(diagnostics, "report"), "configuredProfile");
+    Require(!Wire.Bool(Wire.Object(inspectedProfile, "stateDatabase"), "exists") && !File.Exists(Path.Combine(codex, "state_5.sqlite")), "Missing profile diagnostics do not create a database");
+
     var progress = await client.CallAsync("get_operation_progress", new() { ["operationId"] = "not-running" }, deadline.Token);
     Require(progress is null, "Unknown progress remains null");
     await client.CallAsync("cancel_operation", new() { ["operationId"] = "not-running" }, deadline.Token);
@@ -68,7 +73,7 @@ await using (var retry = new EngineClient(enginePath, profile))
     var resumed = await retry.CallAsync("get_protocol_info", cancellationToken: deadline.Token);
     Require(Wire.Number(resumed, "protocolVersion") == 1, "Retry recovers after the other app closes");
 }
-Console.WriteLine("11 headless engine-client contract checks passed. Only a disposable profile was used.");
+Console.WriteLine("13 headless engine-client contract checks passed. All writes used a disposable profile; diagnostics may inspect detected Codex folders read-only.");
 
 static void Require(bool passed, string check)
 {

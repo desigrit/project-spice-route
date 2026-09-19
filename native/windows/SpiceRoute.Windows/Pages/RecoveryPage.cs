@@ -25,6 +25,9 @@ public sealed class RecoveryPage : Page
         content.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         var intro = new StackPanel { Spacing = 12, Margin = new Thickness(0, 0, 0, 20) };
         intro.Children.Add(NativePageUi.Text("Before Pull changes local files, Spice Route saves a recovery point. The latest ten completed points and any unfinished recovery data stay on this PC.", secondary: true));
+        var diagnostics = Ui.Button("Diagnose missing chats", "\uE946");
+        diagnostics.Click += (_, _) => context.Navigate("diagnostics");
+        intro.Children.Add(diagnostics);
         intro.Children.Add(_feedback); intro.Children.Add(_status); intro.Children.Add(_progress);
         content.Children.Add(intro); Grid.SetRow(_points, 1); content.Children.Add(_points);
         Content = page;

@@ -47,7 +47,10 @@ async fn list_content(engine: State<'_, Arc<Engine>>, config: AppConfig) -> Resu
 }
 
 #[tauri::command]
-async fn list_content_quick(engine: State<'_, Arc<Engine>>, config: AppConfig) -> Result<ContentCatalog> {
+async fn list_content_quick(
+    engine: State<'_, Arc<Engine>>,
+    config: AppConfig,
+) -> Result<ContentCatalog> {
     let engine = Arc::clone(engine.inner());
     run_blocking(move || engine.list_content_quick(&config)).await
 }
@@ -56,6 +59,15 @@ async fn list_content_quick(engine: State<'_, Arc<Engine>>, config: AppConfig) -
 async fn get_sync_status(engine: State<'_, Arc<Engine>>, config: AppConfig) -> Result<SyncStatus> {
     let engine = Arc::clone(engine.inner());
     run_blocking(move || engine.sync_status(&config)).await
+}
+
+#[tauri::command]
+async fn get_diagnostics_report(
+    engine: State<'_, Arc<Engine>>,
+    config: AppConfig,
+) -> Result<spice_route_core::diagnostics::DiagnosticsReport> {
+    let engine = Arc::clone(engine.inner());
+    run_blocking(move || Ok(engine.diagnostics_report(&config))).await
 }
 
 #[tauri::command]
@@ -171,6 +183,7 @@ pub fn run() {
             list_content,
             list_content_quick,
             get_sync_status,
+            get_diagnostics_report,
             preview_push,
             preview_pull,
             execute_push,
