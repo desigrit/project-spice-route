@@ -51,6 +51,7 @@ $target = if ($Architecture -eq 'arm64') {
         DotNet = 'win-arm64'
         Platform = 'ARM64'
         Crt = 'arm64'
+        VsComponent = 'Microsoft.VisualStudio.Component.VC.Tools.ARM64'
         MsvcScript = 'msvc-env-arm64.cmd'
     }
 } else {
@@ -59,6 +60,7 @@ $target = if ($Architecture -eq 'arm64') {
         DotNet = 'win-x64'
         Platform = 'x64'
         Crt = 'x64'
+        VsComponent = 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64'
         MsvcScript = 'msvc-env.cmd'
     }
 }
@@ -146,13 +148,58 @@ Copy-Item -LiteralPath $EnginePath -Destination (Join-Path $publishDirectory 'Sp
 # App-local CRT files allow the Rust engine and native UI libraries to start on a
 # clean PC without a separate Visual C++ redistributable installer.
 if (-not $CrtDirectory) {
-    $redistRoot = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\2022\BuildTools\VC\Redist\MSVC'
-    if (Test-Path -LiteralPath $redistRoot -PathType Container) {
-        $CrtDirectory = Get-ChildItem -LiteralPath $redistRoot -Directory |
+    $redistVersionRoots = [Collections.Generic.List[string]]::new()
+    if ($env:VCToolsRedistDir -and (Test-Path -LiteralPath $env:VCToolsRedistDir -PathType Container)) {
+        $redistVersionRoots.Add([IO.Path]::GetFullPath($env:VCToolsRedistDir))
+    }
+
+    $visualStudioInstallations = [Collections.Generic.List[string]]::new()
+    if ($env:VSINSTALLDIR -and (Test-Path -LiteralPath $env:VSINSTALLDIR -PathType Container)) {
+        $visualStudioInstallations.Add([IO.Path]::GetFullPath($env:VSINSTALLDIR))
+    }
+
+    $vswhereCandidates = @(
+        $(if (${env:ProgramFiles(x86)}) { Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe' }),
+        $(if ($env:ProgramFiles) { Join-Path $env:ProgramFiles 'Microsoft Visual Studio\Installer\vswhere.exe' })
+    )
+    $vswherePath = $vswhereCandidates |
+        Where-Object { $_ -and (Test-Path -LiteralPath $_ -PathType Leaf) } |
+        Select-Object -First 1
+    if ($vswherePath) {
+        $locatedInstallations = & $vswherePath -all -products '*' -requires $target.VsComponent -property installationPath
+        if ($LASTEXITCODE -ne 0) { throw 'Visual Studio discovery failed while locating the C++ runtime.' }
+        foreach ($installation in $locatedInstallations) {
+            if ($installation -and (Test-Path -LiteralPath $installation -PathType Container)) {
+                $visualStudioInstallations.Add([IO.Path]::GetFullPath($installation))
+            }
+        }
+    }
+
+    # Preserve compatibility with machines that have the original VS 2022
+    # Build Tools layout but no usable vswhere installation.
+    if (${env:ProgramFiles(x86)}) {
+        $legacyInstallation = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\2022\BuildTools'
+        if (Test-Path -LiteralPath $legacyInstallation -PathType Container) {
+            $visualStudioInstallations.Add([IO.Path]::GetFullPath($legacyInstallation))
+        }
+    }
+
+    foreach ($installation in ($visualStudioInstallations | Select-Object -Unique)) {
+        $redistRoot = Join-Path $installation 'VC\Redist\MSVC'
+        if (-not (Test-Path -LiteralPath $redistRoot -PathType Container)) { continue }
+        Get-ChildItem -LiteralPath $redistRoot -Directory |
             Where-Object { $_.Name -match '^\d+\.\d+\.\d+$' } |
             Sort-Object { [version]$_.Name } -Descending |
-            ForEach-Object { Get-ChildItem -Path (Join-Path $_.FullName "$($target.Crt)\Microsoft.VC*.CRT") -Directory -ErrorAction SilentlyContinue } |
-            Select-Object -First 1 -ExpandProperty FullName
+            ForEach-Object { $redistVersionRoots.Add($_.FullName) }
+    }
+
+    foreach ($versionRoot in ($redistVersionRoots | Select-Object -Unique)) {
+        $candidate = Get-ChildItem -Path (Join-Path $versionRoot "$($target.Crt)\Microsoft.VC*.CRT") -Directory -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($candidate) {
+            $CrtDirectory = $candidate.FullName
+            break
+        }
     }
 }
 if (-not $CrtDirectory -or -not (Test-Path -LiteralPath $CrtDirectory -PathType Container)) {
