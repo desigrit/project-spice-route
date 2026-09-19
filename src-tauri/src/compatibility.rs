@@ -6,36 +6,51 @@ pub struct Profile {
     pub state: i64,
     pub runtime: &'static str,
     pub fingerprint: &'static str,
+    pub legacy_fingerprints: &'static [&'static str],
     pub schema: &'static str,
+}
+
+impl Profile {
+    pub fn matches(&self, info: &CompatibilityInfo) -> bool {
+        info.state_migration == Some(self.state)
+            && info.history_migration == Some(6)
+            && (info.schema_fingerprint == self.fingerprint
+                || self
+                    .legacy_fingerprints
+                    .contains(&info.schema_fingerprint.as_str()))
+    }
 }
 
 pub const PROFILES: &[Profile] = &[
     Profile {
         state: 52,
         runtime: "0.153.4",
-        fingerprint: "8f654166cba02b510074adbd0e4ebc66128b624672b74d9a6ca415b8e09eab16",
+        fingerprint: "c2144b3e63ffbc0caa5b338f58f43d2f3293d5b080d5176c54bba03bb8ef5625",
+        legacy_fingerprints: &["8f654166cba02b510074adbd0e4ebc66128b624672b74d9a6ca415b8e09eab16"],
         schema: include_str!("fixtures/schema-52.json"),
     },
     Profile {
         state: 54,
         runtime: "0.154.0-alpha.6.2",
-        fingerprint: "9422fcd06e5ff2ed83657ad39ff5247b27150bdd85d38f6cc4159641a52c5434",
+        fingerprint: "8082e27f46c7a5691ae4dca5b004ce2103bacaafb3989f7be95607d34685c205",
+        legacy_fingerprints: &["9422fcd06e5ff2ed83657ad39ff5247b27150bdd85d38f6cc4159641a52c5434"],
         schema: include_str!("fixtures/schema-54.json"),
     },
     Profile {
         state: 55,
         runtime: "0.155.0-alpha.9.2",
-        fingerprint: "c5d97837b0ea23df607c69a6721ba2612a6169733dee2b1d795a96af759208de",
+        fingerprint: "52ae661eafd5735306aafc892143c840a9b9662046d0d91a5f91083646ed3b36",
+        legacy_fingerprints: &["c5d97837b0ea23df607c69a6721ba2612a6169733dee2b1d795a96af759208de"],
         schema: include_str!("fixtures/schema-55.json"),
     },
 ];
 
 pub fn profile(info: &CompatibilityInfo) -> Option<&'static Profile> {
-    PROFILES.iter().find(|p| {
-        info.state_migration == Some(p.state)
-            && info.history_migration == Some(6)
-            && info.schema_fingerprint == p.fingerprint
-    })
+    PROFILES.iter().find(|profile| profile.matches(info))
+}
+
+pub(crate) fn normalize_schema_sql(sql: &str) -> String {
+    sql.replace("\r\n", "\n").replace('\r', "\n")
 }
 
 pub fn expected_layout(profile: &Profile, database: &str) -> String {
@@ -49,9 +64,34 @@ pub fn expected_layout(profile: &Profile, database: &str) -> String {
                 "{}:{}:{}",
                 obj["type"].as_str().unwrap(),
                 obj["name"].as_str().unwrap(),
-                obj["sql"].as_str().unwrap().replace("\r\n", "\n")
+                normalize_schema_sql(obj["sql"].as_str().unwrap())
             )
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn published_platform_sensitive_fingerprints_remain_recognized() {
+        for expected in PROFILES {
+            for fingerprint in expected.legacy_fingerprints {
+                let info = CompatibilityInfo {
+                    supported: true,
+                    adapter: String::new(),
+                    state_migration: Some(expected.state),
+                    history_migration: Some(6),
+                    schema_fingerprint: (*fingerprint).into(),
+                    explanation: String::new(),
+                };
+                assert_eq!(
+                    profile(&info).map(|value| value.state),
+                    Some(expected.state)
+                );
+            }
+        }
+    }
 }

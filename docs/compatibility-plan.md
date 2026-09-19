@@ -6,6 +6,8 @@ The original schema fixtures come from desktop 26.903.71938 with runtime 0.153.4
 
 Runtime 0.155.0-alpha.9.2 uses state/history migrations 55/6. Read-only inspection found a successfully completed migration 55. Compared with schema 54, `thread_artifacts` becomes `thread_attachments`, `artifact_type` becomes `attachment_type`, and the associated index is renamed. The other state objects and the history schema match. Sanitized fixtures contain structure only, not user records or paths.
 
+Schema fingerprints normalize CRLF and LF line endings before hashing. Codex databases created by equivalent Windows and macOS builds can otherwise contain identical SQL with platform-specific newlines. Previously published Windows fingerprints remain accepted when validating existing snapshot manifests.
+
 ## Contract
 
 Spice Route does not upgrade or downgrade Codex databases or edit migration ledgers. It restores selected records into a staged copy of the destination's own databases. Supported runtime/schema profiles and transfer directions are explicit. Unknown builds, migrations, layouts, and unsupported non-null columns block writes; a migration number alone never establishes compatibility. Trigger definitions are checked as well as tables and indexes. The test build uses these same gates without a test-only bypass.

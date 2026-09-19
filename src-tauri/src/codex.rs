@@ -166,10 +166,13 @@ pub fn inspect(home: &Path) -> Result<CompatibilityInfo> {
         )
         .copied()
         .collect();
-    let profile = crate::compatibility::PROFILES.iter().find(|p| {
-        Some(p.state) == state_migration
-            && history_migration == Some(6)
-            && p.fingerprint == fingerprint
+    let profile = crate::compatibility::profile(&CompatibilityInfo {
+        supported: false,
+        adapter: ADAPTER_NAME.to_string(),
+        state_migration,
+        history_migration,
+        schema_fingerprint: fingerprint.clone(),
+        explanation: String::new(),
     });
     let supported = if let Some(profile) = profile {
         missing.is_empty()
@@ -350,7 +353,7 @@ fn schema_signature(connection: &Connection) -> Result<String> {
         Ok(format!(
             "{}:{}",
             row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?
+            crate::compatibility::normalize_schema_sql(&row.get::<_, String>(1)?)
         ))
     })?;
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?.join("\n"))
@@ -363,7 +366,7 @@ fn complete_schema_signature(connection: &Connection) -> Result<String> {
             "{}:{}:{}",
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?.replace("\r\n", "\n")
+            crate::compatibility::normalize_schema_sql(&row.get::<_, String>(2)?)
         ))
     })?;
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?.join("\n"))
@@ -2537,6 +2540,10 @@ mod tests {
     }
 
     fn create_profile_schema(home: &Path, migration: i64) {
+        create_profile_schema_with_line_endings(home, migration, false);
+    }
+
+    fn create_profile_schema_with_line_endings(home: &Path, migration: i64, use_lf_only: bool) {
         fs::create_dir_all(home).unwrap();
         let profile = crate::compatibility::PROFILES
             .iter()
@@ -2548,7 +2555,13 @@ mod tests {
             let objects = fixture[database]["objects"].as_array().unwrap();
             for kind in ["table", "index", "trigger"] {
                 for object in objects.iter().filter(|object| object["type"] == kind) {
-                    db.execute_batch(object["sql"].as_str().unwrap()).unwrap();
+                    let sql = object["sql"].as_str().unwrap();
+                    let sql = if use_lf_only {
+                        Cow::Owned(sql.replace("\r\n", "\n"))
+                    } else {
+                        Cow::Borrowed(sql)
+                    };
+                    db.execute_batch(&sql).unwrap();
                 }
             }
             db.execute("INSERT INTO _sqlx_migrations(version, description, success, checksum, execution_time) VALUES(?1, 'fixture', 1, X'00', 0)", [fixture[database]["migration"].as_i64().unwrap()]).unwrap();
@@ -2557,6 +2570,47 @@ mod tests {
             inspect(home).unwrap().supported,
             "Real fixture must pass the production schema gate"
         );
+    }
+
+    #[test]
+    fn schema_fingerprints_are_identical_across_windows_and_macos_line_endings() {
+        for migration in [52, 54, 55] {
+            let crlf_home = tempdir().unwrap();
+            create_profile_schema_with_line_endings(crlf_home.path(), migration, false);
+            let lf_home = tempdir().unwrap();
+            create_profile_schema_with_line_endings(lf_home.path(), migration, true);
+
+            let crlf = inspect(crlf_home.path()).unwrap();
+            let lf = inspect(lf_home.path()).unwrap();
+            assert!(crlf.supported, "CRLF schema {migration} must be supported");
+            assert!(lf.supported, "LF schema {migration} must be supported");
+            assert_eq!(crlf.schema_fingerprint, lf.schema_fingerprint);
+            if migration == 54 {
+                assert_eq!(
+                    lf.schema_fingerprint,
+                    "8082e27f46c7a5691ae4dca5b004ce2103bacaafb3989f7be95607d34685c205"
+                );
+            }
+            assert_eq!(
+                lf.schema_fingerprint,
+                crate::compatibility::PROFILES
+                    .iter()
+                    .find(|profile| profile.state == migration)
+                    .unwrap()
+                    .fingerprint
+            );
+
+            if migration == 54 {
+                let state = Connection::open(lf_home.path().join("state_5.sqlite")).unwrap();
+                state.execute(
+                    "INSERT INTO _sqlx_migrations(version, description, success, checksum, execution_time) VALUES(999, 'failed fixture', 0, X'00', 0)",
+                    [],
+                ).unwrap();
+                let incomplete = inspect(lf_home.path()).unwrap();
+                assert!(!incomplete.supported);
+                assert_eq!(incomplete.schema_fingerprint, lf.schema_fingerprint);
+            }
+        }
     }
     fn insert_project(home: &Path, id: &str, name: &str, root: &Path, position: i64) {
         let state = Connection::open(home.join("state_5.sqlite")).unwrap();
@@ -4063,6 +4117,9 @@ mod tests {
         let mut manifest = fixture_manifest(home.path(), vec![]);
         manifest.schema_version = 1;
         manifest.compatibility.adapter = "codex-state-v5.52/history-v1.6".into();
+        validate_snapshot_source(&manifest).unwrap();
+        manifest.compatibility.schema_fingerprint =
+            crate::compatibility::PROFILES[0].legacy_fingerprints[0].into();
         validate_snapshot_source(&manifest).unwrap();
         manifest.compatibility.supported = false;
         validate_snapshot_source(&manifest).unwrap();
