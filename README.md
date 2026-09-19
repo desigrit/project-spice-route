@@ -14,7 +14,7 @@ Spice Route is a Windows desktop app that transfers selected Codex chats and pro
 
 ![Spice Route Overview in light mode, showing Push and Pull actions and the latest visible snapshot](docs/images/native-overview-light.png)
 
-*Overview and What to sync show the actual WinUI 3 interface in version 1.4.4, captured with fabricated sample data. No personal conversations are shown.*
+*All screenshots show the actual WinUI 3 interface in version 1.4.4, captured with sample data. No personal conversations are shown.*
 
 ## A little context before you begin
 
@@ -77,6 +77,8 @@ The projectless workspace folder is not a replacement for Codex's internal trans
 
 When you first pull a full project onto another computer, Spice Route asks where that project should live. An optional default restore location can prefill suggestions, but each project gets its own confirmed destination. Changing a mapping does not move existing files.
 
+![Settings in light mode, with device preferences, cloud provider, and local folder controls](docs/images/native-settings-light.png)
+
 ### 4. Review your selection
 
 Open **What to sync**. Keep full projects, switch some to **Chat history only**, or exclude what you do not need. Search the chat lists to make individual exclusions, then save your choices.
@@ -84,6 +86,10 @@ Open **What to sync**. Keep full projects, switch some to **Chat history only**,
 ## The everyday handoff
 
 Use one computer at a time for a given handoff. Push before you leave, and pull before you resume on the other device.
+
+Review gives you room to inspect the handoff. Filter by project, search for a file or conversation, and check Attention for anything that needs a decision. Files keep their own scrolling area, so notices do not crowd them out.
+
+![Review push with expanded navigation, project filters, search, and aligned file and conversation rows](docs/images/native-review-light.png)
 
 **On the computer you are leaving:**
 
