@@ -1,0 +1,2 @@
+35fed925da8856fb75847f20ddea8959f73ce587c6a650dee440234802a557b6  Spice-Route-1.5.0-macos-intel.dmg
+e318c76e49d9f9b0605c99f52367de64fafad1cbbd05cd807cfabac3f46ecee6  Spice-Route-1.5.0-macos-intel.app.zip

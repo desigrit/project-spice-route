@@ -1,6 +1,6 @@
 # Spice Route 1.5.0 desktop verification
 
-September 18, 2026. This release adds a native Windows ARM64 package, startup diagnostics for the WinUI app and sync engine, and macOS packaging for Apple Silicon and Intel. Windows and macOS use the same Rust engine and snapshot format.
+September 19, 2026. This release adds a native Windows ARM64 package, startup diagnostics for the WinUI app and sync engine, and macOS packaging for Apple Silicon and Intel. Windows and macOS use the same Rust engine and snapshot format.
 
 ## ARM startup finding
 
@@ -27,7 +27,7 @@ The macOS application uses Tauri, React, the system WebKit view, and the shared 
 - Mac-specific Workspace styling with the same navigation and sync concepts as Windows.
 - iCloud Drive discovery through `~/Library/Mobile Documents/com~apple~CloudDocs`.
 - Google Drive and OneDrive discovery through `~/Library/CloudStorage`.
-- Codex runtime discovery through `CODEX_INSTALL_DIR`, `~/.local/bin`, Homebrew paths, `PATH`, and common Codex.app resource paths.
+- Codex runtime discovery through `CODEX_INSTALL_DIR`, common Codex.app resource paths, `~/.local/bin`, Homebrew paths, and `PATH`.
 - A graceful Codex quit request through AppleScript, followed by the existing writer check.
 - The same diagnostics export, compatibility checks, snapshot format, conflict rules, and recovery engine as Windows.
 
@@ -35,7 +35,7 @@ CI packages the Mac app with an ad-hoc signature. It is not notarized. An Apple 
 
 ## Completed checks
 
-- 107 release Rust engine tests passed.
+- 107 release Rust engine tests passed on Windows, and 108 passed on macOS with the Unix path regression.
 - Release Clippy passed with warnings denied.
 - 24 frontend tests passed.
 - The TypeScript and Vite production build passed.
@@ -44,18 +44,29 @@ CI packages the Mac app with an ad-hoc signature. It is not notarized. An Apple 
 - The x64 app and engine report PE machine `0x8664`.
 - The ARM64 app and engine report PE machine `0xAA64`.
 - Both unsigned per-user installers and SHA-256 files were produced without launching the installed app.
+- Apple Silicon and Intel `.app`, `.dmg`, and SHA-256 files were produced with ad-hoc signatures.
+- The [four-platform 1.5.0 workflow](https://github.com/desigrit/project-spice-route/actions/runs/35428204232) completed successfully from commit `0ae9151`.
 - Rust formatting and `git diff --check` passed.
 
 ## Produced Windows packages
 
 | Package | Size | SHA-256 |
 | --- | ---: | --- |
-| `Spice-Route-1.5.0-windows-x64-setup.exe` | 67,106,193 bytes | `b34c0924b6a2c3c88994d8f28f0559d31426b7de7670cfa9dfb8aa3b5e7e23e1` |
-| `Spice-Route-1.5.0-windows-arm64-setup.exe` | 62,002,500 bytes | `e427cb28a230efa3ae4b4abe6ae0518f825ce9db55e43f4e767e56450080fc71` |
+| `Spice-Route-1.5.0-windows-x64-setup.exe` | 67,126,117 bytes | `8969d0d21040125cb38f2db588a8a60829681386b4f05dba4a41bee0f02375c4` |
+| `Spice-Route-1.5.0-windows-arm64-setup.exe` | 62,106,822 bytes | `d8f8f3d65ab05ec9ff14442fd3e675d5a26b2a0d035e2d8a61925922602183c2` |
+
+## Produced macOS packages
+
+| Package | Size | SHA-256 |
+| --- | ---: | --- |
+| `Spice-Route-1.5.0-macos-apple-silicon.dmg` | 8,580,131 bytes | `d6196773ceea057bd47e0b48c8fd8cfd07e8488a340943f4817a253240c8a23f` |
+| `Spice-Route-1.5.0-macos-apple-silicon.app.zip` | 7,178,348 bytes | `a5c37c99fd5ecac4a0421177f5fe896ebd920b573ea8d7084a20d2330569e41a` |
+| `Spice-Route-1.5.0-macos-intel.dmg` | 9,066,958 bytes | `35fed925da8856fb75847f20ddea8959f73ce587c6a650dee440234802a557b6` |
+| `Spice-Route-1.5.0-macos-intel.app.zip` | 7,642,804 bytes | `e318c76e49d9f9b0605c99f52367de64fafad1cbbd05cd807cfabac3f46ecee6` |
 
 ## Remaining device checks
 
-The source and packaging paths are complete, but a Windows development computer cannot validate an Apple bundle. The first Mac build and hands-on Mac test must confirm the installed Codex runtime path, accepted runtime and schema pair, File Provider hydration, Codex quit behavior, and a full Push and Pull with a disposable profile.
+Both Mac architectures now build, sign, package, and verify in CI. A hands-on Mac test must still confirm the installed Codex runtime path, accepted runtime and schema pair, File Provider hydration, Codex quit behavior, and a full Push and Pull with a disposable profile.
 
 The ARM computer should install the ARM64 package, open Spice Route, and confirm that workspace inspection completes. If startup still fails, collect `startup.log`. That log should identify whether the remaining cause is the WinUI runtime, engine launch, engine response, or another exception.
 

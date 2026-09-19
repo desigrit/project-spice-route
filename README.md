@@ -10,7 +10,7 @@ Sometimes you start something at your desk and want to pick it up on your laptop
 
 Spice Route is a desktop app for Windows and macOS that transfers selected Codex chats and project workspaces through a folder managed by **Google Drive, OneDrive, or iCloud Drive**. Choose what travels, push from one computer, and pull on the other. Your existing cloud client handles sign-in and delivery.
 
-[Windows x64](artifacts/Spice-Route-1.5.0-windows-x64-setup.exe) · [Windows ARM64](artifacts/Spice-Route-1.5.0-windows-arm64-setup.exe) · [macOS builds](https://github.com/desigrit/project-spice-route/actions/workflows/desktop-builds.yml) · [Getting started](#getting-started) · [Report an issue](https://github.com/desigrit/project-spice-route/issues)
+[Windows x64](artifacts/Spice-Route-1.5.0-windows-x64-setup.exe) · [Windows ARM64](artifacts/Spice-Route-1.5.0-windows-arm64-setup.exe) · [macOS Apple Silicon](artifacts/macos-apple-silicon/Spice-Route-1.5.0-macos-apple-silicon.dmg) · [macOS Intel](artifacts/macos-intel/Spice-Route-1.5.0-macos-intel.dmg) · [Getting started](#getting-started) · [Report an issue](https://github.com/desigrit/project-spice-route/issues)
 
 ![Spice Route Overview in light mode, showing Push and Pull actions and the latest visible snapshot](docs/images/native-overview-light.png)
 
@@ -63,7 +63,7 @@ You will also need Codex and an installed cloud drive client. Git must be availa
 
 Version 1.5.0 is a clean installer that uses `%LOCALAPPDATA%\Programs\Spice Route`. Uninstall an earlier version before installing this release. It does not move or clean up the old program folder automatically. Your saved device identity, folder choices, and recovery history remain in the separate local Spice Route profile. Do not run two copies against the same profile at once.
 
-On macOS, download the Apple Silicon or Intel artifact from the [desktop build workflow](https://github.com/desigrit/project-spice-route/actions/workflows/desktop-builds.yml). Open the DMG and move Spice Route to Applications. These first packages are ad-hoc signed and are not notarized. If macOS blocks the first launch, open **System Settings > Privacy & Security** and approve Spice Route there.
+On macOS, download the [Apple Silicon DMG](artifacts/macos-apple-silicon/Spice-Route-1.5.0-macos-apple-silicon.dmg) for M-series Macs or the [Intel DMG](artifacts/macos-intel/Spice-Route-1.5.0-macos-intel.dmg) for Intel Macs. Open the DMG and move Spice Route to Applications. These first packages are ad-hoc signed and are not notarized. If macOS blocks the first launch, open **System Settings > Privacy & Security** and approve Spice Route there.
 
 ### 2. Connect a cloud folder
 
@@ -226,7 +226,7 @@ bash ./scripts/build-macos.sh aarch64-apple-darwin 1.5.0 apple-silicon
 
 Use `x86_64-apple-darwin` and `intel` for an Intel Mac. The script writes the DMG, zipped app, and checksums under `artifacts/macos-apple-silicon` or `artifacts/macos-intel`. Local packages use ad-hoc signing. Normal public distribution still requires an Apple Developer identity and notarization.
 
-The [desktop build workflow](.github/workflows/desktop-builds.yml) compiles Windows x64, Windows ARM64, macOS Apple Silicon, and macOS Intel packages from version tags.
+The [desktop build workflow](.github/workflows/desktop-builds.yml) compiles Windows x64, Windows ARM64, macOS Apple Silicon, and macOS Intel packages from version tags. The [1.5.0 release run](https://github.com/desigrit/project-spice-route/actions/runs/35428204232) completed successfully for all four targets.
 
 ### A quick map of the code
 
