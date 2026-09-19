@@ -1,2 +1,2 @@
-29cb3bc275cfb92e129ed502e966b26fac7a81cb05edc61b38a47fc2defe2840  Spice-Route-1.5.1-macos-apple-silicon.dmg
-7578b35486852b544146344f53603ad0eb9eb744f153f5b74fadc964f4850e79  Spice-Route-1.5.1-macos-apple-silicon.app.zip
+d60e878b6c9ccc428e4ae1dec0088181ae2c5d62ada0313213a636cab8b77f94  Spice-Route-1.5.2-macos-apple-silicon.dmg
+249b4b3766d674324d6ecf9c85b055d505b39b306dcc01bbde580ca8a1edaad0  Spice-Route-1.5.2-macos-apple-silicon.app.zip

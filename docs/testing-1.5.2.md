@@ -8,13 +8,14 @@ The Windows installer now replaces the complete app payload during an upgrade. T
 
 ## Automated verification
 
-- Rust sync-engine tests cover runtime variation over exact schema profiles, unknown-profile refusal, trigger and index drift, migration failure, snapshot-source validation, and cross-schema transfer rules.
-- Frontend tests and the production TypeScript build cover the shared macOS interface.
-- The native WinUI build and engine-client contract checks compile with warnings treated as errors.
+- Rust sync engine: 109 tests passed, including runtime variation over exact schema profiles, unknown-profile refusal, trigger and index drift, migration failure, snapshot-source validation, and cross-schema transfer rules.
+- Frontend: 24 tests passed, and the production TypeScript build completed.
+- Native engine client: 13 contract checks passed with disposable data.
+- Native WinUI Release build: passed with zero warnings.
+- Rust Clippy with warnings denied: passed.
 - Windows packaging validates the app, engine, and required CRT architecture for x64 and ARM64. Each native runner then installs the final NSIS package, activates the app offscreen with a disposable profile, completes workspace initialization, checks every page constructor, verifies the installed engine contract, and uninstalls the package.
 - The final release workflow builds Windows x64, Windows ARM64, macOS Apple Silicon, and macOS Intel packages from the same tagged source.
-
-Exact test counts and the four-platform workflow link are recorded after the tagged release build completes.
+- The [four-platform 1.5.2 release workflow](https://github.com/desigrit/project-spice-route/actions/runs/35457842725) completed successfully. The published installers, disk images, and application archives were downloaded again and matched all six native-runner SHA-256 checksums.
 
 ## Physical-device check
 

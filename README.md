@@ -228,7 +228,7 @@ bash ./scripts/build-macos.sh aarch64-apple-darwin 1.5.2 apple-silicon
 
 Use `x86_64-apple-darwin` and `intel` for an Intel Mac. The script writes the DMG, zipped app, and checksums under `artifacts/macos-apple-silicon` or `artifacts/macos-intel`. Local packages use ad-hoc signing. Normal public distribution still requires an Apple Developer identity and notarization.
 
-The [desktop build workflow](.github/workflows/desktop-builds.yml) compiles Windows x64, Windows ARM64, macOS Apple Silicon, and macOS Intel packages from version tags. Each Windows job validates the app, engine, and native runtime architecture before producing its installer.
+The [desktop build workflow](.github/workflows/desktop-builds.yml) compiles Windows x64, Windows ARM64, macOS Apple Silicon, and macOS Intel packages from version tags. Each Windows job validates the app, engine, and native runtime architecture before producing its installer. The [1.5.2 release run](https://github.com/desigrit/project-spice-route/actions/runs/35457842725) completed successfully on all four native runners.
 
 ### A quick map of the code
 

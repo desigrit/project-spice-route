@@ -62,17 +62,25 @@ artifacts/*
 !artifacts/Spice-Route-1.5.1-windows-x64-setup.exe.sha256
 !artifacts/Spice-Route-1.5.1-windows-arm64-setup.exe
 !artifacts/Spice-Route-1.5.1-windows-arm64-setup.exe.sha256
+!artifacts/Spice-Route-1.5.2-windows-x64-setup.exe
+!artifacts/Spice-Route-1.5.2-windows-x64-setup.exe.sha256
+!artifacts/Spice-Route-1.5.2-windows-arm64-setup.exe
+!artifacts/Spice-Route-1.5.2-windows-arm64-setup.exe.sha256
 !artifacts/macos-apple-silicon/
 !artifacts/macos-apple-silicon/Spice-Route-1.5.0-macos-apple-silicon.dmg
 !artifacts/macos-apple-silicon/Spice-Route-1.5.0-macos-apple-silicon.app.zip
 !artifacts/macos-apple-silicon/Spice-Route-1.5.1-macos-apple-silicon.dmg
 !artifacts/macos-apple-silicon/Spice-Route-1.5.1-macos-apple-silicon.app.zip
+!artifacts/macos-apple-silicon/Spice-Route-1.5.2-macos-apple-silicon.dmg
+!artifacts/macos-apple-silicon/Spice-Route-1.5.2-macos-apple-silicon.app.zip
 !artifacts/macos-apple-silicon/SHA256SUMS.txt
 !artifacts/macos-intel/
 !artifacts/macos-intel/Spice-Route-1.5.0-macos-intel.dmg
 !artifacts/macos-intel/Spice-Route-1.5.0-macos-intel.app.zip
 !artifacts/macos-intel/Spice-Route-1.5.1-macos-intel.dmg
 !artifacts/macos-intel/Spice-Route-1.5.1-macos-intel.app.zip
+!artifacts/macos-intel/Spice-Route-1.5.2-macos-intel.dmg
+!artifacts/macos-intel/Spice-Route-1.5.2-macos-intel.app.zip
 !artifacts/macos-intel/SHA256SUMS.txt
 !artifacts/README.md
 
