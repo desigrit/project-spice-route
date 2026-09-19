@@ -15,6 +15,8 @@ The reported macOS fingerprint `8082e27f46c7a5691ae4dca5b004ce2103bacaafb3989f7b
 - Frontend production build: passed.
 - Rust Clippy with warnings denied: passed.
 - Release version metadata validation: passed for 1.5.1.
+- [Four-platform desktop build](https://github.com/desigrit/project-spice-route/actions/runs/35435536698): passed for Windows x64, Windows ARM64, macOS Apple Silicon, and macOS Intel.
+- Published package checksums: verified after downloading every workflow artifact.
 
 Regression coverage verifies all tested schema versions across Windows and macOS line endings. It also verifies legacy snapshot recognition, failed migration rejection, trigger drift rejection, index drift rejection, and unknown column rejection.
 
