@@ -1,0 +1,35 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Spice Route",
+        "width": 1180,
+        "height": 780,
+        "minWidth": 920,
+        "minHeight": 620,
+        "center": true,
+        "resizable": true,
+        "decorations": true,
+        "transparent": false,
+        "hiddenTitle": true,
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": {
+          "x": 18,
+          "y": 18
+        },
+        "acceptFirstMouse": true
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["app", "dmg"],
+    "macOS": {
+      "minimumSystemVersion": "13.0",
+      "signingIdentity": "-",
+      "hardenedRuntime": true,
+      "entitlements": "macos/SpiceRoute.entitlements",
+      "infoPlist": "macos/Info.plist"
+    }
+  }
+}

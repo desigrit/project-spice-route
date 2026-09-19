@@ -3,15 +3,17 @@ import { Button, Dropdown, Option, Switch, Menu, MenuTrigger, MenuPopover, MenuL
 import { AppTheme } from "./fluent-theme";
 import { usePageConfirmation } from "./use-page-confirmation";
 import boatMark from "./assets/boat-mark.png";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save as saveFile } from "@tauri-apps/plugin-dialog";
 import {
   ArchiveRestore,
+  ArrowLeft,
   ArrowDownToLine,
   ArrowUpFromLine,
   Check,
   ChevronRight,
   CircleAlert,
   Cloud,
+  Download,
   FolderCode,
   Folder,
   MoreHorizontal,
@@ -36,6 +38,7 @@ import type {
   CloudCleanupPreview,
   ConflictResolution,
   ContentCatalog,
+  DiagnosticsReport,
   EnvironmentDiscovery,
   OperationPreview,
   OperationProgress,
@@ -53,6 +56,8 @@ const navItems: Array<{ id: Page; label: string; icon: typeof Route }> = [
   { id: "recovery", label: "Recovery", icon: ArchiveRestore },
   { id: "settings", label: "Settings", icon: Settings },
 ];
+
+const appVersion = "1.5.0";
 
 type BusyState = { label: string; operationId?: string } | null;
 type EstimateState = "pending" | "ready" | "unavailable";
@@ -302,8 +307,9 @@ export default function App() {
   return (
     <AppTheme mode={config.theme}>
     <div className="app-shell">
+      <div className="mac-titlebar" data-tauri-drag-region aria-hidden="true" />
       <aside className="sidebar" aria-label="Main navigation">
-        <div className="brand">
+        <div className="brand" data-tauri-drag-region>
           <img className="brand-logo" src={boatMark} width="38" height="38" alt="" />
           <span>
             <strong>Spice Route</strong>
@@ -315,9 +321,9 @@ export default function App() {
           {navItems.map(({ id, label, icon: Icon }) => (
             <Button
               key={id}
-              className={page === id ? "nav-item active" : "nav-item"}
+              className={page === id || (page === "diagnostics" && id === "recovery") ? "nav-item active" : "nav-item"}
               onClick={() => setPage(id)}
-              aria-current={page === id ? "page" : undefined}
+              aria-current={page === id || (page === "diagnostics" && id === "recovery") ? "page" : undefined}
             >
               <Icon size={18} />
               <span>{label}</span>
@@ -333,15 +339,15 @@ export default function App() {
             <Laptop size={16} />
             <span><small>This device</small>{config.deviceName || "Not named"}</span>
           </div>
-          <div className="sidebar-version">Spice Route 0.3.2 · Preview</div>
+          <div className="sidebar-version">Spice Route {appVersion}</div>
         </div>
       </aside>
 
       <main className="main-content">
         <header className="topbar">
           <div>
-            <p className="eyebrow">{page === "selection" ? "Sync policy" : page}</p>
-            <h1>{navItems.find((item) => item.id === page)?.label}</h1>
+            <p className="eyebrow">{page === "selection" ? "Sync policy" : page === "diagnostics" ? "Recovery tools" : page}</p>
+            <h1>{page === "diagnostics" ? "Diagnostics" : navItems.find((item) => item.id === page)?.label}</h1>
           </div>
           <Button className="icon-button" onClick={() => void refresh(config)} aria-label="Refresh">
             <RefreshCw size={18} />
@@ -374,6 +380,7 @@ export default function App() {
             : recoveryGeneration !== catalogSource?.generation ? <p role="status">Loading recovery points…</p> : (
           <RecoveryScreen
             recoveries={recoveries}
+            onDiagnose={() => setPage("diagnostics")}
             onRestore={async (id) => {
               setBusy({ label: "Restoring rollback set…" });
               try {
@@ -390,6 +397,12 @@ export default function App() {
           />
           )}
           </>
+        )}
+        {page === "diagnostics" && (
+          <DiagnosticsScreen config={config} onBack={() => {
+            setPage("recovery");
+            window.requestAnimationFrame(() => document.querySelector<HTMLButtonElement>("[data-diagnostics-trigger]")?.focus());
+          }} />
         )}
         {page === "settings" && (
           <SettingsScreen config={config} environment={environment} onSave={(next) => void save(next, "Settings saved.")} onResetCloudHistory={() => void beginCloudCleanup()} />
@@ -709,7 +722,7 @@ export function SelectionScreen({ config, catalog, onSave, estimateState = "read
   );
 }
 
-export function RecoveryScreen({ recoveries, onRestore }: { recoveries: RecoverySummary[]; onRestore: (id: string) => void }) {
+export function RecoveryScreen({ recoveries, onRestore, onDiagnose }: { recoveries: RecoverySummary[]; onRestore: (id: string) => void; onDiagnose: () => void }) {
   return (
     <div className="page-stack">
       <section className="panel recovery-hero">
@@ -728,6 +741,103 @@ export function RecoveryScreen({ recoveries, onRestore }: { recoveries: Recovery
         ))}
         {!recoveries.length && <EmptyState icon={ShieldCheck} title="No recovery points yet" detail="Your first successful pull will create one automatically." />}
       </section>
+      <section className="diagnostics-entry">
+        <div><strong>Something missing after a Pull?</strong><p>Run a private, read-only check of the configured Codex profile and export a support log without conversation text.</p></div>
+        <Button className="secondary-button" data-diagnostics-trigger onClick={onDiagnose}>Open diagnostics <ChevronRight size={16} /></Button>
+      </section>
+    </div>
+  );
+}
+
+export function DiagnosticsScreen({ config, onBack }: { config: AppConfig; onBack: () => void }) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const [report, setReport] = useState<DiagnosticsReport | null>(null);
+  const [running, setRunning] = useState(true);
+  const [runOutcome, setRunOutcome] = useState<"idle" | "running" | "succeeded" | "failed">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+
+  const runChecks = useCallback(async () => {
+    setRunning(true);
+    setRunOutcome("running");
+    setReport(null);
+    setError(null);
+    setStatus(null);
+    try {
+      setReport(await api.getDiagnosticsReport(config));
+      setRunOutcome("succeeded");
+    } catch (cause) {
+      setError(toMessage(cause));
+      setRunOutcome("failed");
+    } finally {
+      setRunning(false);
+    }
+  }, [config]);
+
+  useEffect(() => {
+    headingRef.current?.focus();
+    void runChecks();
+  }, [runChecks]);
+
+  const exportLog = async () => {
+    setError(null);
+    setStatus(null);
+    try {
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const path = await saveFile({
+        defaultPath: `spice-route-diagnostics-${stamp}.json`,
+        filters: [{ name: "JSON diagnostics", extensions: ["json"] }],
+      });
+      if (!path) return;
+      await api.exportDiagnostics(config, path);
+      setStatus("Diagnostics exported. The report excludes conversation text and Codex credentials.");
+    } catch (cause) {
+      setError(toMessage(cause));
+    }
+  };
+
+  const profile = report?.report.configuredProfile;
+  const stateCounts = profile?.stateDatabase?.counts ?? {};
+  const historyCounts = profile?.historyDatabase?.counts ?? {};
+  const countEntries = [...Object.entries(stateCounts), ...Object.entries(historyCounts)];
+
+  return (
+    <div className="page-stack diagnostics-page" aria-busy={running}>
+      <div className="diagnostics-toolbar">
+        <Button className="text-button" onClick={onBack}><ArrowLeft size={16} /> Back to Recovery</Button>
+        <div>
+          <span className="diagnostics-run-status" role="status" aria-live="polite">{runOutcome === "running" ? "Running checks…" : runOutcome === "succeeded" ? "Checks complete" : runOutcome === "failed" ? "Checks failed" : ""}</span>
+          <Button className="secondary-button" disabled={running} onClick={() => void runChecks()}><RefreshCw className={running ? "spin" : undefined} size={16} /> Run checks</Button>
+          <Button className="primary-button" disabled={running || !report} onClick={() => void exportLog()}><Download size={16} /> Export log</Button>
+        </div>
+      </div>
+
+      <section className="diagnostics-intro">
+        <span className="large-icon"><ShieldCheck size={25} /></span>
+        <div><h2 ref={headingRef} tabIndex={-1}>See where a handoff landed</h2><p>Diagnostics inspect paths, database counts, compatibility, and recent Pull phases. Conversation text, credentials, and file contents are excluded.</p></div>
+      </section>
+
+      {error && <Banner kind="error">{error}</Banner>}
+      {status && <Banner kind="success">{status}</Banner>}
+      {running && !report && <div className="diagnostics-loading" role="status"><LoaderCircle className="spin" size={19} /> Inspecting the configured profile…</div>}
+
+      {report && <>
+        <section className="diagnostics-summary">
+          <div><span>Profile</span><strong>{profile?.path || "Not reported"}</strong>{profile?.canonicalPath && profile.canonicalPath !== profile.path && <small>Resolves to {profile.canonicalPath}</small>}</div>
+          <div><span>Records found</span><strong>{countEntries.reduce((total, [, value]) => total + Number(value || 0), 0).toLocaleString()}</strong><small>Bounded database counts</small></div>
+          <div><span>Generated</span><strong>{formatTime(report.generatedAt)}</strong><small>Report schema {report.schemaVersion}</small></div>
+        </section>
+        <section className="diagnostics-findings" aria-label="Diagnostic findings">
+          <div className="list-header"><div><strong>Findings</strong><small>{report.summary}</small></div></div>
+          {report.findings.map((finding, index) => (
+            <div className={`diagnostic-finding ${finding.severity}`} key={`${finding.title}-${index}`}>
+              <span aria-hidden="true">{finding.severity === "error" ? <CircleAlert size={18} /> : finding.severity === "warning" ? <CircleAlert size={18} /> : <Check size={18} />}</span>
+              <div><span className="diagnostic-severity">{finding.severity}</span><strong>{finding.title}</strong><p>{finding.detail}</p></div>
+            </div>
+          ))}
+          {!report.findings.length && <EmptyState icon={ShieldCheck} title="No problems found" detail="The configured profile and recent handoff metadata look consistent." />}
+        </section>
+      </>}
     </div>
   );
 }

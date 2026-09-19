@@ -1,4 +1,4 @@
-# Spice Route 0.3.0 — tested cross-version storage
+# Spice Route 0.3.0: tested cross-version storage
 
 Install `artifacts/Spice-Route-0.3.0-x64-setup.exe` on both PCs. This is an unsigned Windows test build; it does not require Node.js or developer tools.
 

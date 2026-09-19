@@ -15,6 +15,7 @@ const root = path.resolve(import.meta.dirname, '..');
 const output = path.join(root, 'docs/design');
 const playwrightPath = process.env.SPICE_PLAYWRIGHT_PATH;
 const chromePath = process.env.SPICE_CHROME_PATH;
+const platform = process.env.SPICE_PREVIEW_PLATFORM === 'macos' ? 'macos' : 'windows';
 const { chromium } = await import(playwrightPath ? pathToFileURL(playwrightPath).href : 'playwright');
 const h = React.createElement;
 const noop = () => {};
@@ -82,7 +83,9 @@ const mappingPreview = {
 const nav = [ ['overview', 'Overview', Route], ['selection', 'What to sync', FolderCode],
   ['recovery', 'Recovery', ArchiveRestore], ['settings', 'Settings', Settings] ];
 
-const css = await fs.readFile(path.join(root, 'src/styles.css'), 'utf8') + '\n' + await fs.readFile(path.join(root, 'src/interface.css'), 'utf8');
+const css = await fs.readFile(path.join(root, 'src/styles.css'), 'utf8') + '\n'
+  + await fs.readFile(path.join(root, 'src/interface.css'), 'utf8') + '\n'
+  + await fs.readFile(path.join(root, 'src/macos.css'), 'utf8');
 const boat = `data:image/png;base64,${(await fs.readFile(path.join(root, 'src/assets/boat-mark.png'))).toString('base64')}`;
 await fs.mkdir(output, { recursive: true });
 const vite = await createServer({ configFile: false, root, plugins: [react()],
@@ -101,7 +104,7 @@ try {
         'aria-current': page === id ? 'page' : undefined }, h(Icon, { size: 18 }), h('span', null, label)))),
       h('div', { className: 'sidebar-footer' }, h('div', { className: 'device-chip' }, h(Laptop, { size: 16 }),
         h('span', null, h('small', null, 'This device'), config.deviceName)),
-        h('div', { className: 'sidebar-version' }, 'Spice Route 0.3.1 · Preview'))),
+        h('div', { className: 'sidebar-version' }, 'Spice Route 1.5.0'))),
     h('main', { className: 'main-content' }, h('header', { className: 'topbar' },
       h('div', null, h('p', { className: 'eyebrow' }, page === 'selection' ? 'Sync policy' : page),
         h('h1', null, nav.find(([id]) => id === page)?.[1] || 'Overview')),
@@ -117,12 +120,12 @@ try {
       const overview = h(Overview, { config: themedConfig, environment, catalog, status, onPush: noop, onPull: noop, onOpenCodex: noop });
       const content = page === 'selection' ? h(SelectionScreen, { config: themedConfig, catalog, onSave: noop })
         : page === 'settings' ? h(SettingsScreen, { config: themedConfig, environment, onSave: noop, onResetCloudHistory: noop })
-        : page === 'recovery' ? h(RecoveryScreen, { recoveries, onRestore: noop }) : overview;
+        : page === 'recovery' ? h(RecoveryScreen, { recoveries, onRestore: noop, onDiagnose: noop }) : overview;
       const overlay = page === 'onboarding' ? h(Onboarding, { config: { ...themedConfig, onboardingComplete: false }, environment, onComplete: noop })
         : page === 'mapping' ? h(PreviewDialog, { preview: mappingPreview, onCancel: noop, onExecute: noop, onSaveMappings: noop }) : null;
       const markup = renderToStaticMarkup(h(RendererProvider, { renderer }, h(AppTheme, { mode: theme }, shell(overlay ? 'overview' : page, content, overlay))));
       const styles = renderToStaticMarkup(h(React.Fragment, null, ...renderToStyleElements(renderer)));
-      const html = `<!doctype html><html lang="en" data-theme="${theme}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Spice Route | static ${page} preview</title>${styles}<style>${css}</style></head><body><div id="root">${markup.replaceAll('/src/assets/boat-mark.png', boat)}</div></body></html>`;
+      const html = `<!doctype html><html lang="en" data-theme="${theme}" data-platform="${platform}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Spice Route | static ${page} preview</title>${styles}<style>${css}</style></head><body><div id="root">${markup.replaceAll('/src/assets/boat-mark.png', boat)}</div></body></html>`;
       await fs.writeFile(path.join(output, `ui-${page}-${theme}.html`), html);
       for (const viewport of [{ width: 1180, height: 820 }, { width: 920, height: 620 }]) {
         const context = await browser.newContext({ viewport, deviceScaleFactor: 1 });
@@ -130,7 +133,7 @@ try {
         await tab.route('**/*', (route) => route.abort());
         await tab.setContent(html, { waitUntil: 'load' });
         await tab.evaluate(() => document.fonts.ready);
-        const stem = `ui-${page}-${theme}-${viewport.width}`;
+        const stem = platform === 'macos' ? `ui-macos-${page}-${theme}-${viewport.width}` : `ui-${page}-${theme}-${viewport.width}`;
         await tab.screenshot({ path: path.join(output, `${stem}.png`) });
         const overflow = await tab.evaluate(() => ({
           viewport: { width: innerWidth, height: innerHeight },
@@ -142,7 +145,7 @@ try {
             const rect = dialog.getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom, height: rect.height,
               clientHeight: dialog.clientHeight, scrollHeight: dialog.scrollHeight }; })(),
         }));
-        report.push({ page, theme, width: viewport.width, ...overflow });
+        report.push({ platform, page, theme, width: viewport.width, ...overflow });
         if (page === 'selection' || page === 'settings') {
           await tab.evaluate(() => { const main = document.querySelector('.main-content'); main.scrollTop = main.scrollHeight; });
           await tab.screenshot({ path: path.join(output, `${stem}-bottom.png`) });
@@ -156,7 +159,7 @@ try {
     }
   }
   const previous = await fs.readFile(path.join(output, 'ui-layout-report.json'), 'utf8').then(JSON.parse).catch(() => []);
-  const retained = previous.filter((item) => !report.some((next) => item.page === next.page && item.theme === next.theme && item.width === next.width));
+  const retained = previous.filter((item) => !report.some((next) => (item.platform || 'windows') === next.platform && item.page === next.page && item.theme === next.theme && item.width === next.width));
   await fs.writeFile(path.join(output, 'ui-layout-report.json'), JSON.stringify([...retained, ...report], null, 2));
   console.log(JSON.stringify(report, null, 2));
 } finally {

@@ -1,10 +1,10 @@
-# Spice Route Windows design
+# Spice Route desktop design
 
 Approved direction: **B, Workspace**, selected by the user on September 18, 2026.
 
 Approved brand icon: **C, sweeping sail**, selected by the user on September 18, 2026. Use the simplified ship in flat navy and warm ivory across the app and installer.
 
-The Windows interface uses actual WinUI 3 controls through Windows App SDK. The Rust sync engine remains reusable. The existing Tauri maintenance build is a separate release and must not be represented as WinUI.
+The Windows interface uses actual WinUI 3 controls through Windows App SDK. The macOS interface uses Tauri with the system WebKit view and Mac-specific window treatment. Both use the same Rust sync engine. The macOS interface must not be represented as WinUI.
 
 ## Composition
 
@@ -38,5 +38,11 @@ Use native keyboard navigation, automation names, virtualization, DPI behavior, 
 Primary actions use the native accent-button template, including hover, pressed, disabled, and keyboard focus states. Keep the accent fill on hover. All foreground and surface brushes must resolve through theme resources, including when appearance changes inside Settings.
 
 What to sync uses visible scope tabs and aligned project rows: identity and selected size, local folder with an ellipsis action, and sync mode. Settings uses grouped icon-led rows with controls on the right, moving below the label at narrower widths. Advanced exclusions and cloud cleanup sit in expanders. Save feedback stays brief and local to its page.
+
+## macOS adaptation
+
+Preserve the Workspace hierarchy, navy and ivory identity, expanded navigation, readable review, and plain-language status messages. Use the native traffic-light area, an inset translucent sidebar, Apple system typography, compact 7 to 8 pixel control corners, and restrained sheet shadows. Keep Push, Pull, What to sync, Recovery, Diagnostics, and Settings in the same locations as Windows so handoff instructions remain consistent across devices.
+
+The Mac app discovers cloud-provider folders under `~/Library/CloudStorage` plus the standard iCloud `CloudDocs` location. It detects Codex from `CODEX_HOME`, `CODEX_INSTALL_DIR`, normal shell paths, and common application locations. Quitting Codex uses the standard macOS application request, followed by the same writer check used by the sync engine.
 
 Reference: `docs/design/native-options/b-board.png`. The reference contains illustrative data, not a live transfer.

@@ -14,7 +14,7 @@ Null/missing extension fields compare equally, keeping pre-existing migration-52
 
 Snapshot format 2 marks this stricter transfer contract so older Spice Route versions cannot silently discard extension values. New readers accept format 1 and 2, including the already-published source snapshot. Every device should update Spice Route before publishing format 2.
 
-For schema 55, the adapter translates attachment table and column names at the database boundary. Snapshots retain the existing canonical `thread_artifacts` and `artifact_type` representation. Payloads retain their values, with recognized operational file paths mapped during restoration. Equivalent chats keep the same fingerprints across the table rename, and existing snapshots remain readable. Imports preserve the destination's native schema and migration ledger. Install Spice Route 1.4.5 on both computers before exchanging schema-55 snapshots; older releases do not recognize that source profile.
+For schema 55, the adapter translates attachment table and column names at the database boundary. Snapshots retain the existing canonical `thread_artifacts` and `artifact_type` representation. Payloads retain their values, with recognized operational file paths mapped during restoration. Equivalent chats keep the same fingerprints across the table rename, and existing snapshots remain readable. Imports preserve the destination's native schema and migration ledger. Install Spice Route 1.5.0 on every computer before exchanging schema-55 snapshots; older releases do not recognize that source profile.
 
 ## Why this is more than a folder copy
 

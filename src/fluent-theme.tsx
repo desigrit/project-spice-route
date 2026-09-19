@@ -10,7 +10,7 @@ const ocean: BrandVariants = {
   90: "#548FAD", 100: "#6BA2BC", 110: "#85B4CA", 120: "#A0C7D7",
   130: "#BED9E3", 140: "#D8E7E9", 150: "#EAEFEA", 160: "#F5E8C5",
 };
-const font = '"Segoe UI Variable", "Segoe UI", system-ui, sans-serif';
+const font = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", sans-serif';
 const common = { fontFamilyBase: font, borderRadiusMedium: "8px", borderRadiusLarge: "12px" };
 const light = { ...createLightTheme(ocean), ...common, colorBrandBackground: ocean[30], colorBrandBackgroundHover: ocean[40], colorBrandBackgroundPressed: ocean[20], colorBrandForeground1: ocean[30], colorCompoundBrandBackground: ocean[30], colorNeutralBackground1: "#FFFDF7", colorNeutralForeground1: "#17354D" };
 const dark = { ...createDarkTheme(ocean), ...common, colorBrandBackground: "#F5E8C5", colorBrandBackgroundHover: "#FFF1CF", colorBrandBackgroundPressed: "#DCCEAD", colorNeutralForegroundOnBrand: ocean[20], colorBrandForeground1: "#F5E8C5", colorCompoundBrandBackground: "#F5E8C5", colorNeutralBackground1: "#17354D", colorNeutralForeground1: "#F5EDD9" };

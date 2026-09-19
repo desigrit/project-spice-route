@@ -5,6 +5,7 @@ import type {
   CloudCleanupResult,
   ConflictResolution,
   ContentCatalog,
+  DiagnosticsReport,
   EnvironmentDiscovery,
   OperationPreview,
   OperationProgress,
@@ -20,6 +21,8 @@ export const api = {
   listContent: (config: AppConfig) => invoke<ContentCatalog>("list_content", { config }),
   listContentQuick: (config: AppConfig) => invoke<ContentCatalog>("list_content_quick", { config }),
   getSyncStatus: (config: AppConfig) => invoke<SyncStatus>("get_sync_status", { config }),
+  getDiagnosticsReport: (config: AppConfig) => invoke<DiagnosticsReport>("get_diagnostics_report", { config }),
+  exportDiagnostics: (config: AppConfig, path: string) => invoke<void>("export_diagnostics", { config, path }),
   previewPush: (config: AppConfig) => invoke<OperationPreview>("preview_push", { config }),
   executePush: (config: AppConfig, operationId: string) =>
     invoke<OperationResult>("execute_push", { config, operationId }),

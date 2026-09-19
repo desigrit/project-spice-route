@@ -1,4 +1,4 @@
-# Spice Route 0.2.1 — interface test build
+# Spice Route 0.2.1: interface test build
 
 This update uses the supplied ship reference, simplified into a navy and ivory icon. Light and dark themes share that palette. The canonical icon source is `app-icon.png`; native assets are generated with `npm run tauri icon app-icon.png -- --output src-tauri/icons`. The sidebar uses the generated 256px image.
 

@@ -1,4 +1,4 @@
-export type Page = "overview" | "selection" | "recovery" | "settings";
+export type Page = "overview" | "selection" | "recovery" | "diagnostics" | "settings";
 export type ProjectMode = "full" | "historyOnly" | "excluded";
 export type ThemeMode = "system" | "light" | "dark";
 export type CloudProvider = "oneDrive" | "googleDrive" | "iCloud" | "custom";
@@ -190,4 +190,26 @@ export interface RecoverySummary {
   sourceSnapshotId: string | null;
   status: "available" | "pending" | "restored";
   sizeBytes: number;
+}
+
+export interface DiagnosticFinding {
+  severity: "info" | "warning" | "error";
+  title: string;
+  detail: string;
+}
+
+export interface DiagnosticsReport {
+  schemaVersion: number;
+  generatedAt: string;
+  summary: string;
+  findings: DiagnosticFinding[];
+  report: {
+    configuredProfile?: {
+      path?: string;
+      canonicalPath?: string;
+      stateDatabase?: { counts?: Record<string, number> };
+      historyDatabase?: { counts?: Record<string, number> };
+    };
+    [key: string]: unknown;
+  };
 }

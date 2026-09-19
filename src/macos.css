@@ -1,0 +1,124 @@
+.mac-titlebar { display: none; }
+
+:root[data-platform="macos"] {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --bg: #f3f0e7;
+  --surface: #fbf9f3;
+  --surface-raised: #fffdf8;
+  --surface-soft: #eaece7;
+  --line: #d7d9d4;
+  --line-strong: #aeb8b9;
+  --shadow: 0 14px 40px #102f4c1a;
+}
+
+:root[data-platform="macos"][data-theme="dark"] {
+  --bg: #0d2233;
+  --surface: #102a3f;
+  --surface-raised: #16344b;
+  --surface-soft: #1c3a50;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-platform="macos"][data-theme="system"] {
+    --bg: #0d2233;
+    --surface: #102a3f;
+    --surface-raised: #16344b;
+    --surface-soft: #1c3a50;
+  }
+}
+
+:root[data-platform="macos"] .mac-titlebar {
+  display: block;
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 20;
+  height: 38px;
+  -webkit-app-region: drag;
+}
+
+:root[data-platform="macos"] .app-shell {
+  grid-template-columns: 212px minmax(0, 1fr);
+  padding-top: 38px;
+  background: var(--surface);
+}
+
+:root[data-platform="macos"] .sidebar {
+  padding-top: 14px;
+  border-right: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  background: color-mix(in srgb, var(--bg) 84%, transparent);
+  backdrop-filter: saturate(1.25) blur(24px);
+}
+
+:root[data-platform="macos"] .brand {
+  padding-bottom: 23px;
+}
+
+:root[data-platform="macos"] .brand-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+}
+
+:root[data-platform="macos"] .brand strong,
+:root[data-platform="macos"] .topbar h1,
+:root[data-platform="macos"] .hero-copy h2,
+:root[data-platform="macos"] .panel-heading h3 {
+  font-family: inherit;
+}
+
+:root[data-platform="macos"] .nav-item {
+  min-height: 36px;
+  border-radius: 7px;
+  padding: 7px 10px;
+}
+
+:root[data-platform="macos"] .nav-item.active {
+  background: color-mix(in srgb, var(--accent-soft) 86%, transparent);
+}
+
+:root[data-platform="macos"] .main-content {
+  padding: 0 34px 34px;
+}
+
+:root[data-platform="macos"] .topbar {
+  padding: 20px 0 22px;
+}
+
+:root[data-platform="macos"] .topbar h1 {
+  font-size: 27px;
+  font-weight: 650;
+}
+
+:root[data-platform="macos"] .primary-button,
+:root[data-platform="macos"] .secondary-button,
+:root[data-platform="macos"] .danger-button,
+:root[data-platform="macos"] .icon-button,
+:root[data-platform="macos"] .theme-choice,
+:root[data-platform="macos"] .field input,
+:root[data-platform="macos"] .path-input,
+:root[data-platform="macos"] .field > .fui-Dropdown {
+  border-radius: 7px;
+}
+
+:root[data-platform="macos"] .primary-button:hover:not(:disabled) {
+  color: #fff;
+  background: color-mix(in srgb, var(--accent) 88%, #fff);
+  border-color: color-mix(in srgb, var(--accent) 88%, #fff);
+}
+
+:root[data-platform="macos"] .preview-dialog,
+:root[data-platform="macos"] .onboarding-card,
+:root[data-platform="macos"] .cleanup-dialog {
+  border-radius: 12px;
+  box-shadow: 0 24px 70px #0004;
+}
+
+:root[data-platform="macos"] .modal-backdrop,
+:root[data-platform="macos"] .busy-overlay {
+  backdrop-filter: blur(12px) saturate(1.15);
+}
+
+@media (max-width: 1050px) {
+  :root[data-platform="macos"] .app-shell { grid-template-columns: 184px minmax(0, 1fr); }
+  :root[data-platform="macos"] .main-content { padding: 0 24px 28px; }
+}

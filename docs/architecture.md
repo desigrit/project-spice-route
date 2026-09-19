@@ -2,7 +2,7 @@
 
 ## Boundaries
 
-The interface in src contains the four product screens: Overview, What to sync, Recovery, and Settings. It communicates through typed Tauri commands in src-tauri/src/lib.rs.
+The interface in `src` contains Overview, What to sync, Recovery, Diagnostics, and Settings for macOS. It communicates through typed Tauri commands in `src-tauri/src/lib.rs`. Windows uses a native WinUI 3 shell under `native/windows` and connects to the same engine over typed JSON-line operations.
 
 The Rust engine is split into narrow modules:
 
@@ -13,9 +13,9 @@ The Rust engine is split into narrow modules:
 | snapshot.rs | File policy, Git capture, compressed content objects, immutable manifests, ancestry, and verification |
 | recovery.rs | Local rollback copies, durable journals, integrity checks, restore, and retention |
 | settings.rs | Local configuration, shared selection rules, provider folder layout, and validation |
-| platform.rs | Windows cloud-folder discovery, Codex process handling, version detection, and launch integration |
+| platform.rs | Windows and macOS cloud-folder discovery, Codex process handling, version detection, and launch integration |
 
-src-tauri/core compiles the same modules as a UI-independent crate. This is the portability boundary for a later macOS shell and platform implementation.
+`src-tauri/core` compiles the same modules as a UI-independent crate. Windows x64, Windows ARM64, macOS Apple Silicon, and macOS Intel packages all use this core and the same snapshot format.
 
 `codexHome` stores task/history databases and metadata; `projectlessRoot` bounds workspaces associated with projectless chats. Projects use per-device `sourceRoots` and `destinationRoots` maps keyed by `projectId:rootIndex`. The interface saves the same local path for both capture and restoration. `ProjectSummary.roots` retains Codex-discovered roots, while `localRoots` shows effective capture folders. Source overrides preserve project IDs and original operational roots for import path rewriting, including moved image attachments. Incoming source paths are never implicitly accepted as restoration targets.
 

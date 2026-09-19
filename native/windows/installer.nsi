@@ -19,6 +19,9 @@ SetCompressorDictSize 16
 !ifndef OUTPUT_FILE
   !error "OUTPUT_FILE is required."
 !endif
+!ifndef ARCHITECTURE
+  !error "ARCHITECTURE is required."
+!endif
 
 !define PRODUCT_NAME "Spice Route"
 ; Clean installations use a dedicated per-user program folder.
@@ -47,7 +50,7 @@ VIProductVersion "${VERSION_QUAD}"
 VIAddVersionKey "ProductName" "${PRODUCT_NAME}"
 VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "FileVersion" "${VERSION}"
-VIAddVersionKey "FileDescription" "Spice Route Windows installer"
+VIAddVersionKey "FileDescription" "Spice Route Windows ${ARCHITECTURE} installer"
 VIAddVersionKey "LegalCopyright" "Copyright 2026 Spice Route contributors"
 
 !define MUI_ICON "${PROJECT_ROOT}\src-tauri\icons\icon.ico"
@@ -67,10 +70,19 @@ VIAddVersionKey "LegalCopyright" "Copyright 2026 Spice Route contributors"
 Function .onInit
   SetShellVarContext current
   SetRegView 64
-  ${IfNot} ${RunningX64}
-    MessageBox MB_OK|MB_ICONSTOP "Spice Route needs an x64 version of Windows."
-    Abort
-  ${EndIf}
+  !if "${ARCHITECTURE}" == "arm64"
+    ${IfNot} ${IsNativeARM64}
+      MessageBox MB_OK|MB_ICONSTOP "This Spice Route installer is for Windows on Arm. Download the x64 installer for an Intel or AMD computer."
+      Abort
+    ${EndIf}
+  !else if "${ARCHITECTURE}" == "x64"
+    ${IfNot} ${IsNativeAMD64}
+      MessageBox MB_OK|MB_ICONSTOP "This Spice Route installer is for x64 Windows. Download the Arm64 installer for a Windows on Arm computer."
+      Abort
+    ${EndIf}
+  !else
+    !error "Unsupported ARCHITECTURE: ${ARCHITECTURE}"
+  !endif
   ${IfNot} ${AtLeastWin10}
     MessageBox MB_OK|MB_ICONSTOP "Spice Route needs Windows 10 version 1809 or later."
     Abort

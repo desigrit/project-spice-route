@@ -6,6 +6,7 @@ use spice_route_core::models::{
     SyncStatus,
 };
 use spice_route_core::{platform, recovery};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{Manager, State};
 
@@ -68,6 +69,31 @@ async fn get_diagnostics_report(
 ) -> Result<spice_route_core::diagnostics::DiagnosticsReport> {
     let engine = Arc::clone(engine.inner());
     run_blocking(move || Ok(engine.diagnostics_report(&config))).await
+}
+
+#[tauri::command]
+async fn export_diagnostics(
+    engine: State<'_, Arc<Engine>>,
+    config: AppConfig,
+    path: String,
+) -> Result<()> {
+    let destination = PathBuf::from(path);
+    if !destination.is_absolute()
+        || !destination
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("json"))
+    {
+        return Err(spice_route_core::error::SpiceError::User(
+            "Choose an absolute .json file for the diagnostics report.".into(),
+        ));
+    }
+    let engine = Arc::clone(engine.inner());
+    run_blocking(move || {
+        let report = engine.diagnostics_report(&config);
+        spice_route_core::util::write_json(&destination, &report)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -184,6 +210,7 @@ pub fn run() {
             list_content_quick,
             get_sync_status,
             get_diagnostics_report,
+            export_diagnostics,
             preview_push,
             preview_pull,
             execute_push,

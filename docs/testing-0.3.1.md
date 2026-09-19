@@ -1,4 +1,4 @@
-# Spice Route 0.3.1 — preparation and handoff fixes
+# Spice Route 0.3.1: preparation and handoff fixes
 
 Use `artifacts/Spice-Route-0.3.1-x64-setup.exe` on both Windows PCs. The installer is built for a normal per-user installation with no Node.js or scripts required. This build was prepared without launching the installed app, closing Codex, or running a live transfer.
 

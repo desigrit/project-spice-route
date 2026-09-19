@@ -61,6 +61,8 @@ pub fn cloud_candidates() -> Vec<CloudCandidate> {
         ] {
             add_candidate(&mut result, &mut seen, provider, path, label);
         }
+        #[cfg(target_os = "macos")]
+        add_macos_cloud_candidates(&home, &mut result, &mut seen);
     }
     #[cfg(windows)]
     for letter in b'D'..=b'Z' {
@@ -75,6 +77,52 @@ pub fn cloud_candidates() -> Vec<CloudCandidate> {
         );
     }
     result
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn add_macos_cloud_candidates(
+    home: &Path,
+    result: &mut Vec<CloudCandidate>,
+    seen: &mut HashSet<String>,
+) {
+    add_candidate(
+        result,
+        seen,
+        CloudProvider::ICloud,
+        home.join("Library/Mobile Documents/com~apple~CloudDocs"),
+        "iCloud Drive",
+    );
+
+    let cloud_storage = home.join("Library/CloudStorage");
+    let Ok(entries) = std::fs::read_dir(cloud_storage) else {
+        return;
+    };
+    let mut entries: Vec<_> = entries.flatten().collect();
+    entries.sort_by_key(|entry| entry.file_name().to_string_lossy().to_lowercase());
+    for entry in entries {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let folded = name.to_ascii_lowercase();
+        let path = entry.path();
+        if folded.starts_with("googledrive-") || folded == "google drive" {
+            let my_drive = path.join("My Drive");
+            add_candidate(
+                result,
+                seen,
+                CloudProvider::GoogleDrive,
+                if my_drive.is_dir() { my_drive } else { path },
+                "Google Drive",
+            );
+        } else if folded.starts_with("onedrive-") || folded == "onedrive" {
+            let account = name
+                .split_once('-')
+                .map(|(_, suffix)| suffix.trim())
+                .filter(|suffix| !suffix.is_empty());
+            let label = account
+                .map(|account| format!("OneDrive - {account}"))
+                .unwrap_or_else(|| "OneDrive".to_string());
+            add_candidate(result, seen, CloudProvider::OneDrive, path, &label);
+        }
+    }
 }
 
 fn add_candidate(
@@ -275,6 +323,16 @@ pub fn request_codex_close() -> Result<bool> {
             EnumWindows(Some(close_window), &ids as *const _ as LPARAM);
         }
     }
+    #[cfg(target_os = "macos")]
+    {
+        // Ask the desktop application to terminate normally. CLI writers have no
+        // application window, so the existing writer wait still protects them.
+        let _ = hidden_command("osascript")
+            .args(["-e", "tell application \"Codex\" to quit"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
     let deadline = Instant::now() + Duration::from_secs(20);
     while Instant::now() < deadline {
         if !codex_running() {
@@ -288,8 +346,7 @@ pub fn request_codex_close() -> Result<bool> {
 pub fn find_codex_executable() -> Option<PathBuf> {
     if let Some(path) = env::var_os("CODEX_INSTALL_DIR")
         .map(PathBuf::from)
-        .map(|path| path.join("codex.exe"))
-        .filter(|path| path.is_file())
+        .and_then(|path| codex_executable_in(&path))
     {
         return Some(path);
     }
@@ -328,23 +385,96 @@ fn is_bundled_codex_cli(path: &Path) -> bool {
         .to_string_lossy()
         .replace('\\', "/")
         .to_ascii_lowercase();
-    normalized.contains("/openai/codex/bin/") && normalized.ends_with("/codex.exe")
+    (normalized.contains("/openai/codex/bin/")
+        && (normalized.ends_with("/codex.exe") || normalized.ends_with("/codex")))
+        || (normalized.contains("/codex.app/contents/resources/")
+            && (normalized.ends_with("/codex")
+                || normalized.ends_with("/bin/codex")
+                || normalized.ends_with("/codex/codex")))
 }
 
 fn installed_codex_cli() -> Option<PathBuf> {
-    let root = PathBuf::from(env::var_os("LOCALAPPDATA")?).join("OpenAI/Codex/bin");
-    let mut candidates: Vec<_> = std::fs::read_dir(root)
-        .ok()?
-        .flatten()
-        .map(|entry| entry.path().join("codex.exe"))
-        .filter(|path| path.is_file())
-        .collect();
-    candidates.sort_by_key(|path| {
-        std::fs::metadata(path)
-            .and_then(|meta| meta.modified())
-            .ok()
-    });
-    candidates.pop()
+    #[cfg(windows)]
+    {
+        let root = PathBuf::from(env::var_os("LOCALAPPDATA")?).join("OpenAI/Codex/bin");
+        let mut candidates: Vec<_> = std::fs::read_dir(root)
+            .ok()?
+            .flatten()
+            .map(|entry| entry.path().join("codex.exe"))
+            .filter(|path| path.is_file())
+            .collect();
+        candidates.sort_by_key(|path| {
+            std::fs::metadata(path)
+                .and_then(|meta| meta.modified())
+                .ok()
+        });
+        candidates.pop()
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let home = dirs::home_dir()?;
+        macos_installed_codex_candidates(&home)
+            .into_iter()
+            .find(|path| path.is_file())
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        None
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_installed_codex_candidates(home: &Path) -> Vec<PathBuf> {
+    let mut candidates = macos_codex_app_candidates(&home.join("Applications/Codex.app"));
+    candidates.extend(macos_codex_app_candidates(Path::new(
+        "/Applications/Codex.app",
+    )));
+    candidates.extend([
+        home.join(".local/bin/codex"),
+        PathBuf::from("/opt/homebrew/bin/codex"),
+        PathBuf::from("/usr/local/bin/codex"),
+    ]);
+    candidates
+}
+
+fn codex_executable_in(root: &Path) -> Option<PathBuf> {
+    if root.is_file() {
+        return Some(root.to_path_buf());
+    }
+    #[cfg(windows)]
+    {
+        [root.join("codex.exe"), root.join("bin/codex.exe")]
+            .into_iter()
+            .find(|path| path.is_file())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut candidates = vec![root.join("codex"), root.join("bin/codex")];
+        if root.extension().is_some_and(|extension| extension == "app") {
+            candidates.extend(macos_codex_app_candidates(root));
+        } else {
+            candidates.extend(macos_codex_app_candidates(&root.join("Codex.app")));
+        }
+        candidates.into_iter().find(|path| path.is_file())
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        [root.join("codex"), root.join("bin/codex")]
+            .into_iter()
+            .find(|path| path.is_file())
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn macos_codex_app_candidates(bundle: &Path) -> Vec<PathBuf> {
+    [
+        "Contents/Resources/codex",
+        "Contents/Resources/bin/codex",
+        "Contents/Resources/codex/codex",
+    ]
+    .into_iter()
+    .map(|relative| bundle.join(relative))
+    .collect()
 }
 
 pub fn codex_version(executable: Option<&Path>) -> Option<String> {
@@ -609,6 +739,92 @@ mod tests {
         assert!(!is_bundled_codex_cli(Path::new(
             r"C:\OpenAI\Codex\bin\abc\ChatGPT.exe"
         )));
+        assert!(is_bundled_codex_cli(Path::new(
+            "/Applications/Codex.app/Contents/Resources/codex"
+        )));
+        assert!(is_bundled_codex_cli(Path::new(
+            "/Applications/Codex.app/Contents/Resources/bin/codex"
+        )));
+        assert!(!is_bundled_codex_cli(Path::new(
+            "/Applications/Codex.app/Contents/MacOS/Codex"
+        )));
+    }
+
+    #[test]
+    fn mac_cloud_discovery_finds_file_provider_and_icloud_roots() {
+        let home = tempfile::tempdir().unwrap();
+        let cloud_storage = home.path().join("Library/CloudStorage");
+        let google = cloud_storage.join("GoogleDrive-person@example.com/My Drive");
+        let one_drive = cloud_storage.join("OneDrive-Personal");
+        let icloud = home
+            .path()
+            .join("Library/Mobile Documents/com~apple~CloudDocs");
+        std::fs::create_dir_all(&google).unwrap();
+        std::fs::create_dir_all(&one_drive).unwrap();
+        std::fs::create_dir_all(&icloud).unwrap();
+
+        let mut result = Vec::new();
+        let mut seen = HashSet::new();
+        add_macos_cloud_candidates(home.path(), &mut result, &mut seen);
+
+        assert_eq!(result.len(), 3);
+        assert!(result.iter().any(|candidate| {
+            matches!(&candidate.provider, CloudProvider::ICloud)
+                && candidate.label == "iCloud Drive"
+                && Path::new(&candidate.path) == icloud
+        }));
+        assert!(result.iter().any(|candidate| {
+            matches!(&candidate.provider, CloudProvider::GoogleDrive)
+                && candidate.label == "Google Drive"
+                && Path::new(&candidate.path) == google
+        }));
+        assert!(result.iter().any(|candidate| {
+            matches!(&candidate.provider, CloudProvider::OneDrive)
+                && candidate.label == "OneDrive - Personal"
+                && Path::new(&candidate.path) == one_drive
+        }));
+    }
+
+    #[test]
+    fn mac_app_candidate_order_prefers_the_direct_resource_cli() {
+        let root = tempfile::tempdir().unwrap();
+        let bundle = root.path().join("Codex.app");
+        let candidates = macos_codex_app_candidates(&bundle);
+        assert_eq!(
+            candidates,
+            vec![
+                bundle.join("Contents/Resources/codex"),
+                bundle.join("Contents/Resources/bin/codex"),
+                bundle.join("Contents/Resources/codex/codex"),
+            ]
+        );
+    }
+
+    #[test]
+    fn mac_installed_runtime_prefers_the_desktop_bundle_to_standalone_clis() {
+        let home = Path::new("/Users/example");
+        let candidates = macos_installed_codex_candidates(home);
+        assert_eq!(
+            candidates.first(),
+            Some(&home.join("Applications/Codex.app/Contents/Resources/codex"))
+        );
+        let system_bundle_end = candidates
+            .iter()
+            .position(|path| path == Path::new("/Applications/Codex.app/Contents/Resources/codex/codex"))
+            .unwrap();
+        let standalone_start = candidates
+            .iter()
+            .position(|path| path == &home.join(".local/bin/codex"))
+            .unwrap();
+        assert!(system_bundle_end < standalone_start);
+    }
+
+    #[test]
+    fn configured_runtime_may_point_directly_to_an_executable() {
+        let root = tempfile::tempdir().unwrap();
+        let executable = root.path().join("codex-runtime");
+        std::fs::write(&executable, b"fixture").unwrap();
+        assert_eq!(codex_executable_in(&executable), Some(executable));
     }
 
     #[test]

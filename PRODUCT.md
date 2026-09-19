@@ -4,9 +4,9 @@
 
 ## Platform
 
-native Windows desktop
+adaptive desktop
 
-The current Windows interface uses native WinUI 3 with a shared Rust sync engine. A Tauri maintenance build remains in the repository for reference. macOS support is a later objective.
+Windows uses native WinUI 3. macOS uses Tauri with the system WebKit view and Mac-specific window styling. Both applications call the same Rust sync engine and read the same snapshot format.
 
 ## Users
 
@@ -19,6 +19,8 @@ Transfer selected Codex conversations, project organization, and portable worksp
 ## Operating Context
 
 Google Drive, OneDrive, or iCloud Drive manages authentication and delivery. Users Push on one device and Pull on the next. Codex must be closed before capture or restoration. Devices may have different local project paths and Codex versions.
+
+Windows packages target x64 and ARM64 separately. macOS packages target Apple Silicon and Intel separately. The app records architecture and engine startup failures in local diagnostics so an incompatible package does not fail silently.
 
 ## Capabilities and Constraints
 

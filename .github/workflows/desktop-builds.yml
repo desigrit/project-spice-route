@@ -1,0 +1,241 @@
+name: Desktop builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version, without a leading v
+        required: true
+        default: 1.5.0
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-builds-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  metadata:
+    name: Release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Resolve release version
+        id: release
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+        run: |
+          version="${REQUESTED_VERSION#v}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected a semantic version, received: $REQUESTED_VERSION" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Validate source versions
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          python3 - "$RELEASE_VERSION" <<'PY'
+          import json
+          import pathlib
+          import re
+          import sys
+          import tomllib
+          import xml.etree.ElementTree as ET
+
+          expected = sys.argv[1]
+          root = pathlib.Path('.')
+          package_lock = json.loads((root / 'package-lock.json').read_text())
+          versions = {
+              'package.json': json.loads((root / 'package.json').read_text())['version'],
+              'package-lock.json': package_lock['version'],
+              'package-lock.json root package': package_lock['packages']['']['version'],
+              'src-tauri/tauri.conf.json': json.loads((root / 'src-tauri/tauri.conf.json').read_text())['version'],
+              'src-tauri/Cargo.toml': tomllib.loads((root / 'src-tauri/Cargo.toml').read_text())['package']['version'],
+              'src-tauri/core/Cargo.toml': tomllib.loads((root / 'src-tauri/core/Cargo.toml').read_text())['package']['version'],
+              'Windows project': ET.parse(root / 'native/windows/SpiceRoute.Windows/SpiceRoute.Windows.csproj').findtext('.//Version'),
+          }
+          for lock_path, package_name in [
+              ('src-tauri/Cargo.lock', 'spice-route'),
+              ('src-tauri/Cargo.lock', 'spice-route-core'),
+              ('src-tauri/core/Cargo.lock', 'spice-route-core'),
+          ]:
+              packages = tomllib.loads((root / lock_path).read_text())['package']
+              package = next(item for item in packages if item['name'] == package_name)
+              versions[f'{lock_path}:{package_name}'] = package['version']
+          manifest = ET.parse(root / 'native/windows/SpiceRoute.Windows/app.manifest')
+          identity = manifest.find('{urn:schemas-microsoft-com:asm.v1}assemblyIdentity')
+          versions['Windows app manifest'] = identity.attrib.get('version') if identity is not None else None
+          app_source = (root / 'src/App.tsx').read_text()
+          match = re.search(r'const appVersion = "([0-9]+\.[0-9]+\.[0-9]+)";', app_source)
+          versions['src/App.tsx'] = match.group(1) if match else None
+          mismatches = {name: value for name, value in versions.items() if value != expected}
+          if versions['Windows app manifest'] == f'{expected}.0':
+              mismatches.pop('Windows app manifest', None)
+          if mismatches:
+              for name, value in mismatches.items():
+                  print(f'{name} declares {value!r}; expected {expected}', file=sys.stderr)
+              raise SystemExit(1)
+          print(f'All release sources declare {expected}.')
+          PY
+
+  windows:
+    name: Windows ${{ matrix.label }}
+    needs: metadata
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: x64
+            runner: windows-2025
+            architecture: x64
+            rust_target: x86_64-pc-windows-msvc
+          - label: ARM64
+            runner: windows-11-vs2026-arm
+            architecture: arm64
+            rust_target: aarch64-pc-windows-msvc
+    env:
+      SPICE_ROUTE_VERSION: ${{ needs.metadata.outputs.version }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+          components: clippy
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Test frontend
+        run: npm test
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Test sync engine
+        run: cargo test --release --manifest-path src-tauri/core/Cargo.toml --target ${{ matrix.rust_target }}
+
+      - name: Lint sync engine
+        run: cargo clippy --release --manifest-path src-tauri/core/Cargo.toml --target ${{ matrix.rust_target }} --all-targets -- -D warnings
+
+      - name: Build native installer and run startup probe
+        shell: pwsh
+        run: >-
+          ./scripts/build-native-windows.ps1
+          -Version $env:SPICE_ROUTE_VERSION
+          -Architecture ${{ matrix.architecture }}
+
+      - name: Test native engine connection
+        shell: pwsh
+        run: |
+          $engine = Get-ChildItem -LiteralPath artifacts -Filter SpiceRoute.Engine.exe -File -Recurse |
+            Select-Object -First 1
+          if (-not $engine) { throw 'The packaged sync engine was not found.' }
+          dotnet run --project native/tests/EngineContract/EngineContract.csproj --configuration Release -- $engine.FullName
+
+      - name: Upload unsigned Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: spice-route-${{ env.SPICE_ROUTE_VERSION }}-windows-${{ matrix.architecture }}-unsigned
+          if-no-files-found: error
+          retention-days: 90
+          path: |
+            artifacts/Spice-Route-${{ env.SPICE_ROUTE_VERSION }}-windows-${{ matrix.architecture }}-setup.exe
+            artifacts/Spice-Route-${{ env.SPICE_ROUTE_VERSION }}-windows-${{ matrix.architecture }}-setup.exe.sha256
+
+  macos:
+    name: macOS ${{ matrix.label }}
+    needs: metadata
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Apple Silicon
+            runner: macos-15
+            target: aarch64-apple-darwin
+            artifact_arch: apple-silicon
+          - label: Intel
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            artifact_arch: intel
+    env:
+      SPICE_ROUTE_VERSION: ${{ needs.metadata.outputs.version }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+          components: clippy
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Test frontend
+        run: npm test
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Test sync engine
+        run: cargo test --release --manifest-path src-tauri/core/Cargo.toml --target ${{ matrix.target }}
+
+      - name: Lint sync engine
+        run: cargo clippy --release --manifest-path src-tauri/core/Cargo.toml --target ${{ matrix.target }} --all-targets -- -D warnings
+
+      - name: Build ad-hoc signed app and DMG
+        run: >-
+          bash ./scripts/build-macos.sh
+          ${{ matrix.target }}
+          ${{ env.SPICE_ROUTE_VERSION }}
+          ${{ matrix.artifact_arch }}
+
+      - name: Upload ad-hoc signed macOS package
+        uses: actions/upload-artifact@v4
+        with:
+          name: spice-route-${{ env.SPICE_ROUTE_VERSION }}-macos-${{ matrix.artifact_arch }}-adhoc
+          if-no-files-found: error
+          retention-days: 90
+          path: artifacts/macos-${{ matrix.artifact_arch }}/
