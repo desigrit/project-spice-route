@@ -87,11 +87,11 @@ public sealed class EngineClient : IAsyncDisposable
     private readonly string executablePath;
     private readonly string dataDirectory;
     private readonly ConcurrentQueue<string> diagnostics = new();
-    private readonly Func<string, JsonObject?, JsonNode?>? fixtureResponder;
+    private readonly Func<string, JsonObject?, Task<JsonNode?>>? fixtureResponder;
 
     internal bool HasStartedProcess => process is not null;
 
-    internal EngineClient(Func<string, JsonObject?, JsonNode?> fixtureResponder)
+    internal EngineClient(Func<string, JsonObject?, Task<JsonNode?>> fixtureResponder)
     {
         this.fixtureResponder = fixtureResponder;
         executablePath = "";
@@ -170,7 +170,7 @@ public sealed class EngineClient : IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(disposed, this);
             cancellationToken.ThrowIfCancellationRequested();
-            return fixtureResponder(method, parameters)?.DeepClone();
+            return (await fixtureResponder(method, parameters))?.DeepClone();
         }
         Start();
         var logStartupRequest = method is "get_protocol_info" or "discover_environment" or "load_config" or "list_content_quick" or "get_sync_status";

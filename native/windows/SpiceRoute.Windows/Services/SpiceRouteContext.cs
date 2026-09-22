@@ -40,7 +40,7 @@ public sealed class SpiceRouteContext
     internal SpiceRouteContext(Window window, VisualProbeFixture fixture)
     {
         Window = window;
-        Engine = new(fixture.Respond);
+        Engine = new(fixture.RespondAsync);
         Config = Wire.Clone(fixture.Config);
         Environment = Wire.Clone(fixture.Environment);
         Catalog = Wire.Clone(fixture.Catalog);

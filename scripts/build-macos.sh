@@ -9,21 +9,18 @@ case "$target" in
   aarch64-apple-darwin)
     expected_arch="arm64"
     ;;
-  x86_64-apple-darwin)
-    expected_arch="x86_64"
-    ;;
   *)
-    echo "Use aarch64-apple-darwin or x86_64-apple-darwin." >&2
+    echo "Use aarch64-apple-darwin. New macOS releases support Apple Silicon only." >&2
     exit 2
     ;;
 esac
 
 if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "Provide a release version such as 1.5.2." >&2
+  echo "Provide a release version such as 1.6.0." >&2
   exit 2
 fi
-if [[ ! "$artifact_arch" =~ ^[a-z0-9-]+$ ]]; then
-  echo "Provide a lowercase artifact architecture label." >&2
+if [[ "$artifact_arch" != "apple-silicon" ]]; then
+  echo "Use apple-silicon as the artifact architecture label." >&2
   exit 2
 fi
 if [[ "$(uname -s)" != "Darwin" ]]; then

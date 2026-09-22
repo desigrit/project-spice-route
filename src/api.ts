@@ -12,6 +12,7 @@ import type {
   OperationResult,
   RecoverySummary,
   SyncStatus,
+  SnapshotSummary,
 } from "./types";
 
 export const api = {
@@ -31,6 +32,7 @@ export const api = {
     invoke<OperationResult>("execute_pull", { config, operationId, resolutions }),
   requestCodexClose: () => invoke<boolean>("request_codex_close"),
   openCodex: () => invoke<void>("open_codex"),
+  listSnapshots: (config: AppConfig) => invoke<SnapshotSummary[]>("list_snapshots", { config }),
   listRecoveries: () => invoke<RecoverySummary[]>("list_recoveries"),
   restoreRecovery: (recoveryId: string) => invoke<void>("restore_recovery", { recoveryId }),
   cancelOperation: (operationId: string) => invoke<void>("cancel_operation", { operationId }),

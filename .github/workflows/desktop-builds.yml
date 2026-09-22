@@ -6,7 +6,7 @@ on:
       version:
         description: Release version, without a leading v
         required: true
-        default: 1.5.2
+        default: 1.6.0
   push:
     tags:
       - "v*"
@@ -213,10 +213,6 @@ jobs:
             runner: macos-15
             target: aarch64-apple-darwin
             artifact_arch: apple-silicon
-          - label: Intel
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-            artifact_arch: intel
     env:
       SPICE_ROUTE_VERSION: ${{ needs.metadata.outputs.version }}
 

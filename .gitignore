@@ -86,3 +86,11 @@ artifacts/*
 
 # Visual QA output is reproducible; curated README screenshots live separately
 docs/design/
+
+# Approved 1.6 workspace packages
+!artifacts/Spice-Route-1.6.0-windows-x64-setup.exe
+!artifacts/Spice-Route-1.6.0-windows-x64-setup.exe.sha256
+!artifacts/Spice-Route-1.6.0-windows-arm64-setup.exe
+!artifacts/Spice-Route-1.6.0-windows-arm64-setup.exe.sha256
+!artifacts/macos-apple-silicon/Spice-Route-1.6.0-macos-apple-silicon.dmg
+!artifacts/macos-apple-silicon/Spice-Route-1.6.0-macos-apple-silicon.app.zip

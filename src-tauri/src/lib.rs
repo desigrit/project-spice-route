@@ -3,9 +3,9 @@ use spice_route_core::error::Result;
 use spice_route_core::models::{
     AppConfig, CloudCleanupPreview, CloudCleanupResult, ConflictResolution, ContentCatalog,
     EnvironmentDiscovery, OperationPreview, OperationProgress, OperationResult, RecoverySummary,
-    SyncStatus,
+    SnapshotSummary, SyncStatus,
 };
-use spice_route_core::{platform, recovery};
+use spice_route_core::{platform, recovery, snapshot};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{Manager, State};
@@ -180,6 +180,28 @@ fn open_codex() -> Result<()> {
 }
 
 #[tauri::command]
+async fn list_snapshots(config: AppConfig) -> Result<Vec<SnapshotSummary>> {
+    run_blocking(move || {
+        let mut manifests = snapshot::list_manifests(&config)?;
+        manifests.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(manifests
+            .iter()
+            .map(|manifest| {
+                manifest.summary(
+                    manifest
+                        .objects
+                        .iter()
+                        .map(|object| object.stored_size)
+                        .sum(),
+                    false,
+                )
+            })
+            .collect())
+    })
+    .await
+}
+
+#[tauri::command]
 async fn list_recoveries(engine: State<'_, Arc<Engine>>) -> Result<Vec<RecoverySummary>> {
     let engine = Arc::clone(engine.inner());
     run_blocking(move || recovery::list(&engine.data_dir)).await
@@ -222,6 +244,7 @@ pub fn run() {
             request_codex_close,
             open_codex,
             list_recoveries,
+            list_snapshots,
             restore_recovery,
         ])
         .run(tauri::generate_context!())

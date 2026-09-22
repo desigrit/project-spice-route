@@ -40,8 +40,8 @@ internal sealed class VisualProbeFixture
           {"id":"chat-7","title":"Compare a few ideas","projectless":true,"estimatedBytes":180000}]}
         """)!.AsObject();
     internal JsonArray Snapshots { get; } = JsonNode.Parse("""
-        [{"id":"20260918T173000-workspace","shortId":"20260918.1030-A81B72C3","createdAt":"2026-09-18T17:30:00Z","deviceName":"Workspace PC","verified":true},
-         {"id":"20260917T154000-laptop","shortId":"20260917.0840-D32A90B1","createdAt":"2026-09-17T15:40:00Z","deviceName":"Travel laptop","verified":true}]
+        [{"id":"20260918T173000-workspace","shortId":"20260918.1030-A81B72C3","createdAt":"2026-09-18T17:30:00Z","deviceName":"Workspace PC","logicalBytes":29580000,"storedBytes":18430000,"objectCount":126,"verified":true},
+         {"id":"20260917T154000-laptop","shortId":"20260917.0840-D32A90B1","createdAt":"2026-09-17T15:40:00Z","deviceName":"Travel laptop","logicalBytes":26780000,"storedBytes":16120000,"objectCount":121,"verified":true}]
         """)!.AsArray();
     internal JsonObject Status { get; }
     internal JsonArray ReviewChanges { get; } = JsonNode.Parse("""
@@ -80,7 +80,18 @@ internal sealed class VisualProbeFixture
             ["visibleHeads"] = new JsonArray(Snapshots[0]!.DeepClone())
         };
     }
-    internal JsonNode? Respond(string method, JsonObject? parameters)
+    internal static Task? ContentReadGate;
+    internal static bool FailContentRead;
+    internal async Task<JsonNode?> RespondAsync(string method, JsonObject? parameters)
+    {
+        if (method == "list_content")
+        {
+            if (ContentReadGate is not null) await ContentReadGate;
+            if (FailContentRead) throw new IOException("The sample folder is unavailable.");
+        }
+        return Respond(method, parameters);
+    }
+    private JsonNode? Respond(string method, JsonObject? parameters)
     {
         Calls.Add(method);
         RequestObserved?.Invoke(method);
@@ -267,10 +278,11 @@ internal static class VisualProbe
 
         var projectMode = modes.FirstOrDefault(mode => AutomationProperties.GetName(mode) == "Sync mode for Project Spice Route")
             ?? throw new InvalidOperationException("The project mode fixture was not rendered.");
-        var row = projectMode.Parent as Grid ?? throw new InvalidOperationException("The project mode has no row.");
-        var metadata = Descendants(row).OfType<TextBlock>().FirstOrDefault(text => text.Text.Contains("chats · ", StringComparison.Ordinal))
-            ?? throw new InvalidOperationException("The project size fixture was not rendered.");
+        var metadata = Descendants(root).OfType<TextBlock>().FirstOrDefault(text => text.Name == "InspectorSelectedSize")
+            ?? throw new InvalidOperationException("The inspector size was not rendered.");
         var before = metadata.Text;
+        var list = Descendants(root).OfType<ListView>().First(control => AutomationProperties.GetName(control) == "Content to sync");
+        var selected = list.SelectedItem;
         projectMode.SelectedIndex = 1;
         await SettleAsync(root);
         var save = Descendants(root).OfType<Button>().FirstOrDefault(button => AutomationProperties.GetName(button) == "Save choices");
@@ -279,10 +291,38 @@ internal static class VisualProbe
         await CaptureAsync(root, directory, filename);
         checks.Add(new JsonObject
         {
-            ["check"] = $"{theme} changing Full project to Chat history only updates size and enables Save",
-            ["passed"] = before != after && after.EndsWith(NativePageUi.Bytes(3220000d), StringComparison.Ordinal) && save?.IsEnabled == true,
-            ["before"] = before, ["after"] = after, ["saveEnabled"] = save?.IsEnabled == true, ["screenshot"] = filename
+            ["check"] = $"{theme} history-only mode updates size and preserves project selection",
+            ["passed"] = before != after && after == NativePageUi.Bytes(3220000d) && save?.IsEnabled == true && ReferenceEquals(selected, list.SelectedItem),
+            ["before"] = before, ["after"] = after, ["screenshot"] = filename
         });
+        var search = Descendants(root).OfType<TextBox>().First(control => AutomationProperties.GetName(control) == "Search sync choices");
+        search.Text = "Research";
+        await SettleAsync(root);
+        checks.Add(new JsonObject { ["check"] = $"{theme} search selects a visible project and keeps all its folder controls", ["passed"] = list.Items.Count == 1 && list.SelectedItem is SyncChoiceRow { Id: "research" } && Descendants(root).OfType<Button>().Count(button => AutomationProperties.GetName(button).Contains("for Research", StringComparison.Ordinal)) == 2 });
+        search.Text = "no matching project";
+        await SettleAsync(root);
+        checks.Add(new JsonObject { ["check"] = $"{theme} empty search clears stale inspector", ["passed"] = list.Items.Count == 0 && !Descendants(root).OfType<ComboBox>().Any(control => AutomationProperties.GetName(control).StartsWith("Sync mode for", StringComparison.Ordinal)) });
+        search.Text = "";
+        await SettleAsync(root);
+        var fullMode = Descendants(root).OfType<ComboBox>().First(control => AutomationProperties.GetName(control) == "Sync mode for Project Spice Route");
+        fullMode.SelectedIndex = 0;
+        var page = Descendants(root).OfType<SelectionPage>().First();
+        var sizeLabel = Descendants(root).OfType<TextBlock>().First(text => text.Name == "InspectorSelectedSize");
+        var chosen = list.SelectedItem;
+        var gate = new TaskCompletionSource<bool>();
+        VisualProbeFixture.ContentReadGate = gate.Task;
+        VisualProbeFixture.FailContentRead = true;
+        var refresh = (Task)typeof(SelectionPage).GetMethod("LoadSizesAsync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(page, null)!;
+        await SettleAsync(root);
+        await CaptureAsync(root, directory, $"{theme}-selection-size-pending.png");
+        checks.Add(new JsonObject { ["check"] = $"{theme} delayed scan clears old table and inspector sizes", ["passed"] = sizeLabel.Text == "Calculating…" && list.SelectedItem is SyncChoiceRow { Size: "Calculating…" } && ReferenceEquals(chosen, list.SelectedItem) });
+        gate.SetResult(true);
+        await refresh;
+        await SettleAsync(root);
+        await CaptureAsync(root, directory, $"{theme}-selection-size-unavailable.png");
+        checks.Add(new JsonObject { ["check"] = $"{theme} failed scan shows unavailable in table and inspector", ["passed"] = sizeLabel.Text == "Size unavailable" && list.SelectedItem is SyncChoiceRow { Size: "Size unavailable" } && ReferenceEquals(chosen, list.SelectedItem) });
+        VisualProbeFixture.ContentReadGate = null;
+        VisualProbeFixture.FailContentRead = false;
     }
 
     private static async Task CheckReviewAsync(MainWindow window, string theme, string size, string directory, JsonArray checks)

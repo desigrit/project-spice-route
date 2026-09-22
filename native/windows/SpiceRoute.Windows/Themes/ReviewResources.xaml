@@ -44,4 +44,28 @@
       </StackPanel>
     </Grid>
   </DataTemplate>
+  <Style x:Key="SpiceSyncRowStyle" TargetType="ListViewItem" BasedOn="{StaticResource SpiceReviewRowStyle}">
+    <Setter Property="MinHeight" Value="49" />
+    <Setter Property="AutomationProperties.Name" Value="{Binding AccessibleName}" />
+  </Style>
+  <DataTemplate x:Key="SpiceSyncProjectTemplate">
+    <Grid ColumnSpacing="12" Padding="12,0" Height="49" BorderBrush="{ThemeResource SpiceLine}" BorderThickness="0,0,0,1">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="137"/><ColumnDefinition Width="70"/></Grid.ColumnDefinitions>
+      <Grid ColumnSpacing="9"><Grid.ColumnDefinitions><ColumnDefinition Width="16"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <FontIcon Glyph="&#xE8B7;" FontFamily="Segoe Fluent Icons" FontSize="15" Foreground="{ThemeResource SpiceAccent}"/>
+        <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="13" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding Name}"/>
+      </Grid>
+      <TextBlock Grid.Column="1" Text="{Binding ModeLabel}" FontSize="12" Foreground="{ThemeResource SpiceTextSecondary}" VerticalAlignment="Center"/>
+      <TextBlock Grid.Column="2" Text="{Binding Size}" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+    </Grid>
+  </DataTemplate>
+  <DataTemplate x:Key="SpiceSyncChatTemplate">
+    <Grid ColumnSpacing="12" Padding="12,4" MinHeight="60" BorderBrush="{ThemeResource SpiceLine}" BorderThickness="0,0,0,1">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="70"/></Grid.ColumnDefinitions>
+      <CheckBox IsChecked="{Binding Included, Mode=TwoWay}" IsEnabled="{Binding Allowed}" HorizontalContentAlignment="Stretch" AutomationProperties.Name="{Binding Name}">
+        <StackPanel Spacing="3"><TextBlock Text="{Binding Name}" FontSize="13" TextTrimming="CharacterEllipsis"/><TextBlock Text="{Binding Detail}" FontSize="12" Foreground="{ThemeResource SpiceTextSecondary}" TextTrimming="CharacterEllipsis"/></StackPanel>
+      </CheckBox>
+      <TextBlock Grid.Column="1" Text="{Binding Size}" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Right"/>
+    </Grid>
+  </DataTemplate>
 </ResourceDictionary>

@@ -85,7 +85,8 @@ const nav = [ ['overview', 'Overview', Route], ['selection', 'What to sync', Fol
 
 const css = await fs.readFile(path.join(root, 'src/styles.css'), 'utf8') + '\n'
   + await fs.readFile(path.join(root, 'src/interface.css'), 'utf8') + '\n'
-  + await fs.readFile(path.join(root, 'src/macos.css'), 'utf8');
+  + await fs.readFile(path.join(root, 'src/macos.css'), 'utf8') + '\n'
+  + await fs.readFile(path.join(root, 'src/workspace.css'), 'utf8');
 const boat = `data:image/png;base64,${(await fs.readFile(path.join(root, 'src/assets/boat-mark.png'))).toString('base64')}`;
 await fs.mkdir(output, { recursive: true });
 const vite = await createServer({ configFile: false, root, plugins: [react()],
@@ -104,7 +105,7 @@ try {
         'aria-current': page === id ? 'page' : undefined }, h(Icon, { size: 18 }), h('span', null, label)))),
       h('div', { className: 'sidebar-footer' }, h('div', { className: 'device-chip' }, h(Laptop, { size: 16 }),
         h('span', null, h('small', null, 'This device'), config.deviceName)),
-        h('div', { className: 'sidebar-version' }, 'Spice Route 1.5.2'))),
+        h('div', { className: 'sidebar-version' }, 'Spice Route 1.6.0'))),
     h('main', { className: 'main-content' }, h('header', { className: 'topbar' },
       h('div', null, h('p', { className: 'eyebrow' }, page === 'selection' ? 'Sync policy' : page),
         h('h1', null, nav.find(([id]) => id === page)?.[1] || 'Overview')),
@@ -117,7 +118,7 @@ try {
     for (const page of pages) {
       const renderer = createDOMRenderer();
       const themedConfig = { ...config, theme };
-      const overview = h(Overview, { config: themedConfig, environment, catalog, status, onPush: noop, onPull: noop, onOpenCodex: noop });
+      const overview = h(Overview, { config: themedConfig, environment, catalog, status, onPush: noop, onPull: noop, onNavigate: noop });
       const content = page === 'selection' ? h(SelectionScreen, { config: themedConfig, catalog, onSave: noop })
         : page === 'settings' ? h(SettingsScreen, { config: themedConfig, environment, onSave: noop, onResetCloudHistory: noop })
         : page === 'recovery' ? h(RecoveryScreen, { recoveries, onRestore: noop, onDiagnose: noop }) : overview;

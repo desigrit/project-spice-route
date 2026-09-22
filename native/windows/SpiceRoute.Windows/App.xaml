@@ -12,40 +12,40 @@
 
       <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Light">
-          <SolidColorBrush x:Key="SpiceCanvas" Color="#F4F3EE" />
-          <SolidColorBrush x:Key="SpiceSurface" Color="#FBFAF6" />
-          <SolidColorBrush x:Key="SpiceSidebar" Color="#E8EAE5" />
-          <SolidColorBrush x:Key="SpiceSubtle" Color="#ECEFEA" />
-          <SolidColorBrush x:Key="SpiceAccent" Color="#123B59" />
-          <SolidColorBrush x:Key="SpiceAccentHover" Color="#0D3049" />
-          <SolidColorBrush x:Key="SpiceAccentPressed" Color="#09283D" />
-          <SolidColorBrush x:Key="SpiceAccentSoft" Color="#DDE8ED" />
-          <SolidColorBrush x:Key="SpiceText" Color="#15354C" />
-          <SolidColorBrush x:Key="SpiceTextSecondary" Color="#587083" />
-          <SolidColorBrush x:Key="SpiceLine" Color="#D5DAD6" />
+          <SolidColorBrush x:Key="SpiceCanvas" Color="#EEEFEC" />
+          <SolidColorBrush x:Key="SpiceSurface" Color="#FCFBF8" />
+          <SolidColorBrush x:Key="SpiceSidebar" Color="#EEEFEC" />
+          <SolidColorBrush x:Key="SpiceSubtle" Color="#F1F2EE" />
+          <SolidColorBrush x:Key="SpiceAccent" Color="#163D55" />
+          <SolidColorBrush x:Key="SpiceAccentHover" Color="#254F67" />
+          <SolidColorBrush x:Key="SpiceAccentPressed" Color="#0E2D43" />
+          <SolidColorBrush x:Key="SpiceAccentSoft" Color="#DDE8EC" />
+          <SolidColorBrush x:Key="SpiceText" Color="#20323E" />
+          <SolidColorBrush x:Key="SpiceTextSecondary" Color="#5B6871" />
+          <SolidColorBrush x:Key="SpiceLine" Color="#DFE3DF" />
           <SolidColorBrush x:Key="SpiceSuccess" Color="#28735F" />
           <SolidColorBrush x:Key="SpiceSuccessSoft" Color="#DFEEE8" />
           <SolidColorBrush x:Key="SpiceWarning" Color="#8B611B" />
           <SolidColorBrush x:Key="SpiceOnAccent" Color="#FFFFFF" />
-          <Color x:Key="SystemAccentColor">#123B59</Color>
+          <Color x:Key="SystemAccentColor">#163D55</Color>
         </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
-          <SolidColorBrush x:Key="SpiceCanvas" Color="#0B1B27" />
-          <SolidColorBrush x:Key="SpiceSurface" Color="#102735" />
-          <SolidColorBrush x:Key="SpiceSidebar" Color="#0A1E2B" />
-          <SolidColorBrush x:Key="SpiceSubtle" Color="#193644" />
-          <SolidColorBrush x:Key="SpiceAccent" Color="#F1E5C3" />
-          <SolidColorBrush x:Key="SpiceAccentHover" Color="#FFF1CC" />
-          <SolidColorBrush x:Key="SpiceAccentPressed" Color="#D8CCAD" />
-          <SolidColorBrush x:Key="SpiceAccentSoft" Color="#25495C" />
-          <SolidColorBrush x:Key="SpiceText" Color="#F3EEE2" />
-          <SolidColorBrush x:Key="SpiceTextSecondary" Color="#B3C2CC" />
-          <SolidColorBrush x:Key="SpiceLine" Color="#315061" />
+          <SolidColorBrush x:Key="SpiceCanvas" Color="#171D22" />
+          <SolidColorBrush x:Key="SpiceSurface" Color="#1D2328" />
+          <SolidColorBrush x:Key="SpiceSidebar" Color="#171D22" />
+          <SolidColorBrush x:Key="SpiceSubtle" Color="#262F35" />
+          <SolidColorBrush x:Key="SpiceAccent" Color="#B5D4E5" />
+          <SolidColorBrush x:Key="SpiceAccentHover" Color="#C5E1EF" />
+          <SolidColorBrush x:Key="SpiceAccentPressed" Color="#99BDCF" />
+          <SolidColorBrush x:Key="SpiceAccentSoft" Color="#304652" />
+          <SolidColorBrush x:Key="SpiceText" Color="#EDF0ED" />
+          <SolidColorBrush x:Key="SpiceTextSecondary" Color="#AAB9C2" />
+          <SolidColorBrush x:Key="SpiceLine" Color="#36434B" />
           <SolidColorBrush x:Key="SpiceSuccess" Color="#8ACCB8" />
           <SolidColorBrush x:Key="SpiceSuccessSoft" Color="#183E37" />
           <SolidColorBrush x:Key="SpiceWarning" Color="#E8C37A" />
-          <SolidColorBrush x:Key="SpiceOnAccent" Color="#102B41" />
-          <Color x:Key="SystemAccentColor">#F1E5C3</Color>
+          <SolidColorBrush x:Key="SpiceOnAccent" Color="#102F41" />
+          <Color x:Key="SystemAccentColor">#B5D4E5</Color>
         </ResourceDictionary>
         <ResourceDictionary x:Key="HighContrast">
           <SolidColorBrush x:Key="SpiceCanvas" Color="{ThemeResource SystemColorWindowColor}" />

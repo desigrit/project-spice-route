@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App, { Onboarding, Overview, PreviewDialog, SelectionScreen, SettingsScreen, estimatedProjectBytes } from "./App";
 import { open } from "@tauri-apps/plugin-dialog";
 import { AppTheme } from "./fluent-theme";
@@ -12,6 +12,8 @@ import type {
   ContentCatalog,
   OperationPreview,
 } from "./types";
+
+beforeEach(() => { vi.spyOn(api, "listSnapshots").mockResolvedValue([]); });
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
@@ -107,29 +109,30 @@ describe("concurrent handoff actions", () => {
   it("does not claim visible content is verified before Pull checks it", () => {
     const visible = { ...snapshot("snapshot-visible", "Windows A"), verified: false };
     renderOverview({ ...status(false), latestSnapshot: visible, visibleHeads: [visible] });
-    expect(screen.getByText(/Visible in sync folder/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
+    expect(screen.getByText("Visible in sync folder. Contents are checked during Pull.")).toBeInTheDocument();
     expect(screen.queryByText("Received and verified")).not.toBeInTheDocument();
   });
 
   it("blocks a new push until every visible branch is reviewed", () => {
     renderOverview(status(false));
 
-    expect(screen.getByRole("button", { name: /Push this device/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Pull latest/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Push" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Pull" })).toBeDisabled();
     expect(screen.getAllByRole("button", { name: /Review branch/i })).toHaveLength(2);
   });
 
   it("enables the merge snapshot after all visible branches are represented locally", () => {
     renderOverview(status(true));
 
-    expect(screen.getByRole("button", { name: /Publish merged history/i })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /Pull latest/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Push" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Pull" })).toBeDisabled();
   });
 
   it("allows a device without a baseline to review replacing visible branches", () => {
     renderOverview({ ...status(false), lastAppliedSnapshotId: null, state: "ready" });
 
-    expect(screen.getByRole("button", { name: /Push this device/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Push" })).toBeEnabled();
     expect(screen.getAllByRole("button", { name: /Review branch/i })).toHaveLength(2);
   });
 });
@@ -217,10 +220,10 @@ describe("handoff review", () => {
     vi.spyOn(api, "previewPull").mockResolvedValue(handoffPreview);
     vi.spyOn(api, "executePull").mockRejectedValue(new Error("The local workspace changed. Refresh the review."));
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: /Pull latest/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Pull" }));
     await screen.findByRole("dialog", { name: "Review this handoff" });
     screen.getAllByRole("button", { name: "Use incoming" }).forEach((button) => fireEvent.click(button));
-    fireEvent.click(screen.getByRole("button", { name: "Pull" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Review this handoff" })).getByRole("button", { name: "Pull" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("The local workspace changed. Refresh the review."));
     expect(api.listContentQuick).toHaveBeenCalledTimes(2);
     expect(screen.getAllByRole("button", { name: "Use incoming", pressed: true })).toHaveLength(3);
@@ -333,6 +336,7 @@ describe("per-project local folders", () => {
     fireEvent.click(screen.getByRole("button", { name: "Folder options: Local folder for Product" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Change folder…" }));
     await waitFor(() => expect(screen.getByLabelText("Local folder for Product")).toHaveAttribute("title", "G:\\Repositories\\Product"));
+    fireEvent.click(screen.getByRole("button", { name: "Flights" }));
     fireEvent.click(screen.getByRole("button", { name: "Folder options: Folder 2 for Flights" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Change folder…" }));
     await waitFor(() => expect(screen.getByLabelText("Folder 2 for Flights")).toHaveAttribute("title", "H:\\Worktrees\\Flights"));
@@ -342,6 +346,7 @@ describe("per-project local folders", () => {
     expect(saved.destinationRoots).toEqual(saved.sourceRoots);
     expect(saved.selection).toEqual(config.selection);
     expect(screen.getByLabelText("Folder 1 for Flights")).toHaveAttribute("title", "E:\\Work\\Flights");
+    fireEvent.click(screen.getByRole("button", { name: "Product" }));
     expect(screen.getByLabelText("Local folder for Product").querySelector("input")).toBeNull();
     expect(screen.queryByRole("button", { name: /Browse/ })).not.toBeInTheDocument();
   });
@@ -358,19 +363,19 @@ describe("per-project local folders", () => {
     expect(save.mock.calls[0][0].destinationRoots).toEqual({});
   });
 
-  it("requires no code folder for history-only and excluded projects", () => {
+  it("keeps local mappings available without including project files in history-only mode", () => {
     const selection = { ...config.selection, projectModes: { product: "historyOnly" as const, flights: "excluded" as const } };
     render(<AppTheme mode="dark"><SelectionScreen config={{ ...config, selection }} catalog={projectCatalog} onSave={vi.fn()} /></AppTheme>);
-    expect(screen.queryByLabelText("Local folder for Product")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Local folder for Product")).toBeInTheDocument();
     expect(screen.queryByLabelText("Folder 1 for Flights")).not.toBeInTheDocument();
-    expect(screen.getByText(/no project files/)).toBeInTheDocument();
+    expect(screen.getByText(/Project files stay here/)).toBeInTheDocument();
   });
 
   it("changes project modes through the Windows-style dropdown", () => {
     render(<AppTheme mode="light"><SelectionScreen config={config} catalog={projectCatalog} onSave={vi.fn()} /></AppTheme>);
     fireEvent.click(screen.getByRole("combobox", { name: "Sync mode for Product" }));
     fireEvent.click(screen.getByRole("option", { name: "Chat history only" }));
-    expect(screen.queryByLabelText("Local folder for Product")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Local folder for Product")).toBeInTheDocument();
   });
 
   it("onboards with no single project parent and keeps cloud providers selectable", async () => {
@@ -425,5 +430,37 @@ describe("selection size estimates", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Change folder…" }));
     await waitFor(() => expect(open).toHaveBeenCalled());
     expect(screen.getByLabelText("Local folder for Product")).toHaveAttribute("title", "D:\\Code\\product");
+  });
+});
+
+
+describe("approved workspace interactions", () => {
+  it("keeps only the selected project's inspector and supports arrow navigation", () => {
+    render(<AppTheme mode="light"><SelectionScreen config={config} catalog={projectCatalog} onSave={vi.fn()} /></AppTheme>);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Product" }), { key: "ArrowDown" });
+    expect(screen.getByRole("combobox", { name: "Sync mode for Flights" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Sync mode for Product" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search projects" }), { target: { value: "Product" } });
+    expect(screen.getByRole("combobox", { name: "Sync mode for Product" })).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Search projects" }), { target: { value: "no matches" } });
+    expect(screen.queryByRole("complementary", { name: "Project details" })).not.toBeInTheDocument();
+  });
+
+  it("blocks both transfer actions while recovery is pending", () => {
+    const latest = snapshot("latest", "Travel laptop");
+    renderOverview({ ...status(false), latestSnapshot: latest, visibleHeads: [latest], pendingRecovery: true });
+    expect(screen.getByRole("button", { name: "Push" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Pull" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Review recovery" })).toBeInTheDocument();
+  });
+
+  it("recalculates workspace sizes after a folder mapping changes", async () => {
+    vi.mocked(open).mockResolvedValueOnce("G:\\Product");
+    vi.spyOn(api, "listContent").mockResolvedValue({ ...projectCatalog, projects: projectCatalog.projects.map(project => ({ ...project, estimatedBytes: 4096 })) });
+    render(<AppTheme mode="light"><SelectionScreen config={config} catalog={projectCatalog} onSave={vi.fn()} /></AppTheme>);
+    fireEvent.click(screen.getByRole("button", { name: "Folder options: Local folder for Product" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Change folder…" }));
+    await waitFor(() => expect(screen.getByLabelText("Estimated sync size for Product")).toHaveTextContent("4.0 KB"));
+    expect(api.listContent).toHaveBeenCalledWith(expect.objectContaining({ sourceRoots: { "product:0": "G:\\Product" } }));
   });
 });
