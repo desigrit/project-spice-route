@@ -28,6 +28,13 @@ internal static class Ui
         AutomationProperties.SetName(button, label);
         return button;
     }
+    internal static Button DangerButton(string label)
+    {
+        var button = Button(label);
+        button.Style = (Style)Application.Current.Resources["SpiceDangerButtonStyle"];
+        AutomationProperties.SetName(button, label);
+        return button;
+    }
     internal static Button TextButton(string label, string? glyph = null)
     {
         var button = Button(label, glyph);

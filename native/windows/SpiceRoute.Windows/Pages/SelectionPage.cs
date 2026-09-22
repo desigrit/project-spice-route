@@ -149,7 +149,7 @@ public sealed class SelectionPage : Page
             if (_lifetime.IsCancellationRequested) return;
             _catalog = result as JsonObject ?? new();
             RebuildRows();
-            _state.Text = "Project folders checked. Add a suggested folder from its project details.";
+            _state.Text = "";
             await LoadSizesAsync();
         }
         catch (OperationCanceledException) { }
@@ -279,6 +279,29 @@ public sealed class SelectionPage : Page
             var rootIndex = index; var key = $"{id}:{index}";
             var discovered = roots[index]?.ToString() ?? "";
             var path = Wire.Text(Wire.Object(_draft, "sourceRoots"), key, index == 0 ? Wire.Text(Wire.Object(_draft, "sourceRoots"), id, index < locals.Count ? locals[index]?.ToString() ?? discovered : discovered) : index < locals.Count ? locals[index]?.ToString() ?? discovered : discovered);
+            var addedRoots = Wire.Array(Wire.Object(_draft, "additionalProjectRoots"), id);
+            var isAddedRoot = addedRoots.Any(extra => string.Equals(extra?.ToString(), discovered, StringComparison.OrdinalIgnoreCase));
+            var canRemoveRoot = isAddedRoot && string.Equals(addedRoots.LastOrDefault()?.ToString(), discovered, StringComparison.OrdinalIgnoreCase);
+            Func<Task>? removeRoot = null;
+            if (isAddedRoot)
+            {
+                removeRoot = async () =>
+                {
+                    var all = NativePageUi.EnsureObject(_draft, "additionalProjectRoots");
+                    all[id] = new JsonArray(Wire.Array(all, id)
+                        .Where(extra => !string.Equals(extra?.ToString(), discovered, StringComparison.OrdinalIgnoreCase))
+                        .Select(extra => extra?.DeepClone()).ToArray());
+                    var sources = NativePageUi.EnsureObject(_draft, "sourceRoots");
+                    var destinations = NativePageUi.EnsureObject(_draft, "destinationRoots");
+                    for (var position = rootIndex; position < roots.Count; position++)
+                    {
+                        sources.Remove($"{id}:{position}");
+                        destinations.Remove($"{id}:{position}");
+                    }
+                    MarkChanged(false);
+                    await LoadSizesAsync();
+                };
+            }
             var folder = NativePageUi.FolderControl(path, async () =>
             {
                 try
@@ -305,36 +328,11 @@ public sealed class SelectionPage : Page
                     MarkChanged(false); RenderInspector(); await LoadSizesAsync();
                 }
                 catch (Exception error) { NativePageUi.Error(_feedback, error); }
-            }, roots.Count > 1 ? $"Change folder {index + 1} for {name}" : $"Change folder for {name}");
+            }, roots.Count > 1 ? $"Change folder {index + 1} for {name}" : $"Change folder for {name}", removeRoot, canRemoveRoot);
             folder.Margin = new Thickness(0, 7, 0, 0); folders.Children.Add(folder);
-            if (Wire.Array(Wire.Object(_draft, "additionalProjectRoots"), id)
-                .Any(extra => string.Equals(extra?.ToString(), discovered, StringComparison.OrdinalIgnoreCase)))
-            {
-                var remove = Ui.TextButton("Remove folder");
-                remove.IsEnabled = string.Equals(
-                    Wire.Array(Wire.Object(_draft, "additionalProjectRoots"), id).LastOrDefault()?.ToString(),
-                    discovered, StringComparison.OrdinalIgnoreCase);
-                if (!remove.IsEnabled) ToolTipService.SetToolTip(remove, "Remove newer added folders first.");
-                remove.Click += async (_, _) =>
-                {
-                    var all = NativePageUi.EnsureObject(_draft, "additionalProjectRoots");
-                    all[id] = new JsonArray(Wire.Array(all, id)
-                        .Where(extra => !string.Equals(extra?.ToString(), discovered, StringComparison.OrdinalIgnoreCase))
-                        .Select(extra => extra?.DeepClone()).ToArray());
-                    var sources = NativePageUi.EnsureObject(_draft, "sourceRoots");
-                    var destinations = NativePageUi.EnsureObject(_draft, "destinationRoots");
-                    for (var position = rootIndex; position < roots.Count; position++)
-                    {
-                        sources.Remove($"{id}:{position}");
-                        destinations.Remove($"{id}:{position}");
-                    }
-                    MarkChanged(false);
-                    await LoadSizesAsync();
-                };
-                folders.Children.Add(remove);
-            }
         }
-        folders.Children.Add(Ui.WithMargin(Ui.Muted(roots.Count == 0 ? "No workspace folder is recorded." : "Changing a path does not move files.", 12), new Thickness(0, 9, 0, 0)));
+        if (roots.Count == 0)
+            folders.Children.Add(Ui.WithMargin(Ui.Muted("No workspace folder is recorded.", 12), new Thickness(0, 9, 0, 0)));
         var addFolder = Ui.TextButton("Add another folder", "\uE710");
         addFolder.Click += async (_, _) => await AddProjectRootAsync(id);
         folders.Children.Add(Ui.WithMargin(addFolder, new Thickness(0, 9, 0, 0)));
@@ -455,9 +453,11 @@ internal static class NativePageUi
         return combo;
     }
     public static string ModeValue(ComboBox combo) => (combo.SelectedItem as ComboBoxItem)?.Tag?.ToString() ?? "full";
-    public static Grid FolderControl(string path, Func<Task> choose, string label)
+    public static Grid FolderControl(string path, Func<Task> choose, string label, Func<Task>? remove = null, bool removeEnabled = true)
     {
-        var grid = Ui.ColumnsWithSpacing(6, new GridLength(16), new GridLength(1, GridUnitType.Star), new GridLength(32));
+        var grid = remove is null
+            ? Ui.ColumnsWithSpacing(6, new GridLength(16), new GridLength(1, GridUnitType.Star), new GridLength(32))
+            : Ui.ColumnsWithSpacing(6, new GridLength(16), new GridLength(1, GridUnitType.Star), new GridLength(32), new GridLength(26));
         grid.MinHeight = 32;
         var icon = Ui.Icon("\uE8B7", 13);
         icon.Style = Ui.Style("SpiceMutedIconStyle");
@@ -475,6 +475,16 @@ internal static class NativePageUi
         ToolTipService.SetToolTip(button, string.IsNullOrEmpty(path) ? label : $"{label}\n{path}");
         button.Click += async (_, _) => await choose();
         Grid.SetColumn(button, 2); grid.Children.Add(button);
+        if (remove is not null)
+        {
+            var removeButton = Ui.IconButton("Remove folder", "\uE711");
+            removeButton.Width = 26; removeButton.Height = 26; removeButton.MinWidth = 26; removeButton.MinHeight = 26;
+            removeButton.HorizontalAlignment = HorizontalAlignment.Right; removeButton.VerticalAlignment = VerticalAlignment.Center;
+            removeButton.Padding = new Thickness(4); removeButton.IsEnabled = removeEnabled;
+            ToolTipService.SetToolTip(removeButton, removeEnabled ? "Remove folder from this project" : "Remove newer added folders first.");
+            removeButton.Click += async (_, _) => await remove!();
+            Grid.SetColumn(removeButton, 3); grid.Children.Add(removeButton);
+        }
         return grid;
     }
     public static string FolderName(string path)

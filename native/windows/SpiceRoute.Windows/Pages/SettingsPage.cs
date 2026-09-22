@@ -84,7 +84,7 @@ public sealed class SettingsPage : Page
         var version = Ui.Text(Wire.Text(context.Environment, "codexVersion", "Runtime not detected"), 13);
         version.HorizontalAlignment = HorizontalAlignment.Right;
         AddRow(maintenance, SettingRow("\uE946", "Codex compatibility", Wire.Text(Wire.Object(context.Environment, "compatibility"), "explanation", "Refresh Overview to check the configured Codex installation."), version));
-        var reset = Ui.Button("Reset cloud history…");
+        var reset = Ui.DangerButton("Reset");
         reset.Click += async (_, _) => await ResetCloudAsync();
         AddRow(maintenance, SettingRow("\uE74D", "Cloud history", "Remove shared snapshots and stored content. Local work stays here.", reset));
         var scroll = new ScrollViewer { Content = form, HorizontalContentAlignment = HorizontalAlignment.Left, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };

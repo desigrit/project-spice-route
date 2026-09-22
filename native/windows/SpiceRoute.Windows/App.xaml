@@ -26,6 +26,8 @@
           <SolidColorBrush x:Key="SpiceSuccess" Color="#28735F" />
           <SolidColorBrush x:Key="SpiceSuccessSoft" Color="#DFEEE8" />
           <SolidColorBrush x:Key="SpiceWarning" Color="#8B611B" />
+          <SolidColorBrush x:Key="SpiceDanger" Color="#A3262D" />
+          <SolidColorBrush x:Key="SpiceDangerSoft" Color="#FBE8E8" />
           <SolidColorBrush x:Key="SpiceOnAccent" Color="#FFFFFF" />
           <Color x:Key="SystemAccentColor">#163D55</Color>
         </ResourceDictionary>
@@ -44,6 +46,8 @@
           <SolidColorBrush x:Key="SpiceSuccess" Color="#8ACCB8" />
           <SolidColorBrush x:Key="SpiceSuccessSoft" Color="#183E37" />
           <SolidColorBrush x:Key="SpiceWarning" Color="#E8C37A" />
+          <SolidColorBrush x:Key="SpiceDanger" Color="#FFA6AA" />
+          <SolidColorBrush x:Key="SpiceDangerSoft" Color="#4A2B2B" />
           <SolidColorBrush x:Key="SpiceOnAccent" Color="#102F41" />
           <Color x:Key="SystemAccentColor">#B5D4E5</Color>
         </ResourceDictionary>
@@ -62,6 +66,8 @@
           <SolidColorBrush x:Key="SpiceSuccess" Color="{ThemeResource SystemColorWindowTextColor}" />
           <SolidColorBrush x:Key="SpiceSuccessSoft" Color="{ThemeResource SystemColorWindowColor}" />
           <SolidColorBrush x:Key="SpiceWarning" Color="{ThemeResource SystemColorWindowTextColor}" />
+          <SolidColorBrush x:Key="SpiceDanger" Color="{ThemeResource SystemColorWindowTextColor}" />
+          <SolidColorBrush x:Key="SpiceDangerSoft" Color="{ThemeResource SystemColorWindowColor}" />
           <SolidColorBrush x:Key="SpiceOnAccent" Color="{ThemeResource SystemColorHighlightTextColor}" />
         </ResourceDictionary>
       </ResourceDictionary.ThemeDictionaries>
@@ -135,6 +141,11 @@
         <Setter Property="FontSize" Value="13" />
         <Setter Property="MinHeight" Value="32" />
         <Setter Property="Padding" Value="12,5" />
+      </Style>
+      <Style x:Key="SpiceDangerButtonStyle" TargetType="Button" BasedOn="{StaticResource SpiceSecondaryButtonStyle}">
+        <Setter Property="Background" Value="{ThemeResource SpiceDangerSoft}" />
+        <Setter Property="Foreground" Value="{ThemeResource SpiceDanger}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource SpiceDanger}" />
       </Style>
       <Style x:Key="SpiceTextButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
         <Setter Property="Background" Value="Transparent" />

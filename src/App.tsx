@@ -503,19 +503,19 @@ export function Overview({ config, environment, catalog, status, onPush, onPull,
   const aligned = Boolean(latest?.id && (latest.id === status?.lastAppliedSnapshotId || latest.id === status?.lastPushedSnapshotId));
   const message = !ready ? status?.pendingRecovery ? "Finish recovery before your next handoff." : !config.onboardingComplete ? "Connect your folders to begin." : "Codex compatibility needs attention."
     : hasBranches ? mergeReady ? "The reviewed branches are ready to publish." : "Several handoffs need review. Choose a branch below."
-    : !latest ? "Ready for your first handoff." : aligned ? "This device has the latest visible handoff." : "A handoff is visible in your sync folder. Pull to review it.";
+    : !latest ? "Ready for your first handoff." : "A handoff is visible in your sync folder. Pull to review it.";
   const provider = config.cloudProvider === "oneDrive" ? "OneDrive" : config.cloudProvider === "googleDrive" ? "Google Drive" : config.cloudProvider === "iCloud" ? "iCloud Drive" : "Cloud";
   const rows = recent ?? (latest ? [latest] : heads);
   return <div className="handoff-overview">
-    <div className="handoff-alignment" role="status">
+    {(!ready || hasBranches || !aligned) && <div className="handoff-alignment" role="status">
       {ready && !hasBranches ? <Check size={15} /> : <CircleAlert size={15} />}<span>{message}</span>
       {!ready && <Button className="text-button" onClick={() => onNavigate?.(status?.pendingRecovery ? "recovery" : "settings")}>{status?.pendingRecovery ? "Review recovery" : "Check settings"}</Button>}
-    </div>
+    </div>}
     {!environment.compatibility?.supported && <p className="handoff-compatibility">{environment.compatibility?.explanation || "Check the Codex data folder in Settings, then refresh."}</p>}
     <div className="handoff-pair">
       <section className="handoff-pane" aria-label="This device">
         <div className="handoff-pane-label"><Laptop size={17} />This device</div>
-        <h2>{config.deviceName}</h2><p className={aligned ? "handoff-device-state current" : "handoff-device-state outdated"}>{aligned ? <Check size={14} /> : <CircleAlert size={14} />}{aligned ? "This device has the latest handoff" : "This device may have an out of date snapshot"}</p>
+        <h2>{config.deviceName}</h2><p className="handoff-device-state">{aligned ? <Check size={15} /> : <CircleAlert size={15} />}{aligned ? "This device has the latest handoff" : "This device may have an out of date snapshot"}</p>
         <dl className="handoff-facts">
           <div><dt>Selected chats</dt><dd>{selectedThreadCount(config, catalog)}</dd></div>
           <div><dt>Projects</dt><dd>{full + history} · {modeSummary}</dd></div>
@@ -707,8 +707,14 @@ export function SelectionScreen({ config, catalog: sourceCatalog, onSave, estima
             const override = draft.sourceRoots[key] ?? (index === 0 ? draft.sourceRoots[selectedProject.id] : undefined);
             const local = override ?? selectedProject.localRoots[index] ?? discovered;
             const destination = draft.destinationRoots[key] ?? (index === 0 ? draft.destinationRoots[selectedProject.id] : undefined);
-            return <div key={key}><FolderLocation label={selectedProject.roots.length > 1 ? `Folder ${index + 1} for ${selectedProject.name}` : `Local folder for ${selectedProject.name}`} path={local} onChoose={() => void browseProject(selectedProject.id, index, local)} onReset={override !== undefined ? () => setProjectFolder(selectedProject.id, index, null) : undefined} />{destination && destination !== local && <p className="sync-destination" title={destination}>Pull destination: {destination}</p>}{draft.additionalProjectRoots?.[selectedProject.id]?.some((item) => item.toLowerCase() === discovered.toLowerCase()) && <Button className="text-button" disabled={draft.additionalProjectRoots?.[selectedProject.id]?.at(-1)?.toLowerCase() !== discovered.toLowerCase()} title="Remove newer added folders first" onClick={() => removeProjectRoot(selectedProject.id, index, discovered)}>Remove folder</Button>}</div>;
-          })}<p>{selectedProject.roots.length ? "Changing a path does not move files." : "No workspace folder is recorded."}</p>
+            const addedRoots = draft.additionalProjectRoots?.[selectedProject.id] ?? [];
+            const isAdded = addedRoots.some((item) => item.toLowerCase() === discovered.toLowerCase());
+            const canRemove = isAdded && addedRoots.at(-1)?.toLowerCase() === discovered.toLowerCase();
+            return <div key={key}>
+              <FolderLocation label={selectedProject.roots.length > 1 ? `Folder ${index + 1} for ${selectedProject.name}` : `Local folder for ${selectedProject.name}`} path={local} onChoose={() => void browseProject(selectedProject.id, index, local)} onReset={override !== undefined ? () => setProjectFolder(selectedProject.id, index, null) : undefined} onRemove={isAdded ? () => removeProjectRoot(selectedProject.id, index, discovered) : undefined} removeDisabled={!canRemove} />
+              {destination && destination !== local && <p className="sync-destination" title={destination}>Pull destination: {destination}</p>}
+            </div>;
+          })}{selectedProject.roots.length === 0 && <p>No workspace folder is recorded.</p>}
             <Button className="text-button" onClick={() => void browseAnotherRoot(selectedProject.id)}>Add another folder</Button>
             {(selectedProject.suggestedRoots ?? []).map((path) => <Button key={path} className="text-button" title={path} onClick={() => addProjectRoot(selectedProject.id, path)}>Add {path.split(/[\\/]/).pop()}</Button>)}
           </section>
@@ -891,7 +897,7 @@ export function SettingsScreen({ config, catalog, environment, onSave, onResetCl
           {([['system', Laptop], ['light', Sun], ['dark', Moon]] as const).map(([value, Icon]) => <Button key={value} className={draft.theme === value ? "theme-choice active" : "theme-choice"} role="radio" aria-checked={draft.theme === value} onClick={() => setDraft({ ...draft, theme: value })}><Icon size={18} /> {value[0].toUpperCase() + value.slice(1)}</Button>)}
         </div>
         <div className="form-section divider"><p className="eyebrow">About and storage</p><h2>Cloud history</h2></div>
-        <div className="settings-inline-row"><p>Remove shared snapshots and stored content. Local work stays here.</p><Button className="danger-button" onClick={onResetCloudHistory}>Reset cloud history</Button></div>
+        <div className="settings-inline-row"><p>Remove shared snapshots and stored content. Local work stays here.</p><Button className="danger-button" onClick={onResetCloudHistory}>Reset</Button></div>
         <div className="form-actions"><Button className="primary-button" onClick={() => onSave(draft)}>Save settings</Button></div>
       </section>
       <section className="panel compatibility-card">
@@ -1140,7 +1146,7 @@ function ModeSelect({ value, onChange, label = "Project sync mode" }: { value: P
   return <Dropdown size="small" className={`mode-select mode-${value}`} listbox={{ className: "mode-options" }} aria-label={label} value={modeOptions.find((item) => item.value === value)?.label} selectedOptions={[value]} onOptionSelect={(_, data) => { if (data.optionValue) onChange(data.optionValue as ProjectMode); }}>{modeOptions.map((item) => <Option key={item.value} value={item.value}>{item.label}</Option>)}</Dropdown>;
 }
 
-function FolderLocation({ label, path, onChoose, onReset }: { label: string; path: string; onChoose: () => void; onReset?: () => void }) {
+function FolderLocation({ label, path, onChoose, onReset, onRemove, removeDisabled = false }: { label: string; path: string; onChoose: () => void; onReset?: () => void; onRemove?: () => void; removeDisabled?: boolean }) {
   const parts = path.replace(/\\/g, "/").replace(/\/$/, "").split("/");
   const name = parts.pop() || path;
   const parent = parts.join(" / ");
@@ -1152,6 +1158,7 @@ function FolderLocation({ label, path, onChoose, onReset }: { label: string; pat
         {onReset && <MenuItem icon={<RefreshCw size={16} />} onClick={onReset}>Use Codex location</MenuItem>}
       </MenuList></MenuPopover>
     </Menu>
+    {onRemove && <Button appearance="subtle" size="small" className="folder-remove-button" aria-label={`Remove ${label} from project`} title={removeDisabled ? "Remove newer added folders first" : "Remove folder from this project"} disabled={removeDisabled} icon={<X size={14} />} onClick={onRemove} />}
   </div>;
 }
 

@@ -36,7 +36,8 @@ public sealed class OverviewPage : Page
         body.Children.Add(BuildHeader());
         body.Children.Add(error);
         body.Children.Add(progress);
-        body.Children.Add(BuildStatus(ready, heads));
+        var status = BuildStatus(ready, heads);
+        if (status is not null) body.Children.Add(status);
         body.Children.Add(BuildPair(ready, heads));
         body.Children.Add(BuildActivity());
         if (heads.Count > 1) body.Children.Add(BuildBranches(heads, ready));
@@ -64,16 +65,20 @@ public sealed class OverviewPage : Page
         return header;
     }
 
-    private FrameworkElement BuildStatus(bool ready, JsonArray heads)
+    private FrameworkElement? BuildStatus(bool ready, JsonArray heads)
     {
+        var latest = context.Status["latestSnapshot"] as JsonObject;
+        var latestId = latest is null ? "" : Wire.Text(latest, "id");
+        var aligned = latestId.Length > 0 && (latestId == Wire.Text(context.Status, "lastAppliedSnapshotId")
+            || latestId == Wire.Text(context.Status, "lastPushedSnapshotId"));
+        if (ready && heads.Count <= 1 && aligned) return null;
+
         var row = Ui.ColumnsWithSpacing(10, new GridLength(16), new GridLength(1, GridUnitType.Star), GridLength.Auto);
         row.Margin = new Thickness(0, 20, 0, 0); row.Padding = new Thickness(0, 0, 0, 18);
-        var latest = context.Status["latestSnapshot"] as JsonObject;
-        var applied = latest is not null && Wire.Text(latest, "id") == Wire.Text(context.Status, "lastAppliedSnapshotId");
         var message = !ready ? Wire.Bool(context.Status, "pendingRecovery") ? "Finish recovery before your next handoff."
             : !Wire.Bool(context.Config, "onboardingComplete") ? "Connect your folders to begin." : "Codex compatibility needs attention."
             : heads.Count > 1 ? Wire.Bool(context.Status, "mergeReady") ? "The reviewed branches are ready to publish." : "Several handoffs need review. Choose a branch below."
-            : latest is null ? "Ready for your first handoff." : applied ? "This device has the latest visible handoff."
+            : latest is null ? "Ready for your first handoff."
             : "A handoff is visible in your sync folder. Pull to review it.";
         var icon = Ui.Icon(ready && heads.Count <= 1 ? "\uE73E" : "\uE946", 14); icon.Style = Ui.Style("SpiceMutedIconStyle");
         Ui.Add(row, icon); Ui.Add(row, Ui.Muted(message, 12), column: 1);
@@ -126,11 +131,10 @@ public sealed class OverviewPage : Page
         var latestId = latest is null ? "" : Wire.Text(latest, "id");
         var aligned = latestId.Length > 0 && (latestId == Wire.Text(context.Status, "lastAppliedSnapshotId") || latestId == Wire.Text(context.Status, "lastPushedSnapshotId"));
         var handoff = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        var handoffStyle = Ui.Style(aligned ? "SpiceSuccessTextStyle" : "SpiceWarningTextStyle");
-        var sign = Ui.Text(aligned ? "✓" : "⚠", 13, true); sign.Style = handoffStyle;
-        var label = Ui.Text(aligned ? "This device has the latest handoff" : "This device may have an out of date snapshot", 12);
-        label.Style = handoffStyle;
-        handoff.Children.Add(sign); handoff.Children.Add(label); pane.Children.Add(handoff);
+        var sign = Ui.Icon(aligned ? "\uE73E" : "\uE946", 14); sign.Style = Ui.Style("SpiceMutedIconStyle");
+        handoff.Children.Add(sign);
+        handoff.Children.Add(Ui.Muted(aligned ? "This device has the latest handoff" : "This device may have an out of date snapshot", 12));
+        pane.Children.Add(handoff);
         var summary = SelectionSummary.Count(context.Config, context.Catalog);
         var modes = summary.Full > 0 && summary.History > 0 ? $"{summary.Full} full · {summary.History} history only" : summary.Full > 0 ? "full projects" : "chat history only";
         var facts = new StackPanel { Margin = new Thickness(0, 22, 0, 20) };
