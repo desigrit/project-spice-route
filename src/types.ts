@@ -3,10 +3,19 @@ export type ProjectMode = "full" | "historyOnly" | "excluded";
 export type ThemeMode = "system" | "light" | "dark";
 export type CloudProvider = "oneDrive" | "googleDrive" | "iCloud" | "custom";
 
+export interface ProjectContentRules {
+  includeArchived: boolean;
+  includeBuildOutputs: boolean;
+  includeSensitiveFiles: boolean;
+  extraExcludePatterns: string[];
+}
+
 export interface SelectionRules {
   revision: string;
   defaultProjectMode: ProjectMode;
   projectModes: Record<string, ProjectMode>;
+  projectModesInitialized?: boolean;
+  projectContent?: Record<string, ProjectContentRules>;
   excludedThreadIds: string[];
   includeArchived: boolean;
   includeBuildOutputs: boolean;
@@ -21,6 +30,7 @@ export interface AppConfig {
   codexHome: string;
   projectlessRoot: string;
   projectsRoot: string;
+  additionalProjectRoots?: Record<string, string[]>;
   cloudRoot: string;
   cloudProvider: CloudProvider;
   theme: ThemeMode;
@@ -77,6 +87,7 @@ export interface ProjectSummary {
   estimatedBytes: number;
   gitRepository: boolean;
   linkedWorktree: boolean;
+  suggestedRoots?: string[];
 }
 
 export interface ContentCatalog {

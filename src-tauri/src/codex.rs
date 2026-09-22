@@ -646,6 +646,7 @@ fn read_projects(state: &Connection, threads: &[ThreadSummary]) -> Result<Vec<Pr
             estimated_bytes: 0,
             git_repository: false,
             linked_worktree: false,
+            suggested_roots: Vec::new(),
         })
     })?;
     Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
@@ -813,7 +814,12 @@ pub fn selection_excluded_thread_ids(
     let mut parents = HashMap::new();
     for thread in threads {
         if is_internal_thread(thread)
-            || (thread.archived && !selection.include_archived)
+            || (thread.archived
+                && !thread
+                    .project_id
+                    .as_deref()
+                    .map(|id| selection.project_content_rules(id).include_archived)
+                    .unwrap_or(selection.include_archived))
             || thread
                 .project_id
                 .as_deref()
@@ -891,7 +897,12 @@ pub fn export_selected(
         .iter()
         .filter(|thread| {
             if selection.excluded_thread_ids.contains(&thread.id)
-                || (thread.archived && !selection.include_archived)
+                || (thread.archived
+                    && !thread
+                        .project_id
+                        .as_deref()
+                        .map(|id| selection.project_content_rules(id).include_archived)
+                        .unwrap_or(selection.include_archived))
             {
                 return false;
             }
@@ -1181,11 +1192,36 @@ fn list_content_from_paths(
 }
 
 fn project_mode(selection: &SelectionRules, id: &str) -> ProjectMode {
-    selection
-        .project_modes
-        .get(id)
-        .copied()
-        .unwrap_or(selection.default_project_mode)
+    selection.mode_for_project(id)
+}
+
+pub fn append_configured_project_roots(export: &mut CodexExport, config: &AppConfig) {
+    for project in &mut export.projects {
+        let Some(added) = config.additional_project_roots.get(&project.id) else {
+            continue;
+        };
+        for root in added {
+            if project
+                .source_roots
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(root))
+            {
+                continue;
+            }
+            let position = project.source_roots.len() as i64;
+            project.source_roots.push(root.clone());
+            let values = BTreeMap::from([
+                ("project_id".to_string(), SqlValue::Text(project.id.clone())),
+                ("position".to_string(), SqlValue::Integer(position)),
+                ("path".to_string(), SqlValue::Text(root.clone())),
+            ]);
+            project
+                .rows
+                .entry("project_roots".to_string())
+                .or_default()
+                .push(DatabaseRow { values });
+        }
+    }
 }
 
 fn query_rows_eq(
@@ -3427,6 +3463,83 @@ mod tests {
             detailed.projects[0].estimated_bytes,
             b"project contents".len() as u64
         );
+    }
+
+    #[test]
+    fn another_codebase_can_join_one_codex_project_without_editing_the_source_database() {
+        let directory = tempdir().unwrap();
+        let home = directory.path().join("codex");
+        let code = directory.path().join("code");
+        let android = directory.path().join("android").join("Kaptus");
+        let ios = code.join("Kaptus-iOS");
+        create_fixture_schema(&home);
+        fs::create_dir_all(&android).unwrap();
+        fs::create_dir_all(ios.join(".git")).unwrap();
+        insert_project(&home, "kaptus", "Kaptus", &android, 0);
+        let mut config = crate::settings::default_config();
+        config.codex_home = home.to_string_lossy().into_owned();
+        config.projectless_root = directory
+            .path()
+            .join("chats")
+            .to_string_lossy()
+            .into_owned();
+        config.projects_root = code.to_string_lossy().into_owned();
+        let engine = crate::engine::Engine::new(directory.path().join("app-data")).unwrap();
+        let first = engine.list_content_quick(&config).unwrap();
+        assert_eq!(first.projects.len(), 1);
+        assert_eq!(first.projects[0].roots, vec![android.to_string_lossy()]);
+        assert_eq!(
+            first.projects[0].suggested_roots,
+            vec![ios.to_string_lossy()]
+        );
+
+        config
+            .additional_project_roots
+            .insert("kaptus".into(), vec![ios.to_string_lossy().into_owned()]);
+        let included = engine.list_content_quick(&config).unwrap();
+        assert_eq!(included.projects.len(), 1);
+        assert_eq!(included.projects[0].roots.len(), 2);
+        assert!(included.projects[0].suggested_roots.is_empty());
+
+        let mut export = export_selected(
+            &home,
+            &home,
+            &config.selection,
+            Path::new(&config.projectless_root),
+        )
+        .unwrap();
+        append_configured_project_roots(&mut export, &config);
+        let project = export
+            .projects
+            .iter()
+            .find(|project| project.id == "kaptus")
+            .unwrap();
+        assert_eq!(project.source_roots.len(), 2);
+        assert_eq!(project.rows["project_roots"].len(), 2);
+        let state = Connection::open(home.join("state_5.sqlite")).unwrap();
+        let source_count: i64 = state
+            .query_row(
+                "SELECT count(*) FROM project_roots WHERE project_id = 'kaptus'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(source_count, 1);
+
+        fs::remove_dir(ios.join(".git")).unwrap();
+        fs::write(android.join("android.txt"), b"Android code").unwrap();
+        fs::write(ios.join("ios.txt"), b"iOS code").unwrap();
+        let store =
+            crate::snapshot::ObjectStore::for_preview(directory.path().join("preview-objects"));
+        let manifest = crate::snapshot::build_manifest(&config, export, &store, None).unwrap();
+        assert!(manifest
+            .objects
+            .iter()
+            .any(|object| object.logical_path == "projects/kaptus/0/files/android.txt"));
+        assert!(manifest
+            .objects
+            .iter()
+            .any(|object| object.logical_path == "projects/kaptus/1/files/ios.txt"));
     }
 
     #[test]

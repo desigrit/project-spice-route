@@ -9,9 +9,14 @@ internal static class SelectionSummary
     internal static bool Includes(JsonObject config, JsonObject thread)
     {
         var selection = Wire.Object(config, "selection");
+        var projectId = Wire.Text(thread, "projectId");
+        var projectRules = Wire.Object(Wire.Object(selection, "projectContent"), projectId);
+        var archived = projectId.Length == 0 ? Wire.Bool(selection, "includeArchived", true)
+            : projectRules.Count > 0 ? Wire.Bool(projectRules, "includeArchived", true)
+            : Wire.Bool(selection, "projectModesInitialized") || Wire.Bool(selection, "includeArchived", true);
         return !Wire.Array(selection, "excludedThreadIds").Any(id => id?.ToString() == Wire.Text(thread, "id"))
-            && (Wire.Bool(selection, "includeArchived", true) || !Wire.Bool(thread, "archived"))
-            && (Wire.Text(thread, "projectId").Length == 0 || Mode(config, Wire.Text(thread, "projectId")) != "excluded");
+            && (archived || !Wire.Bool(thread, "archived"))
+            && (projectId.Length == 0 || Mode(config, projectId) != "excluded");
     }
     internal static double ProjectBytes(JsonObject config, JsonObject catalog, JsonObject project)
     {

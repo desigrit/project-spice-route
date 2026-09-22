@@ -22,6 +22,7 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(TitleStrip);
         AppWindow.Resize(new SizeInt32(1180, 820));
+        Root.SizeChanged += (_, args) => AdaptNavigation(args.NewSize.Width);
         AppWindow.SetIcon(Path.Combine(System.AppContext.BaseDirectory, "Assets", "SpiceRoute.ico"));
         context = visualProbe ? new(this, new VisualProbeFixture()) : new(this, engineDataDirectory);
         context.NavigateAction = Navigate;
@@ -37,6 +38,15 @@ public sealed partial class MainWindow : Window
         };
         Closed += async (_, _) => { noticeTimer.Stop(); await context.Engine.DisposeAsync(); };
         if (!visualProbe && !deferInitialization) Root.Loaded += async (_, _) => await InitializeAsync();
+    }
+
+    private void AdaptNavigation(double width)
+    {
+        var compact = width < 960;
+        var mode = compact ? NavigationViewPaneDisplayMode.LeftCompact : NavigationViewPaneDisplayMode.Left;
+        if (Navigation.PaneDisplayMode == mode) return;
+        Navigation.PaneDisplayMode = mode;
+        Navigation.IsPaneOpen = !compact;
     }
 
     private async Task InitializeAsync(bool throwOnFailure = false)

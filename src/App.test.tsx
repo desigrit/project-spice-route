@@ -273,12 +273,12 @@ describe("page-specific discovery", () => {
     fireEvent.click(screen.getByRole("option", { name: "Chat history only" }));
     await act(async () => detail.resolve(projectCatalog));
     expect(screen.getByRole("combobox", { name: "Sync mode for Product" })).toHaveTextContent("Chat history only");
-    expect(screen.getByLabelText("Estimated sync size for Flights")).toHaveTextContent("100 B");
+    await waitFor(() => expect(screen.getByLabelText("Estimated sync size for Flights")).toHaveTextContent("100 B"));
     expect(recoveryRead).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Overview" }));
     fireEvent.click(screen.getByRole("button", { name: "What to sync" }));
-    expect(detailedRead).toHaveBeenCalledTimes(1);
+    expect(detailedRead).toHaveBeenCalledTimes(2);
     fireEvent.click(screen.getByRole("button", { name: "Recovery" }));
     await waitFor(() => expect(recoveryRead).toHaveBeenCalledTimes(1));
     expect(screen.getByRole("status")).toHaveTextContent("Loading recovery points…");
@@ -392,10 +392,22 @@ describe("per-project local folders", () => {
     expect(complete.mock.calls[0][0]).toMatchObject({ projectsRoot: "", onboardingComplete: true });
   });
 
+  it("changes the default only for future projects", () => {
+    const save = vi.fn();
+    render(<AppTheme mode="light"><SettingsScreen config={config} catalog={projectCatalog} environment={environment} onSave={save} onResetCloudHistory={vi.fn()} /></AppTheme>);
+    fireEvent.click(screen.getByRole("combobox", { name: "Default sync mode for new projects" }));
+    fireEvent.click(screen.getByRole("option", { name: "Chat history only" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    const next = save.mock.calls[0][0] as AppConfig;
+    expect(next.selection.defaultProjectMode).toBe("historyOnly");
+    expect(next.selection.projectModes.product).toBe("full");
+    expect(next.selection.projectModesInitialized).toBe(true);
+  });
+
   it("allows clearing the optional default restore suggestion", () => {
     const save = vi.fn();
     render(<AppTheme mode="light"><SettingsScreen config={config} environment={environment} onSave={save} onResetCloudHistory={vi.fn()} /></AppTheme>);
-    fireEvent.change(screen.getByLabelText("Default restore location (optional)"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Project discovery and restores (optional)"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
     expect(save.mock.calls[0][0].projectsRoot).toBe("");
   });

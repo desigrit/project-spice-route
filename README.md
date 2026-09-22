@@ -18,9 +18,9 @@ Spice Route is a desktop app for Windows and macOS that transfers selected Codex
 
 ## A little context before you begin
 
-**The current desktop version is 1.6.0.** This release brings a calmer Overview and a more focused What to sync page. Windows has native x64 and ARM64 packages; new Mac releases target Apple Silicon. Version 1.5.2 remains the final archived Intel Mac build. Install the same Spice Route version on the computers you use together.
+**The current desktop version is 1.6.1.** This update keeps the calmer Overview and focused What to sync page, then makes project folders and content choices more precise. Windows has native x64 and ARM64 packages; new Mac releases target Apple Silicon. Version 1.5.2 remains the final archived Intel Mac build. Install the same Spice Route version on the computers you use together.
 
-Overview puts this device beside the latest visible cloud handoff, with Push and Pull in their respective columns. Select a project in What to sync to see its mode, selected size and local folders in the detail pane. Your choices, folder mappings, recovery safeguards and compatibility checks work as before.
+Overview puts this device beside the latest visible cloud handoff, with a clear check or warning under the device name. The navigation collapses when the window gets narrow. In What to sync, each project has its own archived-chat, secret-file, build-folder, and exclusion choices. The sync mode in Settings applies only to projects discovered later; changing it keeps current project choices.
 
 Windows uses WinUI 3 navigation, menus, folder pickers and virtualized lists. Mac keeps the same two-page arrangement with its existing platform styling. Review retains separate Files, Attention and Notes tabs. A visible cloud handoff is not proof that the drive client has finished delivering it.
 
@@ -37,9 +37,9 @@ You do not have to move every project just to bring a conversation along.
 | Chat history only | Project listing and chats, without the project's code or working files | Keep a reference on a device that does not need the whole project. |
 | Excluded project | No further transfer | Existing local copies and retained cloud snapshots stay in place. |
 
-Each project has its own local folder. One can live on `D:`, another on `E:`, and a linked worktree somewhere else. Folder mappings stay on the current computer, while your sync selections are shared across devices.
+A Codex project can have more than one code folder. For example, one Kaptus project can include an Android codebase and a separate Kaptus-iOS codebase. Select the project in What to sync and add another folder from its details. Folder paths stay on the current computer, while sync modes and content preferences are shared across devices.
 
-Recognized dependencies, caches, and build outputs are excluded by default, including generated packaging output and staging folders. New configurations include project files such as `.env`, local credentials, keys, and certificates. Existing installations keep their saved choices; enable **Project secrets and configuration** in Settings if you want those files to travel. Custom exclusions still apply. Git history is transferred intact.
+Recognized dependencies, caches, and build outputs are excluded by default, including generated packaging output and staging folders. New configurations include project files such as `.env`, local credentials, keys, and certificates. Existing installations keep their saved choices. Set secrets, build folders, archived chats, and additional exclusions in each project's details. Additional exclusions in Settings apply to projectless workspace files. Git history is transferred intact.
 
 ![What to sync in dark mode, with a compact project table and a selected-project detail pane](docs/images/native-selection-dark.png)
 
@@ -87,13 +87,13 @@ The projectless workspace folder is not a replacement for Codex's internal trans
 
 On macOS, a typical setup uses `/Users/your-name/.codex` for Codex tasks and history, and `/Users/your-name/Documents/Codex Sessions` for projectless working files. Do not select `~/.codex/sessions` as the projectless workspace folder. That directory contains Codex's internal session transcripts and is already covered by the task and history folder.
 
-When you first pull a full project onto another computer, Spice Route asks where that project should live. An optional default restore location can prefill suggestions, but each project gets its own confirmed destination. Changing a mapping does not move existing files.
+When you first pull a full project onto another computer, Spice Route asks where each project folder should live. The optional project discovery and restore location also scans its immediate Git folders when you refresh What to sync. Changing a mapping does not move existing files.
 
 ![Settings in light mode, with device preferences, cloud provider, and local folder controls](docs/images/native-settings-light.png)
 
 ### 4. Review your selection
 
-Open **What to sync** and select a project. Choose **Full project**, **Chat history only** or **Excluded** in its detail pane; the selected size updates with the choice. Use the chat tabs to exclude individual conversations, and **Defaults** for new-project and file rules. Save your choices when you are ready.
+Open **What to sync** and select a project. Choose **Full project**, **Chat history only** or **Excluded** in its detail pane; the selected size updates with the choice. Use the chat tabs to exclude individual conversations. The refresh icon rescans project folders. If a newly found folder belongs to an existing project, add it from that project's details. New-project mode lives in **Settings > Content preferences** and does not alter projects already listed. Save your choices when you are ready.
 
 ## The everyday handoff
 
@@ -171,7 +171,7 @@ Spice Route validates the complete database structure before allowing writes and
 
 Transfers keep the destination's own database schema. Older records can move into the supported newer profile. A transfer in the reverse direction is blocked if it contains newer fields the older profile cannot represent. Those values are never silently discarded. Schema 55 renames the attachment table; Spice Route translates that rename while retaining a consistent snapshot representation, so existing snapshots remain readable. It does not replace whole databases because selections, unrelated destination chats, and local settings must be preserved.
 
-See the [compatibility design](docs/compatibility-plan.md) and [1.6.0 testing notes](docs/testing-1.6.0.md) for the exact boundaries. The verification guide records the current Rust, frontend, native engine-client, and package checks. Real-device history display, continuation, and cloud-client behavior remain part of manual acceptance.
+See the [compatibility design](docs/compatibility-plan.md) and [1.6.1 testing notes](docs/testing-1.6.1.md) for the exact boundaries. The verification guide records the current Rust, frontend, native engine-client, and package checks. Real-device history display, continuation, and cloud-client behavior remain part of manual acceptance.
 
 ## Build from source
 
@@ -188,7 +188,7 @@ rustup toolchain install stable-x86_64-pc-windows-msvc
 ./scripts/build-native-windows.ps1
 ```
 
-The script produces `artifacts/Spice-Route-1.6.0-windows-x64-setup.exe` and its checksum. Pass `-Architecture arm64` for the native Windows on Arm package. It builds and packages the application without opening it when `-SkipStartupProbe` is supplied. See the [1.6.0 verification guide](docs/testing-1.6.0.md) for engine-client tests and interactive acceptance checks.
+The script produces `artifacts/Spice-Route-1.6.1-windows-x64-setup.exe` and its checksum. Pass `-Architecture arm64` for the native Windows on Arm package. It builds and packages the application without opening it when `-SkipStartupProbe` is supplied. See the [1.6.1 verification guide](docs/testing-1.6.1.md) for engine-client tests and interactive acceptance checks.
 
 ### macOS app
 
@@ -225,7 +225,7 @@ cargo clippy --release --manifest-path src-tauri/core/Cargo.toml --all-targets -
 Build the Apple Silicon app and DMG:
 
 ```bash
-bash ./scripts/build-macos.sh aarch64-apple-darwin 1.6.0 apple-silicon
+bash ./scripts/build-macos.sh aarch64-apple-darwin 1.6.1 apple-silicon
 ```
 
 The script builds Apple Silicon only and writes the DMG, zipped app, and checksums under `artifacts/macos-apple-silicon`. Local packages use ad-hoc signing. Normal public distribution still requires an Apple Developer identity and notarization.

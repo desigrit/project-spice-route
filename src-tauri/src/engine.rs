@@ -155,7 +155,74 @@ impl Engine {
     ) -> Result<ContentCatalog> {
         settings::validate_config(config)?;
         let mut catalog = codex::list_content(Path::new(&config.codex_home))?;
+        let discovered_folders: Vec<String> = if config.projects_root.trim().is_empty() {
+            Vec::new()
+        } else {
+            match fs::read_dir(&config.projects_root) {
+                Ok(entries) => entries
+                    .filter_map(std::result::Result::ok)
+                    .map(|entry| entry.path())
+                    .filter(|path| path.is_dir() && path.join(".git").exists())
+                    .map(|path| path_string(&path))
+                    .collect(),
+                Err(error) => {
+                    catalog.warnings.push(format!(
+                        "Project folders could not be scanned in {}: {error}",
+                        config.projects_root
+                    ));
+                    Vec::new()
+                }
+            }
+        };
+        let known_roots: Vec<String> = catalog
+            .projects
+            .iter()
+            .flat_map(|project| project.roots.iter().cloned())
+            .chain(config.additional_project_roots.values().flatten().cloned())
+            .collect();
+        let mut suggestions: HashMap<String, Vec<String>> = HashMap::new();
+        for root in discovered_folders {
+            if known_roots
+                .iter()
+                .any(|known| known.eq_ignore_ascii_case(&root))
+            {
+                continue;
+            }
+            let Some(folder) = Path::new(&root).file_name().and_then(|part| part.to_str()) else {
+                continue;
+            };
+            let folder = folder.to_ascii_lowercase();
+            let best = catalog
+                .projects
+                .iter()
+                .filter(|project| {
+                    let name = project.name.to_ascii_lowercase();
+                    folder == name
+                        || ["-", "_", " ", "."]
+                            .iter()
+                            .any(|delimiter| folder.starts_with(&format!("{name}{delimiter}")))
+                })
+                .max_by_key(|project| project.name.len());
+            if let Some(project) = best {
+                suggestions
+                    .entry(project.id.clone())
+                    .or_default()
+                    .push(root);
+            }
+        }
         for project in &mut catalog.projects {
+            if let Some(added) = config.additional_project_roots.get(&project.id) {
+                for root in added {
+                    if !project
+                        .roots
+                        .iter()
+                        .any(|existing| existing.eq_ignore_ascii_case(root))
+                    {
+                        project.roots.push(root.clone());
+                    }
+                }
+            }
+            project.suggested_roots = suggestions.remove(&project.id).unwrap_or_default();
             project.local_roots = project
                 .roots
                 .iter()
@@ -170,9 +237,14 @@ impl Engine {
                 })
                 .collect();
             project.estimated_bytes = 0;
-            if include_workspace_sizes {
+            if include_workspace_sizes
+                && config.selection.mode_for_project(&project.id) == ProjectMode::Full
+            {
                 for root in &project.local_roots {
-                    match snapshot::estimate_workspace_bytes(Path::new(root), &config.selection) {
+                    match snapshot::estimate_workspace_bytes(
+                        Path::new(root),
+                        &config.selection.for_project(&project.id),
+                    ) {
                         Ok(bytes) => {
                             project.estimated_bytes = project.estimated_bytes.saturating_add(bytes);
                         }
@@ -1333,12 +1405,13 @@ impl Engine {
         if let Some(flag) = cancel {
             check_cancel(flag)?;
         }
-        let export = codex::export_selected(
+        let mut export = codex::export_selected(
             Path::new(&config.codex_home),
             &db_dir,
             &config.selection,
             Path::new(&config.projectless_root),
         )?;
+        codex::append_configured_project_roots(&mut export, config);
         let mut manifest = snapshot::build_manifest_cancellable(
             config,
             export,
@@ -2243,7 +2316,12 @@ fn selection_includes_project(selection: &SelectionRules, project_id: &str) -> b
 fn selection_includes_thread(selection: &SelectionRules, thread: &ThreadExport) -> bool {
     !codex::is_internal_thread(thread)
         && !selection.excluded_thread_ids.contains(&thread.id)
-        && (selection.include_archived || !thread.archived)
+        && (!thread.archived
+            || thread
+                .project_id
+                .as_deref()
+                .map(|id| selection.project_content_rules(id).include_archived)
+                .unwrap_or(selection.include_archived))
         && thread
             .project_id
             .as_deref()

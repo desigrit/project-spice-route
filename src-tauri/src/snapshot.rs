@@ -793,12 +793,14 @@ pub fn build_manifest_cancellable(
                 project.git.push(descriptor);
             }
             report_external_git_resources(&root, &mut warnings);
+            let mut project_config = config.clone();
+            project_config.selection = config.selection.for_project(&project.id);
             capture_tree(
                 &root,
                 &format!("projects/{}/{index}/files", project.id),
                 &project.id,
                 ObjectKind::ProjectFile,
-                config,
+                &project_config,
                 store,
                 &mut objects,
                 &mut warnings,
@@ -1162,15 +1164,43 @@ pub(crate) fn selection_allows_object_path(
     {
         return false;
     }
-    if !selection.include_build_outputs && is_build_output_path(&relative) {
+    let project_rules = if matches!(object.kind, ObjectKind::ProjectFile) {
+        selection.project_content.get(&object.owner_id)
+    } else {
+        None
+    };
+    let new_project_defaults =
+        matches!(object.kind, ObjectKind::ProjectFile) && selection.project_modes_initialized;
+    let include_build = project_rules
+        .map(|rules| rules.include_build_outputs)
+        .unwrap_or(if new_project_defaults {
+            false
+        } else {
+            selection.include_build_outputs
+        });
+    let include_sensitive = project_rules
+        .map(|rules| rules.include_sensitive_files)
+        .unwrap_or(if new_project_defaults {
+            true
+        } else {
+            selection.include_sensitive_files
+        });
+    let empty: &[String] = &[];
+    let excludes = project_rules
+        .map(|rules| rules.extra_exclude_patterns.as_slice())
+        .unwrap_or(if new_project_defaults {
+            empty
+        } else {
+            &selection.extra_exclude_patterns
+        });
+    if !include_build && is_build_output_path(&relative) {
         return false;
     }
-    let patterns = match build_exclusions(&selection.extra_exclude_patterns) {
+    let patterns = match build_exclusions(excludes) {
         Ok(patterns) => patterns,
         Err(_) => return false,
     };
-    !patterns.is_match(&relative)
-        && (selection.include_sensitive_files || !is_sensitive_relative(&relative))
+    !patterns.is_match(&relative) && (include_sensitive || !is_sensitive_relative(&relative))
 }
 
 fn report_external_git_resources(root: &Path, warnings: &mut Vec<String>) {
@@ -2991,6 +3021,54 @@ mod tests {
             32
         );
         assert!(selection_allows_object_path(&object, &config.selection));
+    }
+
+    #[test]
+    fn project_file_rules_are_independent_of_projectless_rules() {
+        let mut selection = crate::settings::default_config().selection;
+        selection.project_modes_initialized = true;
+        selection.project_content.insert(
+            "project-a".into(),
+            crate::models::ProjectContentRules {
+                include_archived: true,
+                include_build_outputs: true,
+                include_sensitive_files: false,
+                extra_exclude_patterns: vec!["**/*.tmp".into()],
+            },
+        );
+        let object = |owner: &str, file: &str| ObjectEntry {
+            hash: "a".repeat(64),
+            logical_path: format!("projects/{owner}/0/files/{file}"),
+            kind: ObjectKind::ProjectFile,
+            owner_id: owner.into(),
+            raw_size: 1,
+            stored_size: 1,
+            executable: false,
+        };
+        assert!(!selection_allows_object_path(
+            &object("project-a", ".env"),
+            &selection
+        ));
+        assert!(selection_allows_object_path(
+            &object("project-b", ".env"),
+            &selection
+        ));
+        assert!(selection_allows_object_path(
+            &object("project-a", "node_modules/package.js"),
+            &selection
+        ));
+        assert!(!selection_allows_object_path(
+            &object("project-b", "node_modules/package.js"),
+            &selection
+        ));
+        assert!(!selection_allows_object_path(
+            &object("project-a", "notes.tmp"),
+            &selection
+        ));
+        assert!(selection_allows_object_path(
+            &object("project-b", "notes.tmp"),
+            &selection
+        ));
     }
 
     #[test]

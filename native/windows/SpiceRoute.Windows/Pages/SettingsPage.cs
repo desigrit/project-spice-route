@@ -45,7 +45,7 @@ public sealed class SettingsPage : Page
         var folders = Group(form, "Local folders");
         AddRow(folders, Folder("Codex tasks and history", "codexHome", "The .codex folder containing history databases and conversation transcripts."));
         AddRow(folders, Folder("Projectless chat workspaces", "projectlessRoot", "Working files and artifacts for chats outside a project."));
-        AddRow(folders, Folder("New project restores", "projectsRoot", "The starting location for incoming projects. Each project can use its own folder."));
+        AddRow(folders, Folder("Project discovery and restores", "projectsRoot", "Scan here for Git folders and suggest this location on Pull. Each project can use other folders too."));
         var projectLink = Ui.TextButton("Manage project folders", "\uE76C");
         projectLink.Click += async (_, _) =>
         {
@@ -54,34 +54,39 @@ public sealed class SettingsPage : Page
         AddRow(folders, SettingRow("\uE8B7", "Individual projects", "Choose each project's folder in What to sync.", projectLink));
 
         var policy = Group(form, "Content preferences");
-        AddRow(policy, Toggle("\uE81C", "Archived chats", "Include archived conversations selected in What to sync.", "includeArchived"));
-        AddRow(policy, Toggle("\uE72E", "Project secrets and configuration", "Include .env files, keys, and credentials in your cloud folder. Codex account credentials stay on this PC.", "includeSensitiveFiles"));
-        AddRow(policy, Toggle("\uE7B8", "Dependencies and build outputs", "Include packages, caches, and compiled files. These can make handoffs much larger.", "includeBuildOutputs"));
-
-        var exclusions = new StackPanel { Spacing = 10, Padding = new Thickness(40, 4, 0, 4) };
-        exclusions.Children.Add(Ui.Muted("Skip matching project files during Push. Enter one pattern per line.", 12));
-        var patterns = new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 86, MaxHeight = 180,
-            Text = string.Join(Environment.NewLine, Wire.Array(Selection, "extraExcludePatterns").Select(n => n?.GetValue<string>()).Where(v => v is not null)),
-            PlaceholderText = "For example, **/local-backups/**" };
-        AutomationProperties.SetName(patterns, "Additional file exclusions, one pattern per line");
-        patterns.TextChanged += (_, _) =>
+        var defaultMode = NativePageUi.ModePicker(Wire.Text(Selection, "defaultProjectMode", "full"));
+        defaultMode.Width = double.NaN;
+        defaultMode.HorizontalAlignment = HorizontalAlignment.Stretch;
+        AutomationProperties.SetName(defaultMode, "Default sync mode for new projects");
+        defaultMode.SelectionChanged += (_, _) =>
         {
-            Selection["extraExcludePatterns"] = new JsonArray(patterns.Text.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Select(p => (JsonNode?)JsonValue.Create(p.Trim())).ToArray());
+            FreezeExistingProjects();
+            Selection["defaultProjectMode"] = NativePageUi.ModeValue(defaultMode);
             Changed(true);
         };
-        exclusions.Children.Add(patterns);
-        policy.Children.Add(Details("\uE71C", "Additional exclusions", "Custom rules for project files", exclusions));
+        AddRow(policy, SettingRow("\uE8B7", "New projects", "Choose the sync mode for projects found in the future. Existing choices stay as they are.", defaultMode));
+        var patterns = new TextBox
+        {
+            MinHeight = 32,
+            Text = string.Join(", ", Wire.Array(Selection, "extraExcludePatterns").Select(n => n?.GetValue<string>()).Where(v => v is not null)),
+            PlaceholderText = "coverage/**, *.iso"
+        };
+        AutomationProperties.SetName(patterns, "Additional exclusions for projectless workspace files");
+        patterns.TextChanged += (_, _) =>
+        {
+            Selection["extraExcludePatterns"] = new JsonArray(patterns.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(value => (JsonNode?)JsonValue.Create(value)).ToArray());
+            Changed(true);
+        };
+        AddRow(policy, SettingRow("\uE71C", "Additional exclusions", "For projectless files. Each project has its own file rules in What to sync.", patterns));
 
         var maintenance = Group(form, "About and storage");
         var version = Ui.Text(Wire.Text(context.Environment, "codexVersion", "Runtime not detected"), 13);
         version.HorizontalAlignment = HorizontalAlignment.Right;
         AddRow(maintenance, SettingRow("\uE946", "Codex compatibility", Wire.Text(Wire.Object(context.Environment, "compatibility"), "explanation", "Refresh Overview to check the configured Codex installation."), version));
-        var cleanup = new StackPanel { Spacing = 12, Padding = new Thickness(40, 4, 0, 4) };
-        cleanup.Children.Add(Ui.Muted("Shared snapshots remain in your cloud folder until you remove them. Resetting cloud history keeps local Codex data and your sync choices.", 12));
         var reset = Ui.Button("Reset cloud history…");
         reset.Click += async (_, _) => await ResetCloudAsync();
-        cleanup.Children.Add(reset);
-        maintenance.Children.Add(Details("\uE74D", "Cloud history", "Remove older snapshots and stored content", cleanup));
+        AddRow(maintenance, SettingRow("\uE74D", "Cloud history", "Remove shared snapshots and stored content. Local work stays here.", reset));
         var scroll = new ScrollViewer { Content = form, HorizontalContentAlignment = HorizontalAlignment.Left, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
         content.Children.Add(scroll);
 
@@ -106,6 +111,26 @@ public sealed class SettingsPage : Page
     }
 
     private JsonObject Selection => NativePageUi.EnsureObject(_draft, "selection");
+    private void FreezeExistingProjects()
+    {
+        var legacy = !Wire.Bool(Selection, "projectModesInitialized");
+        var modes = NativePageUi.EnsureObject(Selection, "projectModes");
+        var content = NativePageUi.EnsureObject(Selection, "projectContent");
+        foreach (var project in Wire.Array(_context.Catalog, "projects").OfType<JsonObject>())
+        {
+            var id = Wire.Text(project, "id");
+            if (id.Length == 0) continue;
+            if (!modes.ContainsKey(id)) modes[id] = Wire.Text(Selection, "defaultProjectMode", "full");
+            if (!content.ContainsKey(id))
+                content[id] = new JsonObject {
+                    ["includeArchived"] = legacy ? Wire.Bool(Selection, "includeArchived", true) : true,
+                    ["includeSensitiveFiles"] = legacy ? Wire.Bool(Selection, "includeSensitiveFiles", true) : true,
+                    ["includeBuildOutputs"] = legacy && Wire.Bool(Selection, "includeBuildOutputs"),
+                    ["extraExcludePatterns"] = legacy ? Wire.Array(Selection, "extraExcludePatterns").DeepClone() : new JsonArray()
+                };
+        }
+        Selection["projectModesInitialized"] = true;
+    }
     private void Changed(bool policy = false)
     {
         _savedTimer.Stop();

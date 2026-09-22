@@ -12,6 +12,8 @@ pub struct AppConfig {
     pub projectless_root: String,
     #[serde(default)]
     pub projects_root: String,
+    #[serde(default)]
+    pub additional_project_roots: HashMap<String, Vec<String>>,
     pub cloud_root: String,
     pub cloud_provider: CloudProvider,
     pub theme: ThemeMode,
@@ -56,11 +58,69 @@ pub struct SelectionRules {
     pub revision: String,
     pub default_project_mode: ProjectMode,
     pub project_modes: HashMap<String, ProjectMode>,
+    #[serde(default)]
+    pub project_modes_initialized: bool,
+    #[serde(default)]
+    pub project_content: HashMap<String, ProjectContentRules>,
     pub excluded_thread_ids: Vec<String>,
     pub include_archived: bool,
     pub include_build_outputs: bool,
     pub include_sensitive_files: bool,
     pub extra_exclude_patterns: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectContentRules {
+    pub include_archived: bool,
+    pub include_build_outputs: bool,
+    pub include_sensitive_files: bool,
+    pub extra_exclude_patterns: Vec<String>,
+}
+
+impl Default for ProjectContentRules {
+    fn default() -> Self {
+        Self {
+            include_archived: true,
+            include_build_outputs: false,
+            include_sensitive_files: true,
+            extra_exclude_patterns: Vec::new(),
+        }
+    }
+}
+
+impl SelectionRules {
+    pub fn project_content_rules(&self, id: &str) -> ProjectContentRules {
+        self.project_content.get(id).cloned().unwrap_or_else(|| {
+            if self.project_modes_initialized {
+                ProjectContentRules::default()
+            } else {
+                ProjectContentRules {
+                    include_archived: self.include_archived,
+                    include_build_outputs: self.include_build_outputs,
+                    include_sensitive_files: self.include_sensitive_files,
+                    extra_exclude_patterns: self.extra_exclude_patterns.clone(),
+                }
+            }
+        })
+    }
+
+    pub fn for_project(&self, id: &str) -> Self {
+        let rules = self.project_content_rules(id);
+        let mut selected = self.clone();
+        selected.include_archived = rules.include_archived;
+        selected.include_build_outputs = rules.include_build_outputs;
+        selected.include_sensitive_files = rules.include_sensitive_files;
+        selected.extra_exclude_patterns = rules.extra_exclude_patterns;
+        selected
+    }
+
+    pub fn mode_for_project(&self, id: &str) -> ProjectMode {
+        self.project_modes
+            .get(id)
+            .copied()
+            .unwrap_or(self.default_project_mode)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -120,6 +180,8 @@ pub struct ProjectSummary {
     pub estimated_bytes: u64,
     pub git_repository: bool,
     pub linked_worktree: bool,
+    #[serde(default)]
+    pub suggested_roots: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

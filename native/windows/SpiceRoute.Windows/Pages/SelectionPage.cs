@@ -71,8 +71,9 @@ public sealed class SelectionPage : Page
         AutomationProperties.SetName(_search, "Search sync choices"); AutomationProperties.SetName(_items, "Content to sync");
         AutomationProperties.SetName(_summary, "Selected content summary");
         AutomationProperties.SetLiveSetting(_saved, AutomationLiveSetting.Polite); _saved.Style = Ui.Style("SpiceSuccessTextStyle");
-        var defaults = Ui.TextButton("Defaults"); defaults.Flyout = BuildDefaults();
-        var body = NativePageUi.PageGrid("What to sync", defaults, out var content);
+        var refresh = Ui.IconButton("Rescan project folders", "\uE72C");
+        refresh.Click += async (_, _) => await RescanAsync();
+        var body = NativePageUi.PageGrid("What to sync", refresh, out var content);
         content.RowDefinitions.Add(new() { Height = GridLength.Auto });
         content.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         content.RowDefinitions.Add(new() { Height = GridLength.Auto });
@@ -84,7 +85,7 @@ public sealed class SelectionPage : Page
         var shared = Ui.Muted("Shared across devices", 12); shared.VerticalAlignment = VerticalAlignment.Center; Ui.Add(tools, shared, column: 1); top.Children.Add(tools);
         content.Children.Add(top);
         _workspace.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-        _workspace.ColumnDefinitions.Add(new() { Width = new GridLength(238) });
+        _workspace.ColumnDefinitions.Add(new() { Width = new GridLength(284) });
         _workspace.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
         _workspace.RowDefinitions.Add(new() { Height = new GridLength(0) });
         _table.RowDefinitions.Add(new() { Height = GridLength.Auto }); _table.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) });
@@ -125,30 +126,53 @@ public sealed class SelectionPage : Page
     private void MarkChanged(bool selection)
     { _selectionChanged |= selection; _save.IsEnabled = true; _saved.Text = ""; UpdateRows(); }
 
-    private Flyout BuildDefaults()
+    private JsonObject ProjectRules(string id)
     {
-        var body = new StackPanel { Spacing = 16, Width = 300 };
-        body.Children.Add(Ui.SectionTitle("Sync defaults"));
-        var mode = NativePageUi.ModePicker(Wire.Text(Selection, "defaultProjectMode", "full")); mode.Header = "New projects"; mode.Width = 300;
-        AutomationProperties.SetName(mode, "Default sync mode for new projects");
-        mode.SelectionChanged += (_, _) => { Selection["defaultProjectMode"] = NativePageUi.ModeValue(mode); MarkChanged(true); RenderInspector(); };
-        body.Children.Add(mode);
-        foreach (var (key, label, fallback) in new[] { ("includeArchived", "Include archived chats", true), ("includeSensitiveFiles", "Include project secrets", true), ("includeBuildOutputs", "Include build and dependency folders", false) })
-        {
-            var toggle = new ToggleSwitch { Header = label, IsOn = Wire.Bool(Selection, key, fallback) };
-            toggle.Toggled += async (_, _) => { Selection[key] = toggle.IsOn; MarkChanged(true); RenderInspector(); if (key != "includeArchived") await LoadSizesAsync(); };
-            body.Children.Add(toggle);
-        }
-        var patterns = new TextBox { Header = "Additional file exclusions", PlaceholderText = "coverage/**, *.iso", Text = string.Join(", ", Wire.Array(Selection, "extraExcludePatterns").Select(node => node?.ToString())) };
-        patterns.LostFocus += async (_, _) =>
-        {
-            var values = patterns.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            var next = new JsonArray(values.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray());
-            if (next.ToJsonString() == Wire.Array(Selection, "extraExcludePatterns").ToJsonString()) return;
-            Selection["extraExcludePatterns"] = next; MarkChanged(true); await LoadSizesAsync();
+        var saved = Wire.Object(Selection, "projectContent");
+        if (saved[id] is JsonObject rules) return (JsonObject)rules.DeepClone();
+        var legacy = !Wire.Bool(Selection, "projectModesInitialized");
+        return new JsonObject {
+            ["includeArchived"] = legacy ? Wire.Bool(Selection, "includeArchived", true) : true,
+            ["includeSensitiveFiles"] = legacy ? Wire.Bool(Selection, "includeSensitiveFiles", true) : true,
+            ["includeBuildOutputs"] = legacy ? Wire.Bool(Selection, "includeBuildOutputs") : false,
+            ["extraExcludePatterns"] = legacy ? Wire.Array(Selection, "extraExcludePatterns").DeepClone() : new JsonArray()
         };
-        body.Children.Add(patterns); body.Children.Add(Ui.Muted("Applies to future handoffs. Existing cloud history is kept.", 12));
-        return new Flyout { Content = new ScrollViewer { Content = body, MaxHeight = 520, VerticalScrollBarVisibility = ScrollBarVisibility.Auto } };
+    }
+
+    private async Task RescanAsync()
+    {
+        _state.Text = "Looking for project folders…";
+        try
+        {
+            var result = await _context.Engine.CallAsync("list_content_quick", new JsonObject { ["config"] = _draft.DeepClone() }, _lifetime.Token);
+            if (_lifetime.IsCancellationRequested) return;
+            _catalog = result as JsonObject ?? new();
+            RebuildRows();
+            _state.Text = "Project folders checked. Add a suggested folder from its project details.";
+            await LoadSizesAsync();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception error) { NativePageUi.Error(_feedback, error); _state.Text = "Could not rescan project folders."; }
+    }
+
+    private async Task AddProjectRootAsync(string id, string? suggested = null)
+    {
+        try
+        {
+            var path = suggested ?? await _context.PickFolderAsync(Wire.Text(_draft, "projectsRoot"));
+            if (string.IsNullOrWhiteSpace(path)) return;
+            if (!Directory.Exists(path)) throw new InvalidOperationException("Choose a folder that exists on this device.");
+            var project = _projects.FirstOrDefault(row => row.Id == id)?.Source;
+            if (project is null) return;
+            if (Wire.Array(project, "roots").Any(root => string.Equals(root?.ToString(), path, StringComparison.OrdinalIgnoreCase))) return;
+            var all = NativePageUi.EnsureObject(_draft, "additionalProjectRoots");
+            var roots = Wire.Array(all, id);
+            if (roots.Any(root => string.Equals(root?.ToString(), path, StringComparison.OrdinalIgnoreCase))) return;
+            all[id] = new JsonArray(roots.Select(root => root?.DeepClone()).Append(JsonValue.Create(path)).ToArray());
+            MarkChanged(false);
+            await LoadSizesAsync();
+        }
+        catch (Exception error) { NativePageUi.Error(_feedback, error); }
     }
 
     private void RebuildRows()
@@ -175,13 +199,16 @@ public sealed class SelectionPage : Page
         {
             var id = Wire.Text(row.Source, "projectId");
             var project = _projects.FirstOrDefault(project => project.Id == id);
-            var allowed = (id.Length == 0 || SelectionSummary.Mode(_draft, id) != "excluded") && (!Wire.Bool(row.Source, "archived") || Wire.Bool(Selection, "includeArchived", true));
+            var archived = id.Length == 0 ? Wire.Bool(Selection, "includeArchived", true) : Wire.Bool(ProjectRules(id), "includeArchived", true);
+            var allowed = (id.Length == 0 || SelectionSummary.Mode(_draft, id) != "excluded") && (!Wire.Bool(row.Source, "archived") || archived);
             var detail = !allowed ? "Excluded by project or archive settings" : string.Join(" · ", new[] { project?.Name ?? "Projectless chat", Wire.Bool(row.Source, "archived") ? "Archived" : "" }.Where(value => value.Length > 0));
             row.Update("", Wire.Bytes(Wire.Number(row.Source, "estimatedBytes")), detail, allowed, SelectionSummary.Includes(_draft, row.Source));
         }
         var summary = SelectionSummary.Count(_draft, _catalog);
         var bytes = summary.Full > 0 && !_sizesReady ? _sizeFailed ? "Size unavailable" : "Calculating size…" : Wire.Bytes(summary.Bytes) + " selected";
-        _summary.Text = $"{summary.Chats} chats · {summary.Full + summary.History} projects · {bytes}";
+        var found = _projects.Sum(row => Wire.Array(row.Source, "suggestedRoots").Count);
+        _summary.Text = $"{summary.Chats} chats · {summary.Full + summary.History} projects · {bytes}"
+            + (found > 0 ? $" · {found} new {(found == 1 ? "folder" : "folders")} found" : "");
         var selected = _projects.FirstOrDefault(row => row.Id == _selectedId);
         if (_inspectorSize is not null && selected is not null) _inspectorSize.Text = ProjectSize(selected.Source);
     }
@@ -191,7 +218,7 @@ public sealed class SelectionPage : Page
         var query = _search.Text.Trim();
         var projectless = _scope.SelectedItem == _projectlessTab;
         var rows = (ProjectScope ? _projects : _threads.Where(row => Wire.Bool(row.Source, "projectless") == projectless))
-            .Where(row => (row.Name + " " + row.Detail + " " + (ProjectScope ? string.Join(" ", Wire.Array(row.Source, "roots").Select(node => node?.ToString())) : "")).Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
+            .Where(row => (row.Name + " " + row.Detail + " " + (ProjectScope ? string.Join(" ", Wire.Array(row.Source, "roots").Concat(Wire.Array(row.Source, "suggestedRoots")).Select(node => node?.ToString())) : "")).Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
         _filtering = true;
         _items.SelectionMode = ProjectScope ? ListViewSelectionMode.Single : ListViewSelectionMode.None;
         _items.ItemTemplate = ProjectScope ? _projectTemplate : _chatTemplate;
@@ -213,8 +240,8 @@ public sealed class SelectionPage : Page
         var inspector = ProjectScope && _selectedId is not null;
         _inspectorBorder.Visibility = inspector ? Visibility.Visible : Visibility.Collapsed;
         _workspace.ColumnSpacing = inspector && !_narrow ? 22 : 0;
-        _workspace.ColumnDefinitions[1].Width = inspector && !_narrow ? new GridLength(238) : new GridLength(0);
-        _workspace.RowDefinitions[1].Height = inspector && _narrow ? new GridLength(230) : new GridLength(0);
+        _workspace.ColumnDefinitions[1].Width = inspector && !_narrow ? new GridLength(284) : new GridLength(0);
+        _workspace.RowDefinitions[1].Height = inspector && _narrow ? new GridLength(330) : new GridLength(0);
         Grid.SetColumn(_inspectorBorder, _narrow ? 0 : 1); Grid.SetRow(_inspectorBorder, _narrow ? 1 : 0);
         _inspectorBorder.Padding = _narrow ? new Thickness(0, 14, 0, 0) : new Thickness(22, 14, 0, 0);
         _inspectorBorder.BorderThickness = _narrow ? new Thickness(0, 1, 0, 0) : new Thickness(1, 0, 0, 0);
@@ -256,23 +283,106 @@ public sealed class SelectionPage : Page
                 try
                 {
                     var chosen = await _context.PickFolderAsync(path); if (string.IsNullOrEmpty(chosen)) return;
+                    if (roots.Any(other => !string.Equals(other?.ToString(), discovered, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(other?.ToString(), chosen, StringComparison.OrdinalIgnoreCase)))
+                        throw new InvalidOperationException("That folder is already part of this project.");
                     var sources = NativePageUi.EnsureObject(_draft, "sourceRoots"); var destinations = NativePageUi.EnsureObject(_draft, "destinationRoots");
-                    if (rootIndex == 0) { sources.Remove(id); destinations.Remove(id); }
-                    sources[key] = chosen; destinations[key] = chosen; MarkChanged(false); RenderInspector(); await LoadSizesAsync();
+                    var extras = Wire.Array(Wire.Object(_draft, "additionalProjectRoots"), id);
+                    var extraIndex = extras.Select((item, position) => (item, position))
+                        .Where(pair => string.Equals(pair.item?.ToString(), discovered, StringComparison.OrdinalIgnoreCase))
+                        .Select(pair => pair.position).DefaultIfEmpty(-1).First();
+                    if (extraIndex >= 0)
+                    {
+                        extras[extraIndex] = chosen;
+                        sources.Remove(key); destinations.Remove(key);
+                    }
+                    else
+                    {
+                        if (rootIndex == 0) { sources.Remove(id); destinations.Remove(id); }
+                        sources[key] = chosen; destinations[key] = chosen;
+                    }
+                    MarkChanged(false); RenderInspector(); await LoadSizesAsync();
                 }
                 catch (Exception error) { NativePageUi.Error(_feedback, error); }
             }, roots.Count > 1 ? $"Change folder {index + 1} for {name}" : $"Change folder for {name}");
             folder.Margin = new Thickness(0, 7, 0, 0); folders.Children.Add(folder);
+            if (Wire.Array(Wire.Object(_draft, "additionalProjectRoots"), id)
+                .Any(extra => string.Equals(extra?.ToString(), discovered, StringComparison.OrdinalIgnoreCase)))
+            {
+                var remove = Ui.TextButton("Remove folder");
+                remove.Click += async (_, _) =>
+                {
+                    var all = NativePageUi.EnsureObject(_draft, "additionalProjectRoots");
+                    all[id] = new JsonArray(Wire.Array(all, id)
+                        .Where(extra => !string.Equals(extra?.ToString(), discovered, StringComparison.OrdinalIgnoreCase))
+                        .Select(extra => extra?.DeepClone()).ToArray());
+                    var sources = NativePageUi.EnsureObject(_draft, "sourceRoots");
+                    var destinations = NativePageUi.EnsureObject(_draft, "destinationRoots");
+                    for (var position = rootIndex; position < roots.Count; position++)
+                    {
+                        sources.Remove($"{id}:{position}");
+                        destinations.Remove($"{id}:{position}");
+                    }
+                    MarkChanged(false);
+                    await LoadSizesAsync();
+                };
+                folders.Children.Add(remove);
+            }
         }
-        folders.Children.Add(Ui.WithMargin(Ui.Muted(roots.Count == 0 ? "No workspace folder is recorded." : "Changing this path does not move files.", 12), new Thickness(0, 9, 0, 0)));
+        folders.Children.Add(Ui.WithMargin(Ui.Muted(roots.Count == 0 ? "No workspace folder is recorded." : "Changing a path does not move files.", 12), new Thickness(0, 9, 0, 0)));
+        var addFolder = Ui.TextButton("Add another folder", "\uE710");
+        addFolder.Click += async (_, _) => await AddProjectRootAsync(id);
+        folders.Children.Add(Ui.WithMargin(addFolder, new Thickness(0, 9, 0, 0)));
+        foreach (var suggestion in Wire.Array(project, "suggestedRoots").Select(root => root?.ToString()).Where(root => !string.IsNullOrEmpty(root)))
+        {
+            var path = suggestion!;
+            var offer = Ui.TextButton($"Add {Path.GetFileName(path)}");
+            offer.Click += async (_, _) => await AddProjectRootAsync(id, path);
+            folders.Children.Add(offer);
+        }
         if (!_narrow) folders.Margin = new Thickness(0, 24, 0, 0);
         Ui.Add(groups, preferences); Ui.Add(groups, folders, row: _narrow ? 0 : 1, column: _narrow ? 1 : 0);
         _inspector.Children.Add(groups);
         _inspector.Children.Add(Ui.Rule(20, 18));
+        var rules = ProjectRules(id);
+        _inspector.Children.Add(Ui.Muted("Project content", 12));
+        foreach (var (key, label, fallback) in new[] {
+            ("includeArchived", "Archived chats", true),
+            ("includeSensitiveFiles", "Secrets and configuration", true),
+            ("includeBuildOutputs", "Build and dependency folders", false)
+        })
+        {
+            var toggle = new ToggleSwitch { Header = label, IsOn = Wire.Bool(rules, key, fallback), Margin = new Thickness(0, 5, 0, 0), OnContent = "", OffContent = "" };
+            toggle.Toggled += async (_, _) =>
+            {
+                rules[key] = toggle.IsOn;
+                NativePageUi.EnsureObject(Selection, "projectContent")[id] = rules.DeepClone();
+                MarkChanged(true);
+                if (key != "includeArchived") await LoadSizesAsync();
+            };
+            _inspector.Children.Add(toggle);
+        }
+        var exclusions = new TextBox {
+            Header = "Additional exclusions", PlaceholderText = "coverage/**, *.iso",
+            Text = string.Join(", ", Wire.Array(rules, "extraExcludePatterns").Select(item => item?.ToString())),
+            Margin = new Thickness(0, 12, 0, 0)
+        };
+        exclusions.LostFocus += async (_, _) =>
+        {
+            var values = exclusions.Text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var next = new JsonArray(values.Select(value => (JsonNode?)JsonValue.Create(value)).ToArray());
+            if (next.ToJsonString() == Wire.Array(rules, "extraExcludePatterns").ToJsonString()) return;
+            rules["extraExcludePatterns"] = next;
+            NativePageUi.EnsureObject(Selection, "projectContent")[id] = rules.DeepClone();
+            MarkChanged(true);
+            await LoadSizesAsync();
+        };
+        _inspector.Children.Add(exclusions);
+        _inspector.Children.Add(Ui.Rule(20, 18));
         var note = Ui.Muted("", 12); _inspector.Children.Add(note);
         void UpdateNote() => note.Text = SelectionSummary.Mode(_draft, id) switch { "full" => "Code, Git history, and selected working files are included.", "historyOnly" => "Chats and the project listing are included. Project files stay here.", _ => "Excluded from future handoffs. Local files stay here." };
         UpdateNote();
-        mode.SelectionChanged += (_, _) => { NativePageUi.EnsureObject(Selection, "projectModes")[id] = NativePageUi.ModeValue(mode); MarkChanged(true); size.Text = ProjectSize(project); UpdateNote(); };
+        mode.SelectionChanged += async (_, _) => { NativePageUi.EnsureObject(Selection, "projectModes")[id] = NativePageUi.ModeValue(mode); MarkChanged(true); size.Text = ProjectSize(project); UpdateNote(); await LoadSizesAsync(); };
     }
 
     private async Task LoadSizesAsync()

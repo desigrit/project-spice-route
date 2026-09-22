@@ -105,8 +105,8 @@ public sealed class OverviewPage : Page
         var heading = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         var icon = Ui.Icon(glyph, 16); icon.Style = Ui.Style("SpiceAccentIconStyle"); heading.Children.Add(icon); heading.Children.Add(Ui.Muted(label, 13));
         pane.Children.Add(heading);
-        pane.Children.Add(Ui.WithMargin(Ui.Text(title, 23, true), new Thickness(0, 13, 0, 5)));
-        pane.Children.Add(Ui.Muted(caption, 12));
+        pane.Children.Add(Ui.WithMargin(Ui.Text(title, 23, true), new Thickness(0, 5, 0, 5)));
+        if (caption.Length > 0) pane.Children.Add(Ui.Muted(caption, 12));
         return pane;
     }
 
@@ -121,7 +121,16 @@ public sealed class OverviewPage : Page
 
     private FrameworkElement BuildDevice(bool ready, JsonArray heads)
     {
-        var pane = Pane("\uE7F4", "This device", Wire.Text(context.Config, "deviceName", "This PC"), "Choose what goes to your next computer.");
+        var pane = Pane("\uE7F4", "This device", Wire.Text(context.Config, "deviceName", "This PC"), "");
+        var latest = context.Status["latestSnapshot"] as JsonObject;
+        var latestId = latest is null ? "" : Wire.Text(latest, "id");
+        var aligned = latestId.Length > 0 && (latestId == Wire.Text(context.Status, "lastAppliedSnapshotId") || latestId == Wire.Text(context.Status, "lastPushedSnapshotId"));
+        var handoff = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var handoffStyle = Ui.Style(aligned ? "SpiceSuccessTextStyle" : "SpiceWarningTextStyle");
+        var sign = Ui.Text(aligned ? "✓" : "⚠", 13, true); sign.Style = handoffStyle;
+        var label = Ui.Text(aligned ? "This device has the latest handoff" : "This device may have an out of date snapshot", 12);
+        label.Style = handoffStyle;
+        handoff.Children.Add(sign); handoff.Children.Add(label); pane.Children.Add(handoff);
         var summary = SelectionSummary.Count(context.Config, context.Catalog);
         var modes = summary.Full > 0 && summary.History > 0 ? $"{summary.Full} full · {summary.History} history only" : summary.Full > 0 ? "full projects" : "chat history only";
         var facts = new StackPanel { Margin = new Thickness(0, 22, 0, 20) };

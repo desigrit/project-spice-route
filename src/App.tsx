@@ -58,7 +58,7 @@ const navItems: Array<{ id: Page; label: string; icon: typeof Route }> = [
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
-const appVersion = "1.6.0";
+const appVersion = "1.6.1";
 
 type BusyState = { label: string; operationId?: string } | null;
 type EstimateState = "pending" | "ready" | "unavailable";
@@ -324,6 +324,8 @@ export default function App() {
               key={id}
               className={page === id || (page === "diagnostics" && id === "recovery") ? "nav-item active" : "nav-item"}
               onClick={() => setPage(id)}
+              aria-label={label}
+              title={label}
               aria-current={page === id || (page === "diagnostics" && id === "recovery") ? "page" : undefined}
             >
               <Icon size={18} />
@@ -408,7 +410,7 @@ export default function App() {
           }} />
         )}
         {page === "settings" && (
-          <SettingsScreen config={config} environment={environment} onSave={(next) => void save(next, "Settings saved.")} onResetCloudHistory={() => void beginCloudCleanup()} />
+          <SettingsScreen config={config} catalog={catalog} environment={environment} onSave={(next) => void save(next, "Settings saved.")} onResetCloudHistory={() => void beginCloudCleanup()} />
         )}
       </main>
 
@@ -498,7 +500,7 @@ export function Overview({ config, environment, catalog, status, onPush, onPull,
   const full = fullProjectCount(config, catalog);
   const history = catalog?.projects.filter((project) => (config.selection.projectModes[project.id] ?? config.selection.defaultProjectMode) === "historyOnly").length ?? 0;
   const modeSummary = full && history ? `${full} full · ${history} history only` : full ? "full projects" : "chat history only";
-  const aligned = latest?.id === status?.lastAppliedSnapshotId;
+  const aligned = Boolean(latest?.id && (latest.id === status?.lastAppliedSnapshotId || latest.id === status?.lastPushedSnapshotId));
   const message = !ready ? status?.pendingRecovery ? "Finish recovery before your next handoff." : !config.onboardingComplete ? "Connect your folders to begin." : "Codex compatibility needs attention."
     : hasBranches ? mergeReady ? "The reviewed branches are ready to publish." : "Several handoffs need review. Choose a branch below."
     : !latest ? "Ready for your first handoff." : aligned ? "This device has the latest visible handoff." : "A handoff is visible in your sync folder. Pull to review it.";
@@ -513,7 +515,7 @@ export function Overview({ config, environment, catalog, status, onPush, onPull,
     <div className="handoff-pair">
       <section className="handoff-pane" aria-label="This device">
         <div className="handoff-pane-label"><Laptop size={17} />This device</div>
-        <h2>{config.deviceName}</h2><p>Choose what goes to your next computer.</p>
+        <h2>{config.deviceName}</h2><p className={aligned ? "handoff-device-state current" : "handoff-device-state outdated"}>{aligned ? <Check size={14} /> : <CircleAlert size={14} />}{aligned ? "This device has the latest handoff" : "This device may have an out of date snapshot"}</p>
         <dl className="handoff-facts">
           <div><dt>Selected chats</dt><dd>{selectedThreadCount(config, catalog)}</dd></div>
           <div><dt>Projects</dt><dd>{full + history} · {modeSummary}</dd></div>
@@ -547,7 +549,7 @@ export function Overview({ config, environment, catalog, status, onPush, onPull,
 export function SelectionScreen({ config, catalog: sourceCatalog, onSave, estimateState: sourceEstimateState = "ready" }: { config: AppConfig; catalog: ContentCatalog; onSave: (config: AppConfig) => void; estimateState?: EstimateState }) {
   const [draft, setDraft] = useState(config);
   const [selectedId, setSelectedId] = useState(sourceCatalog.projects[0]?.id ?? "");
-  const sizeScope = (value: AppConfig) => JSON.stringify([value.sourceRoots, value.selection.includeBuildOutputs, value.selection.includeSensitiveFiles, value.selection.extraExcludePatterns]);
+  const sizeScope = (value: AppConfig) => JSON.stringify([value.sourceRoots, value.additionalProjectRoots, value.selection.defaultProjectMode, value.selection.projectModes, value.selection.projectContent, value.selection.includeBuildOutputs, value.selection.includeSensitiveFiles, value.selection.extraExcludePatterns]);
   const scopeKey = sizeScope(draft);
   const savedScopeKey = sizeScope(config);
   const [localEstimate, setLocalEstimate] = useState<{ key: string; state: EstimateState; catalog?: ContentCatalog } | null>(null);
@@ -569,13 +571,24 @@ export function SelectionScreen({ config, catalog: sourceCatalog, onSave, estima
   const estimateMessage = estimateState === "pending" ? "Calculating size…" : "Size unavailable";
   useEffect(() => setDraft(config), [config]);
 
-  const visibleProjects = catalog.projects.filter((project) => `${project.name} ${project.roots.join(" ")} ${project.localRoots.join(" ")}`.toLowerCase().includes(query.toLowerCase()));
+  const visibleProjects = catalog.projects.filter((project) => `${project.name} ${project.roots.join(" ")} ${project.localRoots.join(" ")} ${(project.suggestedRoots ?? []).join(" ")}`.toLowerCase().includes(query.toLowerCase()));
   const [folderError, setFolderError] = useState<string | null>(null);
   const setProjectFolder = (projectId: string, index: number, path: string | null) => {
     setDraft((current) => {
       const sourceRoots = { ...current.sourceRoots };
       const destinationRoots = { ...current.destinationRoots };
       const key = `${projectId}:${index}`;
+      const original = catalog.projects.find((project) => project.id === projectId)?.roots[index];
+      const extra = original && (current.additionalProjectRoots?.[projectId] ?? []).some((item) => item.toLowerCase() === original.toLowerCase());
+      if (path && extra) {
+        if (catalog.projects.find((project) => project.id === projectId)?.roots.some((root) => root !== original && root.toLowerCase() === path.toLowerCase())) return current;
+        delete sourceRoots[key];
+        delete destinationRoots[key];
+        return { ...current, sourceRoots, destinationRoots, additionalProjectRoots: {
+          ...current.additionalProjectRoots,
+          [projectId]: (current.additionalProjectRoots?.[projectId] ?? []).map((item) => item.toLowerCase() === original.toLowerCase() ? path : item),
+        } };
+      }
       if (path === null) {
         delete sourceRoots[key];
         delete destinationRoots[key];
@@ -593,6 +606,38 @@ export function SelectionScreen({ config, catalog: sourceCatalog, onSave, estima
     try {
       const selected = await open({ directory: true, multiple: false, defaultPath: currentPath || undefined });
       if (typeof selected === "string") setProjectFolder(projectId, index, selected);
+    } catch (cause) { setFolderError(toMessage(cause)); }
+  };
+  const addProjectRoot = (projectId: string, path: string) => {
+    setDraft((current) => {
+      const existing = current.additionalProjectRoots?.[projectId] ?? [];
+      if (existing.some((item) => item.toLowerCase() === path.toLowerCase())) return current;
+      return { ...current, additionalProjectRoots: { ...current.additionalProjectRoots, [projectId]: [...existing, path] } };
+    });
+  };
+  const removeProjectRoot = (projectId: string, index: number, path: string) =>
+    setDraft((current) => {
+      const roots = (current.additionalProjectRoots?.[projectId] ?? []).filter((item) => item.toLowerCase() !== path.toLowerCase());
+      const sourceRoots = { ...current.sourceRoots };
+      const destinationRoots = { ...current.destinationRoots };
+      for (let position = index; position < (catalog.projects.find((project) => project.id === projectId)?.roots.length ?? 0); position += 1) {
+        delete sourceRoots[`${projectId}:${position}`];
+        delete destinationRoots[`${projectId}:${position}`];
+      }
+      return { ...current, additionalProjectRoots: { ...current.additionalProjectRoots, [projectId]: roots }, sourceRoots, destinationRoots };
+    });
+  const browseAnotherRoot = async (projectId: string) => {
+    try {
+      const selected = await open({ directory: true, multiple: false, defaultPath: draft.projectsRoot || undefined });
+      if (typeof selected === "string") addProjectRoot(projectId, selected);
+    } catch (cause) { setFolderError(toMessage(cause)); }
+  };
+  const rescanProjects = async () => {
+    const key = sizeScope(draft);
+    try {
+      setLocalEstimate({ key, state: "pending", catalog: await api.listContentQuick(draft) });
+      const result = await api.listContent(draft);
+      setLocalEstimate({ key, state: "ready", catalog: result });
     } catch (cause) { setFolderError(toMessage(cause)); }
   };
   const visibleChats = catalog.threads.filter((thread) => {
@@ -618,9 +663,13 @@ export function SelectionScreen({ config, catalog: sourceCatalog, onSave, estima
 
   const selectedProject = visibleProjects.find((project) => project.id === selectedId) ?? visibleProjects[0];
   const modeFor = (project: ProjectSummary) => draft.selection.projectModes[project.id] ?? draft.selection.defaultProjectMode;
+  const projectRulesFor = (id: string) => projectContentFor(draft.selection, id);
+  const updateProjectRules = (id: string, patch: Partial<ReturnType<typeof projectContentFor>>) =>
+    updateSelection({ projectContent: { ...draft.selection.projectContent, [id]: { ...projectRulesFor(id), ...patch } } });
   const modeLabel = (mode: ProjectMode) => mode === "full" ? "Full project" : mode === "historyOnly" ? "Chat history only" : "Excluded";
   const sizeFor = (project: ProjectSummary) => estimateState !== "ready" && modeFor(project) === "full" ? estimateMessage : formatBytes(estimatedProjectBytes(draft, catalog, project));
   const includedProjects = catalog.projects.filter((project) => modeFor(project) !== "excluded");
+  const suggestedCount = catalog.projects.reduce((count, project) => count + (project.suggestedRoots?.length ?? 0), 0);
   const selectedSize = estimateState !== "ready" && includedProjects.some((project) => modeFor(project) === "full") ? estimateMessage : formatBytes(estimatedSelectedBytes(draft, catalog)) + " selected";
   const dirty = JSON.stringify(draft) !== JSON.stringify(config);
   const selectProjectKey = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -632,15 +681,8 @@ export function SelectionScreen({ config, catalog: sourceCatalog, onSave, estima
   };
 
   return <div className="sync-workbench">
-    <div className="sync-summary"><p aria-live="polite">{selectedThreadCount(draft, catalog)} chats · {includedProjects.length} projects · {selectedSize}</p>
-      <Popover positioning="below-end"><PopoverTrigger disableButtonEnhancement><Button className="text-button">Defaults</Button></PopoverTrigger><PopoverSurface className="sync-defaults">
-        <h3>Sync defaults</h3><label className="sync-default-mode"><span>New projects</span><ModeSelect label="Default sync mode for new projects" value={draft.selection.defaultProjectMode} onChange={(mode) => updateSelection({ defaultProjectMode: mode })} /></label>
-        <ToggleRow title="Include archived chats" detail="Applies to project and projectless chats." checked={draft.selection.includeArchived} onChange={(checked) => updateSelection({ includeArchived: checked })} />
-        <ToggleRow title="Include project secrets" detail="Includes local keys and configuration inside selected folders. Codex sign-in stays on this device." checked={draft.selection.includeSensitiveFiles} onChange={(checked) => updateSelection({ includeSensitiveFiles: checked })} />
-        <ToggleRow title="Include build and dependency folders" detail="Adds dependencies, build outputs and caches." checked={draft.selection.includeBuildOutputs} onChange={(checked) => updateSelection({ includeBuildOutputs: checked })} />
-        <label className="field"><span>Additional file exclusions</span><input value={draft.selection.extraExcludePatterns.join(", ")} placeholder="coverage/**, *.iso" onChange={(event) => updateSelection({ extraExcludePatterns: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} /></label>
-        <p>Applies to future handoffs. Existing cloud history is kept.</p>
-      </PopoverSurface></Popover>
+    <div className="sync-summary"><p aria-live="polite">{selectedThreadCount(draft, catalog)} chats · {includedProjects.length} projects · {selectedSize}{suggestedCount > 0 ? ` · ${suggestedCount} new ${suggestedCount === 1 ? "folder" : "folders"} found` : ""}</p>
+      <Button className="icon-button" aria-label="Rescan project folders" title="Rescan project folders" onClick={() => void rescanProjects()}><RefreshCw size={17} /></Button>
     </div>
     {folderError && <Banner kind="error" onClose={() => setFolderError(null)}>{folderError}</Banner>}
     <div className="segmented sync-tabs" role="tablist" aria-label="Content type">
@@ -660,8 +702,16 @@ export function SelectionScreen({ config, catalog: sourceCatalog, onSave, estima
             const override = draft.sourceRoots[key] ?? (index === 0 ? draft.sourceRoots[selectedProject.id] : undefined);
             const local = override ?? selectedProject.localRoots[index] ?? discovered;
             const destination = draft.destinationRoots[key] ?? (index === 0 ? draft.destinationRoots[selectedProject.id] : undefined);
-            return <div key={key}><FolderLocation label={selectedProject.roots.length > 1 ? `Folder ${index + 1} for ${selectedProject.name}` : `Local folder for ${selectedProject.name}`} path={local} onChoose={() => void browseProject(selectedProject.id, index, local)} onReset={override !== undefined ? () => setProjectFolder(selectedProject.id, index, null) : undefined} />{destination && destination !== local && <p className="sync-destination" title={destination}>Pull destination: {destination}</p>}</div>;
-          })}<p>{selectedProject.roots.length ? "Changing this path does not move files." : "No workspace folder is recorded."}</p></section>
+            return <div key={key}><FolderLocation label={selectedProject.roots.length > 1 ? `Folder ${index + 1} for ${selectedProject.name}` : `Local folder for ${selectedProject.name}`} path={local} onChoose={() => void browseProject(selectedProject.id, index, local)} onReset={override !== undefined ? () => setProjectFolder(selectedProject.id, index, null) : undefined} />{destination && destination !== local && <p className="sync-destination" title={destination}>Pull destination: {destination}</p>}{draft.additionalProjectRoots?.[selectedProject.id]?.some((item) => item.toLowerCase() === discovered.toLowerCase()) && <Button className="text-button" onClick={() => removeProjectRoot(selectedProject.id, index, discovered)}>Remove folder</Button>}</div>;
+          })}<p>{selectedProject.roots.length ? "Changing a path does not move files." : "No workspace folder is recorded."}</p>
+            <Button className="text-button" onClick={() => void browseAnotherRoot(selectedProject.id)}>Add another folder</Button>
+            {(selectedProject.suggestedRoots ?? []).map((path) => <Button key={path} className="text-button" title={path} onClick={() => addProjectRoot(selectedProject.id, path)}>Add {path.split(/[\\/]/).pop()}</Button>)}
+          </section>
+          <section className="sync-project-content"><h3>Project content</h3>
+            {([["includeArchived", "Archived chats"], ["includeSensitiveFiles", "Secrets and configuration"], ["includeBuildOutputs", "Build and dependency folders"]] as const).map(([key, label]) =>
+              <label key={key}><input type="checkbox" checked={projectRulesFor(selectedProject.id)[key]} onChange={(event) => updateProjectRules(selectedProject.id, { [key]: event.target.checked })} />{label}</label>)}
+            <label className="sync-project-exclusions">Additional exclusions<input value={projectRulesFor(selectedProject.id).extraExcludePatterns.join(", ")} placeholder="coverage/**, *.iso" onChange={(event) => updateProjectRules(selectedProject.id, { extraExcludePatterns: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) })} /></label>
+          </section>
           <p className="sync-scope-note">{modeFor(selectedProject) === "full" ? "Code, Git history, and selected working files are included." : modeFor(selectedProject) === "historyOnly" ? "Chats and the project listing are included. Project files stay here." : "Excluded from future handoffs. Local files stay here."}</p>
         </aside>}
       </> : <>
@@ -669,7 +719,7 @@ export function SelectionScreen({ config, catalog: sourceCatalog, onSave, estima
         <div className="sync-chat-list">{visibleChats.map((thread) => {
           const excluded = draft.selection.excludedThreadIds.includes(thread.id);
           const project = catalog.projects.find((project) => project.id === thread.projectId);
-          const allowed = (!project || modeFor(project) !== "excluded") && (!thread.archived || draft.selection.includeArchived);
+          const allowed = (!project || modeFor(project) !== "excluded") && (!thread.archived || (project ? projectRulesFor(project.id).includeArchived : draft.selection.includeArchived));
           return <label className="sync-chat-row" key={thread.id}><input type="checkbox" aria-label={`Sync ${thread.title || "Untitled chat"}`} checked={!excluded && allowed} disabled={!allowed} onChange={() => updateSelection({ excludedThreadIds: excluded ? draft.selection.excludedThreadIds.filter((id) => id !== thread.id) : [...draft.selection.excludedThreadIds, thread.id] })} /><span><strong>{thread.title || "Untitled chat"}</strong><small>{project?.name ?? "Projectless chat"}{thread.archived ? " · Archived" : ""}{!allowed ? " · Excluded by settings" : ""}</small></span><span className="sync-chat-size">{formatBytes(thread.estimatedBytes)}</span></label>;
         })}{!visibleChats.length && <EmptyState icon={Search} title="No matching chats" detail="Try a different search." />}</div>
       </>}
@@ -798,9 +848,18 @@ export function DiagnosticsScreen({ config, onBack }: { config: AppConfig; onBac
   );
 }
 
-export function SettingsScreen({ config, environment, onSave, onResetCloudHistory }: { config: AppConfig; environment: EnvironmentDiscovery; onSave: (config: AppConfig) => void; onResetCloudHistory: () => void }) {
+export function SettingsScreen({ config, catalog, environment, onSave, onResetCloudHistory }: { config: AppConfig; catalog?: ContentCatalog | null; environment: EnvironmentDiscovery; onSave: (config: AppConfig) => void; onResetCloudHistory: () => void }) {
   const [draft, setDraft] = useState(config);
   useEffect(() => setDraft(config), [config]);
+  const updateDefaultMode = (mode: ProjectMode) => setDraft((current) => {
+    const projectModes = { ...current.selection.projectModes };
+    const projectContent = { ...current.selection.projectContent };
+    for (const project of catalog?.projects ?? []) {
+      projectModes[project.id] ??= current.selection.defaultProjectMode;
+      projectContent[project.id] ??= projectContentFor(current.selection, project.id);
+    }
+    return { ...current, selection: { ...current.selection, defaultProjectMode: mode, projectModes, projectContent, projectModesInitialized: true, revision: crypto.randomUUID() } };
+  });
   const browse = async (key: "cloudRoot" | "codexHome" | "projectlessRoot" | "projectsRoot") => {
     const selected = await open({ directory: true, multiple: false, defaultPath: draft[key] || undefined });
     if (selected) setDraft({ ...draft, [key]: selected });
@@ -813,26 +872,26 @@ export function SettingsScreen({ config, environment, onSave, onResetCloudHistor
         <div className="form-section divider"><p className="eyebrow">Local folders</p><h2>Where Codex work lives</h2><p className="section-help">These locations have different roles and stay on this device.</p></div>
         <PathField label="Codex task & history folder" value={draft.codexHome} onBrowse={() => void browse("codexHome")} help={environment.codexHome === draft.codexHome && environment.codexHomeResolved && environment.codexHomeResolved !== draft.codexHome ? `Contains Codex databases, task metadata, and rollouts. This path resolves to ${environment.codexHomeResolved}.` : "Contains Codex databases, task metadata, and rollouts. Usually named .codex; it does not contain your project code."} />
         <PathField label="Projectless chat workspaces" value={draft.projectlessRoot} onBrowse={() => void browse("projectlessRoot")} help="Contains files and artifacts created by chats that are not attached to a saved project." />
-        <PathField label="Default restore location (optional)" value={draft.projectsRoot} onChange={(value) => setDraft({ ...draft, projectsRoot: value })} onBrowse={() => void browse("projectsRoot")} help="Only prefills suggestions on Pull. Choose each project’s local folder in What to sync, including folders on different drives. Leave blank to use Documents / Codex Projects." />
+        <PathField label="Project discovery and restores (optional)" value={draft.projectsRoot} onChange={(value) => setDraft({ ...draft, projectsRoot: value })} onBrowse={() => void browse("projectsRoot")} help="Scans immediate Git folders for project suggestions and prefills Pull destinations. Projects may also use folders anywhere on this computer." />
 
         <div className="form-section divider"><p className="eyebrow">Cloud transport</p><h2>Synced folder</h2></div>
         <ChoiceField label="Provider" value={draft.cloudProvider} options={providerOptions} onChange={(value) => setDraft({ ...draft, cloudProvider: value as AppConfig["cloudProvider"] })} />
         <PathField label="Spice Route folder" value={draft.cloudRoot} onBrowse={() => void browse("cloudRoot")} help="The provider's desktop client handles sign-in and network transfer." />
 
+        <div className="form-section divider"><p className="eyebrow">Content preferences</p><h2>New projects</h2><p className="section-help">This mode applies only to projects found in the future.</p></div>
+        <ModeSelect label="Default sync mode for new projects" value={draft.selection.defaultProjectMode} onChange={updateDefaultMode} />
+        <TextField label="Additional exclusions" value={draft.selection.extraExcludePatterns.join(", ")} onChange={(value) => setDraft({ ...draft, selection: { ...draft.selection, extraExcludePatterns: value.split(",").map((item) => item.trim()).filter(Boolean), revision: crypto.randomUUID() } })} help="For projectless files. Set project-specific exclusions in What to sync." />
         <div className="form-section divider"><p className="eyebrow">Appearance</p><h2>Theme</h2></div>
         <div className="theme-options" role="radiogroup" aria-label="Theme">
           {([['system', Laptop], ['light', Sun], ['dark', Moon]] as const).map(([value, Icon]) => <Button key={value} className={draft.theme === value ? "theme-choice active" : "theme-choice"} role="radio" aria-checked={draft.theme === value} onClick={() => setDraft({ ...draft, theme: value })}><Icon size={18} /> {value[0].toUpperCase() + value.slice(1)}</Button>)}
         </div>
+        <div className="form-section divider"><p className="eyebrow">About and storage</p><h2>Cloud history</h2></div>
+        <div className="settings-inline-row"><p>Remove shared snapshots and stored content. Local work stays here.</p><Button className="danger-button" onClick={onResetCloudHistory}>Reset cloud history</Button></div>
         <div className="form-actions"><Button className="primary-button" onClick={() => onSave(draft)}>Save settings</Button></div>
       </section>
       <section className="panel compatibility-card">
         <span className={environment.compatibility?.supported ? "compat-icon ok" : "compat-icon warning"}>{environment.compatibility?.supported ? <Check size={20} /> : <CircleAlert size={20} />}</span>
         <div><strong>{environment.compatibility?.supported ? "Codex format supported" : "Restore compatibility blocked"}</strong><p>{environment.compatibility?.explanation || "Finish setup to inspect the Codex data format."}</p><code>{environment.compatibility?.adapter || "No adapter"}</code></div>
-      </section>
-      <section className="panel danger-zone">
-        <span className="danger-icon"><Trash2 size={20} /></span>
-        <div><strong>Reset cloud history</strong><p>Remove every published snapshot and content object from this sync folder. Local Codex sessions, projects, settings, and rollback sets stay in place. Your current selection policy remains ready for the next Push.</p></div>
-        <Button className="danger-button" onClick={onResetCloudHistory}>Review reset</Button>
       </section>
     </div>
   );
@@ -1159,10 +1218,17 @@ function useModalKeyboard(
   }, [container, onEscape, resetKey, active]);
 }
 
+function projectContentFor(selection: AppConfig["selection"], id: string) {
+  return selection.projectContent?.[id] ?? (selection.projectModesInitialized
+    ? { includeArchived: true, includeBuildOutputs: false, includeSensitiveFiles: true, extraExcludePatterns: [] }
+    : { includeArchived: selection.includeArchived, includeBuildOutputs: selection.includeBuildOutputs,
+        includeSensitiveFiles: selection.includeSensitiveFiles, extraExcludePatterns: selection.extraExcludePatterns });
+}
+
 function selectedThreadCount(config: AppConfig, catalog: ContentCatalog | null): number {
   return catalog?.threads.filter((thread) => {
     if (config.selection.excludedThreadIds.includes(thread.id)) return false;
-    if (thread.archived && !config.selection.includeArchived) return false;
+    if (thread.archived && !(thread.projectId ? projectContentFor(config.selection, thread.projectId).includeArchived : config.selection.includeArchived)) return false;
     if (!thread.projectId) return true;
     return (config.selection.projectModes[thread.projectId] ?? config.selection.defaultProjectMode) !== "excluded";
   }).length ?? 0;
@@ -1176,7 +1242,7 @@ function estimatedSelectedBytes(config: AppConfig, catalog: ContentCatalog): num
   const chats = catalog.threads
     .filter((thread) => {
       if (config.selection.excludedThreadIds.includes(thread.id)) return false;
-      if (thread.archived && !config.selection.includeArchived) return false;
+      if (thread.archived && !(thread.projectId ? projectContentFor(config.selection, thread.projectId).includeArchived : config.selection.includeArchived)) return false;
       if (!thread.projectId) return true;
       return (config.selection.projectModes[thread.projectId] ?? config.selection.defaultProjectMode) !== "excluded";
     })
@@ -1192,7 +1258,7 @@ export function estimatedProjectBytes(config: AppConfig, catalog: ContentCatalog
   if (mode === "excluded") return 0;
   const history = catalog.threads.filter((thread) => thread.projectId === project.id
     && !config.selection.excludedThreadIds.includes(thread.id)
-    && (config.selection.includeArchived || !thread.archived))
+    && (projectContentFor(config.selection, project.id).includeArchived || !thread.archived))
     .reduce((bytes, thread) => bytes + thread.estimatedBytes, 0);
   return history + (mode === "full" ? project.estimatedBytes : 0);
 }

@@ -24,6 +24,7 @@ pub fn default_config() -> AppConfig {
         codex_home: codex_home.to_string_lossy().into_owned(),
         projectless_root: projectless_root.to_string_lossy().into_owned(),
         projects_root: String::new(),
+        additional_project_roots: HashMap::new(),
         cloud_root: String::new(),
         cloud_provider: CloudProvider::Custom,
         theme: ThemeMode::System,
@@ -34,6 +35,8 @@ pub fn default_config() -> AppConfig {
             revision: Uuid::new_v4().to_string(),
             default_project_mode: ProjectMode::Full,
             project_modes: HashMap::new(),
+            project_modes_initialized: false,
+            project_content: HashMap::new(),
             excluded_thread_ids: Vec::new(),
             include_archived: true,
             include_build_outputs: false,
@@ -195,6 +198,20 @@ pub fn validate_config(config: &AppConfig) -> Result<()> {
             if !same_project_folder(Path::new(source), Path::new(destination)) {
                 return Err(format!("Project folder {key} has different Push and Pull locations. Choose one local folder for this project on this device.").into());
             }
+        }
+    }
+    for roots in config.additional_project_roots.values() {
+        for root in roots {
+            validate_project_folder(Path::new(root), config)?;
+        }
+    }
+    for (project_id, rules) in &config.selection.project_content {
+        for pattern in &rules.extra_exclude_patterns {
+            Glob::new(pattern).map_err(|error| {
+                SpiceError::User(format!(
+                "The exclusion pattern {pattern:?} for project {project_id} is invalid: {error}"
+            ))
+            })?;
         }
     }
     for pattern in &config.selection.extra_exclude_patterns {

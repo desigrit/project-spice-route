@@ -11,7 +11,7 @@ public sealed class RecoveryPage : Page
 {
     private readonly SpiceRouteContext _context;
     private readonly ListView _points = new() { SelectionMode = ListViewSelectionMode.None, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-    private readonly Button _refresh = new() { Content = "Refresh" };
+    private readonly Button _refresh = Ui.IconButton("Refresh", "\uE72C");
     private readonly InfoBar _feedback = new() { IsOpen = false, IsClosable = true };
     private readonly TextBlock _status = NativePageUi.Text("Loading recovery points…", secondary: true);
     private readonly ProgressBar _progress = new() { IsIndeterminate = true, Visibility = Visibility.Collapsed };
