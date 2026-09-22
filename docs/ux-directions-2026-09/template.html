@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Spice Route · Three design directions</title><style>/*__CSS__*/</style></head>
+<body>
+<div id="gallery" class="gallery">
+  <div class="gallery-title"><strong>Spice Route</strong><span>Design study · sample data</span></div>
+  <div class="direction-picker" aria-label="Design direction">
+    <button data-direction="a">A <span>Focus</span></button>
+    <button data-direction="b">B <span>Side by side</span></button>
+    <button data-direction="c">C <span>Workbench</span></button>
+  </div>
+  <div class="gallery-tools">
+    <label><span class="sr-only">Example state</span><select id="state-picker"><option value="ready">Ready</option><option value="incoming">Incoming handoff</option><option value="blocked">Needs attention</option><option value="progress">In progress</option></select></label>
+    <button id="theme-toggle" aria-label="Switch to dark theme"></button>
+    <button id="platform-toggle">Windows</button>
+  </div>
+</div>
+<div id="app" class="app"></div>
+<div id="menu" class="floating-menu" popover="auto"></div>
+<dialog id="sample-dialog"></dialog>
+<footer class="concept-caption"><div><strong id="concept-name"></strong><span id="concept-description"></span></div><span>Interactive concept. No files are read or transferred.</span></footer>
+<script>/*__ASSETS__*/</script><script>/*__JS__*/</script>
+</body>
+</html>

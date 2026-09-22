@@ -1,0 +1,14 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {ArrowUp,ArrowDown,ArrowLeft,ArrowRight,ChevronDown,ChevronRight,Check,CheckCheck,Cloud,Copy,Ellipsis,File,Folder,FolderOpen,Folders,History,House,Info,Laptop,Menu,MessageSquare,Minus,Monitor,Moon,Palette,RefreshCw,Search,Settings,ShieldCheck,Square,Sun,X,Upload,Download,Circle,CircleAlert,Database,HardDrive,HelpCircle} from 'lucide-react';
+const base=import.meta.dirname;
+const root=path.resolve(base,'../..');
+const map={arrowUp:ArrowUp,arrowDown:ArrowDown,arrowLeft:ArrowLeft,arrowRight:ArrowRight,chevronDown:ChevronDown,chevronRight:ChevronRight,check:Check,verified:CheckCheck,cloud:Cloud,copy:Copy,ellipsis:Ellipsis,file:File,folder:Folder,folderOpen:FolderOpen,folders:Folders,history:History,home:House,info:Info,laptop:Laptop,menu:Menu,message:MessageSquare,minus:Minus,monitor:Monitor,moon:Moon,palette:Palette,refresh:RefreshCw,search:Search,settings:Settings,shield:ShieldCheck,square:Square,sun:Sun,x:X,upload:Upload,download:Download,circle:Circle,alert:CircleAlert,database:Database,hardDrive:HardDrive,help:HelpCircle};
+const icons=Object.fromEntries(Object.entries(map).map(([key,value])=>[key,renderToStaticMarkup(React.createElement(value,{size:18,strokeWidth:1.6,'aria-hidden':true}))]));
+const boat='data:image/png;base64,'+(await fs.readFile(path.join(root,'native/windows/SpiceRoute.Windows/Assets/Boat.png'))).toString('base64');
+const [template,css,js]=await Promise.all(['template.html','prototype.css','prototype.js'].map(file=>fs.readFile(path.join(base,file),'utf8')));
+const html=template.replace('/*__CSS__*/',css).replace('/*__ASSETS__*/','window.designAssets='+JSON.stringify({icons,boat})+';').replace('/*__JS__*/',js);
+await fs.writeFile(path.join(base,'preview.html'),html);
+console.log('Built self-contained preview: docs/ux-directions-2026-09/preview.html');

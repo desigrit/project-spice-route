@@ -1,6 +1,6 @@
 # README screenshots
 
-The `native-*` images show the actual Spice Route 1.4.4 WinUI interface with fabricated projects, chats, device names, and locations. They come from the offscreen visual probe documented in [Windows verification](../testing-1.4.4.md). They illustrate the interface rather than a live cloud transfer. Native operating-system caption buttons are outside the captured XAML tree.
+The `native-*` images show the actual Spice Route 1.6.0 WinUI interface with fabricated projects, chats, device names, and locations. They come from the offscreen visual probe documented in [Windows verification](../testing-1.6.0.md). They illustrate the interface rather than a live cloud transfer. Native operating-system caption buttons are outside the captured XAML tree.
 
 The README includes all five current screens:
 
@@ -12,7 +12,7 @@ The README includes all five current screens:
 | `native-review-light.png` | `light-wide-review.png` |
 | `native-diagnostics-light.png` | `light-wide-diagnostics.png` |
 
-The older images without the `native-` prefix show the earlier Tauri interface. To regenerate those legacy images, install Playwright separately from the app dependencies:
+The images without the `native-` prefix show the React/Tauri interface. To render the current Mac pages headlessly, install Playwright separately from the app dependencies:
 
 ```powershell
 npm install --no-save --package-lock=false playwright
@@ -27,6 +27,7 @@ Optional environment variables:
 
 - `SPICE_PLAYWRIGHT_PATH`: absolute path to an existing Playwright module entry point.
 - `SPICE_CHROME_PATH`: absolute path to an existing Chromium or Chrome executable.
+- `SPICE_PREVIEW_PLATFORM`: use `macos` for the Mac treatment.
 - `SPICE_PREVIEW_PAGES`: comma-separated pages to render, such as `overview,selection,recovery`.
 
 The older Tauri images come from `ui-overview-light-1180.png`, `ui-selection-dark-1180.png`, and `ui-recovery-light-1180.png`. Inspect regenerated output before replacing them.

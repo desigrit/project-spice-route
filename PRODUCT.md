@@ -20,7 +20,7 @@ Transfer selected Codex conversations, project organization, and portable worksp
 
 Google Drive, OneDrive, or iCloud Drive manages authentication and delivery. Users Push on one device and Pull on the next. Codex must be closed before capture or restoration. Devices may have different local project paths and Codex versions.
 
-Windows packages target x64 and ARM64 separately. macOS packages target Apple Silicon and Intel separately. The app records architecture and engine startup failures in local diagnostics so an incompatible package does not fail silently.
+Windows packages target x64 and ARM64 separately. Future macOS releases target Apple Silicon only; 1.5.2 is the last Intel Mac release. The app records architecture and engine startup failures in local diagnostics so an incompatible package does not fail silently.
 
 ## Capabilities and Constraints
 

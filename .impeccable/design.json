@@ -1,0 +1,530 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-22T11:09:10.575Z",
+  "title": "Design System: Spice Route desktop",
+  "extensions": {
+    "colorMeta": {
+      "accent-light": {
+        "role": "primary",
+        "displayName": "Accent Light",
+        "tonalRamp": [
+          "oklch(15% 0.0606 239.08)",
+          "oklch(26% 0.0606 239.08)",
+          "oklch(38% 0.0606 239.08)",
+          "oklch(49% 0.0606 239.08)",
+          "oklch(61% 0.0606 239.08)",
+          "oklch(72% 0.0606 239.08)",
+          "oklch(84% 0.0606 239.08)",
+          "oklch(95% 0.0606 239.08)"
+        ]
+      },
+      "accent-hover-light": {
+        "role": "primary",
+        "displayName": "Accent Hover Light",
+        "tonalRamp": [
+          "oklch(15% 0.0618 236.07)",
+          "oklch(26% 0.0618 236.07)",
+          "oklch(38% 0.0618 236.07)",
+          "oklch(49% 0.0618 236.07)",
+          "oklch(61% 0.0618 236.07)",
+          "oklch(72% 0.0618 236.07)",
+          "oklch(84% 0.0618 236.07)",
+          "oklch(95% 0.0618 236.07)"
+        ]
+      },
+      "accent-pressed-light": {
+        "role": "primary",
+        "displayName": "Accent Pressed Light",
+        "tonalRamp": [
+          "oklch(15% 0.0543 242.96)",
+          "oklch(26% 0.0543 242.96)",
+          "oklch(38% 0.0543 242.96)",
+          "oklch(49% 0.0543 242.96)",
+          "oklch(61% 0.0543 242.96)",
+          "oklch(72% 0.0543 242.96)",
+          "oklch(84% 0.0543 242.96)",
+          "oklch(95% 0.0543 242.96)"
+        ]
+      },
+      "on-accent-light": {
+        "role": "primary",
+        "displayName": "On Accent Light",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(26% 0.0000 0.00)",
+          "oklch(38% 0.0000 0.00)",
+          "oklch(49% 0.0000 0.00)",
+          "oklch(61% 0.0000 0.00)",
+          "oklch(72% 0.0000 0.00)",
+          "oklch(84% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "selection-light": {
+        "role": "primary",
+        "displayName": "Selection Light",
+        "tonalRamp": [
+          "oklch(15% 0.0130 221.43)",
+          "oklch(26% 0.0130 221.43)",
+          "oklch(38% 0.0130 221.43)",
+          "oklch(49% 0.0130 221.43)",
+          "oklch(61% 0.0130 221.43)",
+          "oklch(72% 0.0130 221.43)",
+          "oklch(84% 0.0130 221.43)",
+          "oklch(95% 0.0130 221.43)"
+        ]
+      },
+      "accent-dark": {
+        "role": "primary",
+        "displayName": "Accent Dark",
+        "tonalRamp": [
+          "oklch(15% 0.0407 231.89)",
+          "oklch(26% 0.0407 231.89)",
+          "oklch(38% 0.0407 231.89)",
+          "oklch(49% 0.0407 231.89)",
+          "oklch(61% 0.0407 231.89)",
+          "oklch(72% 0.0407 231.89)",
+          "oklch(84% 0.0407 231.89)",
+          "oklch(95% 0.0407 231.89)"
+        ]
+      },
+      "accent-hover-dark": {
+        "role": "primary",
+        "displayName": "Accent Hover Dark",
+        "tonalRamp": [
+          "oklch(15% 0.0354 229.33)",
+          "oklch(26% 0.0354 229.33)",
+          "oklch(38% 0.0354 229.33)",
+          "oklch(49% 0.0354 229.33)",
+          "oklch(61% 0.0354 229.33)",
+          "oklch(72% 0.0354 229.33)",
+          "oklch(84% 0.0354 229.33)",
+          "oklch(95% 0.0354 229.33)"
+        ]
+      },
+      "accent-pressed-dark": {
+        "role": "primary",
+        "displayName": "Accent Pressed Dark",
+        "tonalRamp": [
+          "oklch(15% 0.0465 229.71)",
+          "oklch(26% 0.0465 229.71)",
+          "oklch(38% 0.0465 229.71)",
+          "oklch(49% 0.0465 229.71)",
+          "oklch(61% 0.0465 229.71)",
+          "oklch(72% 0.0465 229.71)",
+          "oklch(84% 0.0465 229.71)",
+          "oklch(95% 0.0465 229.71)"
+        ]
+      },
+      "on-accent-dark": {
+        "role": "primary",
+        "displayName": "On Accent Dark",
+        "tonalRamp": [
+          "oklch(15% 0.0490 237.33)",
+          "oklch(26% 0.0490 237.33)",
+          "oklch(38% 0.0490 237.33)",
+          "oklch(49% 0.0490 237.33)",
+          "oklch(61% 0.0490 237.33)",
+          "oklch(72% 0.0490 237.33)",
+          "oklch(84% 0.0490 237.33)",
+          "oklch(95% 0.0490 237.33)"
+        ]
+      },
+      "selection-dark": {
+        "role": "primary",
+        "displayName": "Selection Dark",
+        "tonalRamp": [
+          "oklch(15% 0.0342 232.69)",
+          "oklch(26% 0.0342 232.69)",
+          "oklch(38% 0.0342 232.69)",
+          "oklch(49% 0.0342 232.69)",
+          "oklch(61% 0.0342 232.69)",
+          "oklch(72% 0.0342 232.69)",
+          "oklch(84% 0.0342 232.69)",
+          "oklch(95% 0.0342 232.69)"
+        ]
+      },
+      "canvas-light": {
+        "role": "neutral",
+        "displayName": "Canvas Light",
+        "tonalRamp": [
+          "oklch(15% 0.0041 121.56)",
+          "oklch(26% 0.0041 121.56)",
+          "oklch(38% 0.0041 121.56)",
+          "oklch(49% 0.0041 121.56)",
+          "oklch(61% 0.0041 121.56)",
+          "oklch(72% 0.0041 121.56)",
+          "oklch(84% 0.0041 121.56)",
+          "oklch(95% 0.0041 121.56)"
+        ]
+      },
+      "surface-light": {
+        "role": "neutral",
+        "displayName": "Surface Light",
+        "tonalRamp": [
+          "oklch(15% 0.0041 91.45)",
+          "oklch(26% 0.0041 91.45)",
+          "oklch(38% 0.0041 91.45)",
+          "oklch(49% 0.0041 91.45)",
+          "oklch(61% 0.0041 91.45)",
+          "oklch(72% 0.0041 91.45)",
+          "oklch(84% 0.0041 91.45)",
+          "oklch(95% 0.0041 91.45)"
+        ]
+      },
+      "raised-light": {
+        "role": "neutral",
+        "displayName": "Raised Light",
+        "tonalRamp": [
+          "oklch(15% 0.0000 0.00)",
+          "oklch(26% 0.0000 0.00)",
+          "oklch(38% 0.0000 0.00)",
+          "oklch(49% 0.0000 0.00)",
+          "oklch(61% 0.0000 0.00)",
+          "oklch(72% 0.0000 0.00)",
+          "oklch(84% 0.0000 0.00)",
+          "oklch(95% 0.0000 0.00)"
+        ]
+      },
+      "subtle-light": {
+        "role": "neutral",
+        "displayName": "Subtle Light",
+        "tonalRamp": [
+          "oklch(15% 0.0054 117.92)",
+          "oklch(26% 0.0054 117.92)",
+          "oklch(38% 0.0054 117.92)",
+          "oklch(49% 0.0054 117.92)",
+          "oklch(61% 0.0054 117.92)",
+          "oklch(72% 0.0054 117.92)",
+          "oklch(84% 0.0054 117.92)",
+          "oklch(95% 0.0054 117.92)"
+        ]
+      },
+      "text-light": {
+        "role": "neutral",
+        "displayName": "Text Light",
+        "tonalRamp": [
+          "oklch(15% 0.0320 238.36)",
+          "oklch(26% 0.0320 238.36)",
+          "oklch(38% 0.0320 238.36)",
+          "oklch(49% 0.0320 238.36)",
+          "oklch(61% 0.0320 238.36)",
+          "oklch(72% 0.0320 238.36)",
+          "oklch(84% 0.0320 238.36)",
+          "oklch(95% 0.0320 238.36)"
+        ]
+      },
+      "muted-light": {
+        "role": "neutral",
+        "displayName": "Muted Light",
+        "tonalRamp": [
+          "oklch(15% 0.0214 238.12)",
+          "oklch(26% 0.0214 238.12)",
+          "oklch(38% 0.0214 238.12)",
+          "oklch(49% 0.0214 238.12)",
+          "oklch(61% 0.0214 238.12)",
+          "oklch(72% 0.0214 238.12)",
+          "oklch(84% 0.0214 238.12)",
+          "oklch(95% 0.0214 238.12)"
+        ]
+      },
+      "line-light": {
+        "role": "neutral",
+        "displayName": "Line Light",
+        "tonalRamp": [
+          "oklch(15% 0.0069 145.52)",
+          "oklch(26% 0.0069 145.52)",
+          "oklch(38% 0.0069 145.52)",
+          "oklch(49% 0.0069 145.52)",
+          "oklch(61% 0.0069 145.52)",
+          "oklch(72% 0.0069 145.52)",
+          "oklch(84% 0.0069 145.52)",
+          "oklch(95% 0.0069 145.52)"
+        ]
+      },
+      "canvas-dark": {
+        "role": "neutral",
+        "displayName": "Canvas Dark",
+        "tonalRamp": [
+          "oklch(15% 0.0132 243.49)",
+          "oklch(26% 0.0132 243.49)",
+          "oklch(38% 0.0132 243.49)",
+          "oklch(49% 0.0132 243.49)",
+          "oklch(61% 0.0132 243.49)",
+          "oklch(72% 0.0132 243.49)",
+          "oklch(84% 0.0132 243.49)",
+          "oklch(95% 0.0132 243.49)"
+        ]
+      },
+      "surface-dark": {
+        "role": "neutral",
+        "displayName": "Surface Dark",
+        "tonalRamp": [
+          "oklch(15% 0.0129 243.39)",
+          "oklch(26% 0.0129 243.39)",
+          "oklch(38% 0.0129 243.39)",
+          "oklch(49% 0.0129 243.39)",
+          "oklch(61% 0.0129 243.39)",
+          "oklch(72% 0.0129 243.39)",
+          "oklch(84% 0.0129 243.39)",
+          "oklch(95% 0.0129 243.39)"
+        ]
+      },
+      "raised-dark": {
+        "role": "neutral",
+        "displayName": "Raised Dark",
+        "tonalRamp": [
+          "oklch(15% 0.0185 238.71)",
+          "oklch(26% 0.0185 238.71)",
+          "oklch(38% 0.0185 238.71)",
+          "oklch(49% 0.0185 238.71)",
+          "oklch(61% 0.0185 238.71)",
+          "oklch(72% 0.0185 238.71)",
+          "oklch(84% 0.0185 238.71)",
+          "oklch(95% 0.0185 238.71)"
+        ]
+      },
+      "subtle-dark": {
+        "role": "neutral",
+        "displayName": "Subtle Dark",
+        "tonalRamp": [
+          "oklch(15% 0.0165 237.31)",
+          "oklch(26% 0.0165 237.31)",
+          "oklch(38% 0.0165 237.31)",
+          "oklch(49% 0.0165 237.31)",
+          "oklch(61% 0.0165 237.31)",
+          "oklch(72% 0.0165 237.31)",
+          "oklch(84% 0.0165 237.31)",
+          "oklch(95% 0.0165 237.31)"
+        ]
+      },
+      "text-dark": {
+        "role": "neutral",
+        "displayName": "Text Dark",
+        "tonalRamp": [
+          "oklch(15% 0.0051 145.54)",
+          "oklch(26% 0.0051 145.54)",
+          "oklch(38% 0.0051 145.54)",
+          "oklch(49% 0.0051 145.54)",
+          "oklch(61% 0.0051 145.54)",
+          "oklch(72% 0.0051 145.54)",
+          "oklch(84% 0.0051 145.54)",
+          "oklch(95% 0.0051 145.54)"
+        ]
+      },
+      "muted-dark": {
+        "role": "neutral",
+        "displayName": "Muted Dark",
+        "tonalRamp": [
+          "oklch(15% 0.0210 233.95)",
+          "oklch(26% 0.0210 233.95)",
+          "oklch(38% 0.0210 233.95)",
+          "oklch(49% 0.0210 233.95)",
+          "oklch(61% 0.0210 233.95)",
+          "oklch(72% 0.0210 233.95)",
+          "oklch(84% 0.0210 233.95)",
+          "oklch(95% 0.0210 233.95)"
+        ]
+      },
+      "line-dark": {
+        "role": "neutral",
+        "displayName": "Line Dark",
+        "tonalRamp": [
+          "oklch(15% 0.0218 235.18)",
+          "oklch(26% 0.0218 235.18)",
+          "oklch(38% 0.0218 235.18)",
+          "oklch(49% 0.0218 235.18)",
+          "oklch(61% 0.0218 235.18)",
+          "oklch(72% 0.0218 235.18)",
+          "oklch(84% 0.0218 235.18)",
+          "oklch(95% 0.0218 235.18)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "windows-page-title": {
+        "displayName": "Windows page title",
+        "purpose": "Native WinUI page headings."
+      },
+      "mac-page-title": {
+        "displayName": "Mac page title",
+        "purpose": "System-font WebKit page headings."
+      },
+      "pane-title": {
+        "displayName": "Handoff pane title",
+        "purpose": "Device name or visible handoff date."
+      },
+      "inspector-title": {
+        "displayName": "Inspector title",
+        "purpose": "Selected project name."
+      },
+      "section-title": {
+        "displayName": "Section title",
+        "purpose": "Compact page sections."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Native control text."
+      },
+      "mac-body": {
+        "displayName": "Mac body",
+        "purpose": "System-font WebKit content."
+      },
+      "row": {
+        "displayName": "Row",
+        "purpose": "Project names and compact controls."
+      },
+      "supporting": {
+        "displayName": "Supporting",
+        "purpose": "Facts, modes, sizes, and explanatory copy."
+      },
+      "metadata": {
+        "displayName": "Metadata",
+        "purpose": "Recent-handoff details and compact shell metadata."
+      }
+    },
+    "shadows": [
+      {
+        "name": "mac-menu",
+        "value": "0 14px 40px #102f4c1a",
+        "purpose": "Mac raised surfaces using the shared shadow token."
+      },
+      {
+        "name": "mac-sheet",
+        "value": "0 24px 70px #0004",
+        "purpose": "Existing Mac preview, onboarding, and cleanup sheets."
+      }
+    ],
+    "motion": [
+      {
+        "name": "windows-primary-brush",
+        "value": "83ms",
+        "purpose": "Native primary-button background brush transition."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "0.01ms",
+        "purpose": "Web transitions and animation durations under prefers-reduced-motion; repeating animation runs once."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "mac-workbench-compact-viewport",
+        "value": "1120px"
+      },
+      {
+        "name": "mac-shell-compact-viewport",
+        "value": "1050px"
+      },
+      {
+        "name": "mac-overview-and-inspector-stack-viewport",
+        "value": "970px"
+      },
+      {
+        "name": "mac-minimum-viewport",
+        "value": "760px"
+      },
+      {
+        "name": "windows-inspector-stack-page-width-below",
+        "value": "720px"
+      },
+      {
+        "name": "windows-overview-stack-page-width-below",
+        "value": "660px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Mac primary action",
+      "kind": "button",
+      "refersTo": "button-primary-macos",
+      "description": "Mac/WebKit Push action. Windows uses its native accent-button template and system focus visuals.",
+      "html": "<button class=\"ds-primary\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m18 9-6-6-6 6\"/><path d=\"M12 3v14\"/><path d=\"M5 21h14\"/></svg>Push</button>",
+      "css": ".ds-primary{font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:32px;padding:6px 12px;font-size:13px;font-weight:400;line-height:1.4;border:1px solid transparent;border-radius:7px;background:var(--accent,#163d55);color:var(--accent-foreground,#fff);}.ds-primary:hover:enabled{background:var(--accent-hover,#254f67);}.ds-primary:active:enabled{background:var(--accent-pressed,#0e2d43);}.ds-primary:disabled{background:var(--surface-soft,#f1f2ee);color:var(--faint,#5b6871);border-color:var(--line,#dfe3df);opacity:.5;}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-text:focus-visible,.ds-search input:focus-visible,.ds-nav button:focus-visible,.ds-project button:focus-visible,.ds-inspector select:focus-visible{outline:2px solid var(--text,#20323e);outline-offset:2px;}"
+    },
+    {
+      "name": "Mac secondary action",
+      "kind": "button",
+      "refersTo": "button-secondary-macos",
+      "description": "Pull and secondary actions share a quiet raised control surface.",
+      "html": "<button class=\"ds-secondary\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"m18 15-6 6-6-6\"/><path d=\"M12 3v18\"/><path d=\"M5 3h14\"/></svg>Pull</button>",
+      "css": ".ds-secondary{font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:32px;padding:6px 12px;font-size:13px;font-weight:400;line-height:1.4;border:1px solid transparent;border-radius:7px;background:var(--surface-raised,#fff);color:var(--text,#20323e);border-color:var(--line-strong,#aeb8b9);}.ds-secondary:hover:enabled{background:var(--surface-soft,#f1f2ee);}.ds-secondary:disabled{opacity:.5;}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-text:focus-visible,.ds-search input:focus-visible,.ds-nav button:focus-visible,.ds-project button:focus-visible,.ds-inspector select:focus-visible{outline:2px solid var(--text,#20323e);outline-offset:2px;}"
+    },
+    {
+      "name": "Mac text action",
+      "kind": "button",
+      "refersTo": "button-text-macos",
+      "description": "Edit selection and Defaults remain subordinate to the handoff action.",
+      "html": "<button class=\"ds-text\">Edit selection</button>",
+      "css": ".ds-text{font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",sans-serif;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:32px;padding:6px 12px;font-size:13px;font-weight:400;line-height:1.4;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--accent,#163d55);}.ds-text:hover:enabled{background:var(--surface-soft,#f1f2ee);}.ds-text:disabled{opacity:.5;}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-text:focus-visible,.ds-search input:focus-visible,.ds-nav button:focus-visible,.ds-project button:focus-visible,.ds-inspector select:focus-visible{outline:2px solid var(--text,#20323e);outline-offset:2px;}"
+    },
+    {
+      "name": "Workbench search",
+      "kind": "input",
+      "refersTo": "search",
+      "description": "Search fields use compact type and the raised field surface; Windows uses TextBox.",
+      "html": "<label class=\"ds-search\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/></svg><input aria-label=\"Search projects\" placeholder=\"Find a project\"></label>",
+      "css": ".ds-search{font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",sans-serif;display:flex;align-items:center;gap:8px;width:260px;max-width:100%;min-height:32px;border:1px solid var(--line,#dfe3df);border-radius:6px;background:var(--surface-raised,#fff);color:var(--muted,#5b6871);padding:0 10px;}.ds-search input{font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",sans-serif;min-width:0;width:100%;border:0;background:transparent;color:var(--text,#20323e);font-size:13px;padding:6px 0;}.ds-search input::placeholder{color:var(--muted,#5b6871);}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-text:focus-visible,.ds-search input:focus-visible,.ds-nav button:focus-visible,.ds-project button:focus-visible,.ds-inspector select:focus-visible{outline:2px solid var(--text,#20323e);outline-offset:2px;}"
+    },
+    {
+      "name": "Mac labelled navigation",
+      "kind": "nav",
+      "refersTo": "navigation-selected-macos",
+      "description": "Expanded page labels with a compact selected row. Windows retains NavigationView.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Workspace\"><button aria-current=\"page\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M20 20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2Z\"/></svg><span>What to sync</span></button></nav>",
+      "css": ".ds-nav{font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",sans-serif;width:212px;max-width:100%;background:var(--bg,#eeefec);padding:12px;}.ds-nav button{font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",sans-serif;display:flex;align-items:center;gap:11px;position:relative;width:100%;min-height:36px;padding:7px 10px;border:0;border-radius:7px;background:color-mix(in srgb,var(--accent-soft,#dde8ec) 86%,transparent);color:var(--text,#20323e);text-align:left;font-size:14px;}.ds-nav button::before{content:\"\";position:absolute;left:2px;top:12px;bottom:12px;width:2px;border-radius:2px;background:var(--accent,#163d55);}.ds-nav button:hover{background:color-mix(in srgb,var(--accent-soft,#dde8ec) 86%,transparent);}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-text:focus-visible,.ds-search input:focus-visible,.ds-nav button:focus-visible,.ds-project button:focus-visible,.ds-inspector select:focus-visible{outline:2px solid var(--text,#20323e);outline-offset:2px;}"
+    },
+    {
+      "name": "Selected project row",
+      "kind": "custom",
+      "refersTo": "project-row-selected",
+      "description": "The selected project uses a quiet tint, a flexible name, and aligned mode and size columns. Values are illustrative.",
+      "html": "<table class=\"ds-project\"><colgroup><col><col style=\"width:137px\"><col style=\"width:70px\"></colgroup><tbody><tr><td><button aria-pressed=\"true\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M20 20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2Z\"/></svg><span>Spice Route</span></button></td><td>Chat history only</td><td>207 MB</td></tr></tbody></table>",
+      "css": ".ds-project{font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",sans-serif;border-collapse:collapse;table-layout:fixed;width:100%;color:var(--text,#20323e);font-size:13px;}.ds-project tr{background:var(--accent-soft,#dde8ec);}.ds-project td{height:49px;padding:0 10px;border-bottom:1px solid var(--line,#dfe3df);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.ds-project td:nth-child(2){font-size:12px;color:var(--muted,#5b6871);}.ds-project td:last-child{text-align:right;font-size:12px;font-variant-numeric:tabular-nums;}.ds-project button{font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",sans-serif;display:flex;align-items:center;gap:9px;width:100%;padding:4px 0;border:0;border-radius:3px;background:transparent;color:var(--text,#20323e);font-size:13px;text-align:left;}.ds-project svg{flex-shrink:0;color:var(--accent,#163d55);}.ds-project span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.ds-project tr:hover{background:var(--accent-soft,#dde8ec);}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-text:focus-visible,.ds-search input:focus-visible,.ds-nav button:focus-visible,.ds-project button:focus-visible,.ds-inspector select:focus-visible{outline:2px solid var(--text,#20323e);outline-offset:2px;}"
+    },
+    {
+      "name": "Project inspector",
+      "kind": "custom",
+      "refersTo": "project-inspector",
+      "description": "One selected project shows mode, selected content, and local folders. This static panel sample illustrates the size role.",
+      "html": "<aside class=\"ds-inspector\" aria-label=\"Project details\"><h2>Spice Route</h2><p>12 chats</p><section><label for=\"ds-mode\">Include in handoff</label><select id=\"ds-mode\"><option>Full project</option><option selected>Chat history only</option><option>Excluded</option></select><div class=\"ds-size\"><span>Selected content</span><strong>207 MB</strong></div></section><p>Chats and the project listing are included. Project files stay here.</p></aside>",
+      "css": ".ds-inspector{font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",sans-serif;width:238px;max-width:100%;padding:14px 0 18px 22px;border-left:1px solid var(--line,#dfe3df);color:var(--text,#20323e);}.ds-inspector h2{font-size:16px;line-height:1.5;font-weight:600;margin:0 0 5px;overflow-wrap:anywhere;}.ds-inspector p{color:var(--muted,#5b6871);font-size:12px;line-height:1.6;margin:0;}.ds-inspector section{padding:24px 0 20px;border-bottom:1px solid var(--line,#dfe3df);margin-bottom:18px;}.ds-inspector label{display:block;font-size:12px;color:var(--muted,#5b6871);margin-bottom:10px;}.ds-inspector select{font-family:system-ui,-apple-system,BlinkMacSystemFont,\"Segoe UI Variable\",\"Segoe UI\",sans-serif;width:100%;min-height:32px;font-size:13px;border-radius:8px;border:1px solid var(--line,#dfe3df);background:var(--surface-raised,#fff);color:var(--text,#20323e);padding:4px 10px;}.ds-size{display:flex;justify-content:space-between;gap:10px;margin-top:12px;font-size:12px;}.ds-size span{color:var(--muted,#5b6871);}.ds-size strong{font-weight:600;font-variant-numeric:tabular-nums;}.ds-primary:focus-visible,.ds-secondary:focus-visible,.ds-text:focus-visible,.ds-search input:focus-visible,.ds-nav button:focus-visible,.ds-project button:focus-visible,.ds-inspector select:focus-visible{outline:2px solid var(--text,#20323e);outline-offset:2px;}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Workspace",
+    "overview": "Spice Route is a calm, compact desktop workspace in navy and warm ivory. Flat surfaces, fine dividers, labelled navigation, and platform controls keep the next handoff action and its supporting facts readable.\n\nApproved September 22, 2026: B, Side by side for Overview and C, Workbench for What to sync, from the comparison preview. Source version 1.6.0 implements that selection. Review, Recovery, and Settings keep their existing behavior while sharing the updated colors.\n\nWindows uses actual WinUI 3 controls through Windows App SDK. macOS uses React in Tauri with the system WebKit view and Mac window treatment. Both use the same Rust sync engine.",
+    "keyCharacteristics": [
+      "Expanded navigation with visible labels and the approved C, sweeping sail icon.",
+      "Parallel handoff facts and a compact project table with one selected-project inspector.",
+      "Light and dark palettes, platform focus behavior, and Windows system high-contrast resources."
+    ],
+    "rules": [
+      {
+        "name": "Platform State",
+        "body": "Resolve surfaces and text through theme resources. Keep accent fill during hover and pressed states, visible keyboard focus, and system high-contrast fallback.",
+        "section": "colors"
+      },
+      {
+        "name": "Stable Selection",
+        "body": "Changing a project mode keeps that project selected and updates its table size, inspector size, and total together.",
+        "section": "components"
+      }
+    ],
+    "dos": [
+      "Do start with the navigation pane expanded, visible menu labels, and native menu-item spacing.",
+      "Do retain the native Windows hamburger toggle and the sweeping-sail icon in the title bar.",
+      "Do use platform controls, keyboard behavior, automation names, and native Windows list virtualization.",
+      "Do show named operation phases and real step totals when known."
+    ],
+    "donts": [
+      "Don't add Open Codex controls.",
+      "Don't expand the Push label into an implementation explanation; keep its up-arrow icon.",
+      "Don't present a locally saved or merely visible handoff as proof of cloud delivery.",
+      "Don't show a fake percentage during indeterminate preparation.",
+      "Don't apply unselected Review or Settings concept variants.",
+      "Don't use em dashes in public content."
+    ]
+  }
+}

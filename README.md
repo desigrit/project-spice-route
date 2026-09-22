@@ -10,17 +10,19 @@ Sometimes you start something at your desk and want to pick it up on your laptop
 
 Spice Route is a desktop app for Windows and macOS that transfers selected Codex chats and project workspaces through a folder managed by **Google Drive, OneDrive, or iCloud Drive**. Choose what travels, push from one computer, and pull on the other. Your existing cloud client handles sign-in and delivery.
 
-[Windows x64](artifacts/Spice-Route-1.5.2-windows-x64-setup.exe) · [Windows ARM64](artifacts/Spice-Route-1.5.2-windows-arm64-setup.exe) · [macOS Apple Silicon](artifacts/macos-apple-silicon/Spice-Route-1.5.2-macos-apple-silicon.dmg) · [macOS Intel](artifacts/macos-intel/Spice-Route-1.5.2-macos-intel.dmg) · [Getting started](#getting-started) · [Report an issue](https://github.com/desigrit/project-spice-route/issues)
+[Windows x64](artifacts/Spice-Route-1.6.0-windows-x64-setup.exe) · [Windows ARM64](artifacts/Spice-Route-1.6.0-windows-arm64-setup.exe) · [macOS Apple Silicon](artifacts/macos-apple-silicon/Spice-Route-1.6.0-macos-apple-silicon.dmg) · [Getting started](#getting-started) · [Report an issue](https://github.com/desigrit/project-spice-route/issues)
 
 ![Spice Route Overview in light mode, showing Push and Pull actions and the latest visible snapshot](docs/images/native-overview-light.png)
 
-*All screenshots show the actual WinUI 3 interface in version 1.4.4, captured with sample data. No personal conversations are shown.*
+*All Windows screenshots show the actual WinUI 3 interface in version 1.6.0, captured with sample data. No personal conversations are shown.*
 
 ## A little context before you begin
 
-**The current desktop version is 1.5.2.** Windows has separate native x64 and ARM64 packages, while macOS has Apple Silicon and Intel packages. This release accepts Codex patch-runtime changes when the complete database profile is still an exact tested match. It also replaces the Windows app payload cleanly during upgrades, tightens target-architecture checks for native runtime files, and keeps startup failures visible with a detailed local log. Install the same Spice Route version on every computer before exchanging snapshots. Interactive testing and a live transfer between devices remain validation steps, so keep an independent backup of work you cannot replace.
+**The current desktop version is 1.6.0.** This release brings a calmer Overview and a more focused What to sync page. Windows has native x64 and ARM64 packages; new Mac releases target Apple Silicon. Version 1.5.2 remains the final archived Intel Mac build. Install the same Spice Route version on the computers you use together.
 
-The Workspace interface uses actual WinUI 3 navigation, menus, folder pickers, and virtualized lists. The menu opens with labels visible, and Review keeps the project filter and file columns aligned. Review has separate Files, Attention, and Notes tabs, with project filters and large files first. Push and Pull stay in a consistent action row, while timestamped handoff labels make snapshots easier to match across computers.
+Overview puts this device beside the latest visible cloud handoff, with Push and Pull in their respective columns. Select a project in What to sync to see its mode, selected size and local folders in the detail pane. Your choices, folder mappings, recovery safeguards and compatibility checks work as before.
+
+Windows uses WinUI 3 navigation, menus, folder pickers and virtualized lists. Mac keeps the same two-page arrangement with its existing platform styling. Review retains separate Files, Attention and Notes tabs. A visible cloud handoff is not proof that the drive client has finished delivering it.
 
 This is an independent project, not an official OpenAI product. It works with Codex's local storage, which can change between releases. Unknown formats are blocked until an adapter has been tested. The first macOS packages use ad-hoc signing and are intended for hands-on testing before a notarized release.
 
@@ -39,7 +41,7 @@ Each project has its own local folder. One can live on `D:`, another on `E:`, an
 
 Recognized dependencies, caches, and build outputs are excluded by default, including generated packaging output and staging folders. New configurations include project files such as `.env`, local credentials, keys, and certificates. Existing installations keep their saved choices; enable **Project secrets and configuration** in Settings if you want those files to travel. Custom exclusions still apply. Git history is transferred intact.
 
-![What to sync in dark mode, with compact project rows, individual folder locations, and a Chat history only selection](docs/images/native-selection-dark.png)
+![What to sync in dark mode, with a compact project table and a selected-project detail pane](docs/images/native-selection-dark.png)
 
 ## Getting started
 
@@ -47,23 +49,23 @@ Recognized dependencies, caches, and build outputs are excluded by default, incl
 
 On Windows, choose the package that matches the processor:
 
-- [Windows x64](artifacts/Spice-Route-1.5.2-windows-x64-setup.exe) for Intel and AMD computers
-- [Windows ARM64](artifacts/Spice-Route-1.5.2-windows-arm64-setup.exe) for Windows on Arm computers
+- [Windows x64](artifacts/Spice-Route-1.6.0-windows-x64-setup.exe) for Intel and AMD computers
+- [Windows ARM64](artifacts/Spice-Route-1.6.0-windows-arm64-setup.exe) for Windows on Arm computers
 
 Each installer bundles .NET, Windows App SDK, and the matching C++ runtime. You do not need Node.js, Rust, or development scripts to use it.
 
 The installers are not code-signed, so Windows may show a SmartScreen warning. SHA-256 checksums are included beside both downloads. Check your copy in PowerShell:
 
 ```powershell
-Get-FileHash .\Spice-Route-1.5.2-windows-x64-setup.exe -Algorithm SHA256
-Get-FileHash .\Spice-Route-1.5.2-windows-arm64-setup.exe -Algorithm SHA256
+Get-FileHash .\Spice-Route-1.6.0-windows-x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Spice-Route-1.6.0-windows-arm64-setup.exe -Algorithm SHA256
 ```
 
 You will also need Codex and an installed cloud drive client. Git must be available when transferring Git repositories. The native interface does not use WebView2.
 
-Version 1.5.2 installs under `%LOCALAPPDATA%\Programs\Spice Route`. Close Spice Route before running the installer. An upgrade replaces the complete app payload so an obsolete native runtime file cannot remain beside the new version. Your saved device identity, folder choices, and recovery history remain in the separate local Spice Route profile. Do not run two copies against the same profile at once.
+Spice Route installs under `%LOCALAPPDATA%\Programs\Spice Route`. Close Spice Route before running the installer. An upgrade replaces the complete app payload so an obsolete native runtime file cannot remain beside the new version. Your saved device identity, folder choices, and recovery history remain in the separate local Spice Route profile. Do not run two copies against the same profile at once.
 
-On macOS, download the [Apple Silicon DMG](artifacts/macos-apple-silicon/Spice-Route-1.5.2-macos-apple-silicon.dmg) for M-series Macs or the [Intel DMG](artifacts/macos-intel/Spice-Route-1.5.2-macos-intel.dmg) for Intel Macs. Open the DMG and move Spice Route to Applications. These first packages are ad-hoc signed and are not notarized. If macOS blocks the first launch, open **System Settings > Privacy & Security** and approve Spice Route there.
+On macOS, download the [Apple Silicon DMG](artifacts/macos-apple-silicon/Spice-Route-1.6.0-macos-apple-silicon.dmg) for M-series Macs. Intel Mac builds have been discontinued; [1.5.2 remains available](artifacts/macos-intel/Spice-Route-1.5.2-macos-intel.dmg) as the final archived version. Open the DMG and move Spice Route to Applications. These first packages are ad-hoc signed and are not notarized. If macOS blocks the first launch, open **System Settings > Privacy & Security** and approve Spice Route there.
 
 ### 2. Connect a cloud folder
 
@@ -79,7 +81,7 @@ These folders have different jobs:
 | --- | --- | --- |
 | Codex task and history folder | Codex databases, metadata, and transcript files, usually under `.codex` | Onboarding or Settings |
 | Projectless chat workspaces folder | Working files and artifacts associated with chats outside a project | Onboarding or Settings |
-| A project's local folder | That project's code and working files | The folder's **…** menu in What to sync |
+| A project's local folder | That project's code and working files | Select the project in What to sync, then use its folder's **…** menu |
 
 The projectless workspace folder is not a replacement for Codex's internal transcript directory. Chats still need the task and history folder to transfer correctly.
 
@@ -91,7 +93,7 @@ When you first pull a full project onto another computer, Spice Route asks where
 
 ### 4. Review your selection
 
-Open **What to sync**. Keep full projects, switch some to **Chat history only**, or exclude what you do not need. Search the chat lists to make individual exclusions, then save your choices.
+Open **What to sync** and select a project. Choose **Full project**, **Chat history only** or **Excluded** in its detail pane; the selected size updates with the choice. Use the chat tabs to exclude individual conversations, and **Defaults** for new-project and file rules. Save your choices when you are ready.
 
 ## The everyday handoff
 
@@ -169,13 +171,13 @@ Spice Route validates the complete database structure before allowing writes and
 
 Transfers keep the destination's own database schema. Older records can move into the supported newer profile. A transfer in the reverse direction is blocked if it contains newer fields the older profile cannot represent. Those values are never silently discarded. Schema 55 renames the attachment table; Spice Route translates that rename while retaining a consistent snapshot representation, so existing snapshots remain readable. It does not replace whole databases because selections, unrelated destination chats, and local settings must be preserved.
 
-See the [compatibility design](docs/compatibility-plan.md) and [1.5.2 testing notes](docs/testing-1.5.2.md) for the exact boundaries. The verification guide records the current Rust, frontend, native engine-client, and package checks. Real-device history display, continuation, and cloud-client behavior remain part of manual acceptance.
+See the [compatibility design](docs/compatibility-plan.md) and [1.6.0 testing notes](docs/testing-1.6.0.md) for the exact boundaries. The verification guide records the current Rust, frontend, native engine-client, and package checks. Real-device history display, continuation, and cloud-client behavior remain part of manual acceptance.
 
 ## Build from source
 
 The Windows app uses **WinUI 3**, **C#**, and the shared **Rust sync engine**. The macOS app uses **Tauri 2**, **React**, the system WebKit view, and the same engine. No hosted service is involved.
 
-Both interfaces use the 1.5.2 engine for compatibility checks, snapshot capture, transfer performance, settings validation, progress reporting, diagnostics, and recovery. See the [performance audit](docs/performance-audit.md) for measured background.
+Both interfaces use the same Rust engine for compatibility checks, snapshot capture, transfer performance, settings validation, progress reporting, diagnostics, and recovery. See the [performance audit](docs/performance-audit.md) for measured background.
 
 To build the native Windows installer, install the .NET 9 SDK, Rust's Windows MSVC toolchain, Visual Studio C++ Build Tools, a Windows SDK, and NSIS 3. Then run:
 
@@ -186,14 +188,14 @@ rustup toolchain install stable-x86_64-pc-windows-msvc
 ./scripts/build-native-windows.ps1
 ```
 
-The script produces `artifacts/Spice-Route-1.5.2-windows-x64-setup.exe` and its checksum. Pass `-Architecture arm64` for the native Windows on Arm package. It builds and packages the application without opening it when `-SkipStartupProbe` is supplied. See the [1.5.2 verification guide](docs/testing-1.5.2.md) for engine-client tests and interactive acceptance checks.
+The script produces `artifacts/Spice-Route-1.6.0-windows-x64-setup.exe` and its checksum. Pass `-Architecture arm64` for the native Windows on Arm package. It builds and packages the application without opening it when `-SkipStartupProbe` is supplied. See the [1.6.0 verification guide](docs/testing-1.6.0.md) for engine-client tests and interactive acceptance checks.
 
 ### macOS app
 
 On macOS, install:
 
 - Node.js 22.12 or newer and npm.
-- Rust with the Apple Silicon or Intel target for your Mac.
+- Rust with the Apple Silicon target for your Mac.
 - Xcode Command Line Tools and Git.
 
 ```bash
@@ -223,12 +225,12 @@ cargo clippy --release --manifest-path src-tauri/core/Cargo.toml --all-targets -
 Build the Apple Silicon app and DMG:
 
 ```bash
-bash ./scripts/build-macos.sh aarch64-apple-darwin 1.5.2 apple-silicon
+bash ./scripts/build-macos.sh aarch64-apple-darwin 1.6.0 apple-silicon
 ```
 
-Use `x86_64-apple-darwin` and `intel` for an Intel Mac. The script writes the DMG, zipped app, and checksums under `artifacts/macos-apple-silicon` or `artifacts/macos-intel`. Local packages use ad-hoc signing. Normal public distribution still requires an Apple Developer identity and notarization.
+The script builds Apple Silicon only and writes the DMG, zipped app, and checksums under `artifacts/macos-apple-silicon`. Local packages use ad-hoc signing. Normal public distribution still requires an Apple Developer identity and notarization.
 
-The [desktop build workflow](.github/workflows/desktop-builds.yml) compiles Windows x64, Windows ARM64, macOS Apple Silicon, and macOS Intel packages from version tags. Each Windows job validates the app, engine, and native runtime architecture before producing its installer. The [1.5.2 release run](https://github.com/desigrit/project-spice-route/actions/runs/35457842725) completed successfully on all four native runners.
+The [desktop build workflow](.github/workflows/desktop-builds.yml) compiles Windows x64, Windows ARM64, and macOS Apple Silicon packages from version tags. Each Windows job validates the app, engine, and native runtime architecture before producing its installer. See the [1.6.0 release run](https://github.com/desigrit/project-spice-route/actions/runs/35719731943) for platform build and installer verification.
 
 ### A quick map of the code
 
