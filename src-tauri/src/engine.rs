@@ -2340,7 +2340,15 @@ fn selection_includes_object(manifest: &SnapshotManifest, object: &ObjectEntry) 
                     .projects
                     .iter()
                     .find(|project| project.id == object.owner_id)
-                    .map(|project| project.mode == ProjectMode::Full)
+                    .map(|project| {
+                        project.mode == ProjectMode::Full
+                            && object
+                                .logical_path
+                                .split('/')
+                                .nth(2)
+                                .and_then(|index| index.parse::<usize>().ok())
+                                .is_some_and(|index| index < project.source_roots.len())
+                    })
                     .unwrap_or(false)
         }
         ObjectKind::ProjectlessFile | ObjectKind::Rollout | ObjectKind::Artifact => {
@@ -4066,6 +4074,21 @@ mod tests {
         assert!(deleted_changes.iter().any(|change| {
             change.key.ends_with("secret.txt") && change.action == ChangeAction::Delete
         }));
+
+        let extra = ObjectEntry {
+            logical_path: "projects/project-1/1/files/ios.txt".to_string(),
+            ..baseline.objects[0].clone()
+        };
+        let mut with_extra = make_manifest(config.selection.clone(), vec![extra.clone()]);
+        with_extra.projects[0]
+            .source_roots
+            .push(r"C:\ios".to_string());
+        let removed_root = make_manifest(config.selection.clone(), Vec::new());
+        let root_changes =
+            diff_for_pull(&config, &removed_root, &with_extra, Some(&with_extra)).unwrap();
+        assert!(!root_changes
+            .iter()
+            .any(|change| change.key.ends_with("ios.txt")));
     }
 
     #[test]

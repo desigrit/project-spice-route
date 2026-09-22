@@ -141,6 +141,7 @@ public sealed class SelectionPage : Page
 
     private async Task RescanAsync()
     {
+        ++_sizeGeneration;
         _state.Text = "Looking for project folders…";
         try
         {
@@ -310,6 +311,10 @@ public sealed class SelectionPage : Page
                 .Any(extra => string.Equals(extra?.ToString(), discovered, StringComparison.OrdinalIgnoreCase)))
             {
                 var remove = Ui.TextButton("Remove folder");
+                remove.IsEnabled = string.Equals(
+                    Wire.Array(Wire.Object(_draft, "additionalProjectRoots"), id).LastOrDefault()?.ToString(),
+                    discovered, StringComparison.OrdinalIgnoreCase);
+                if (!remove.IsEnabled) ToolTipService.SetToolTip(remove, "Remove newer added folders first.");
                 remove.Click += async (_, _) =>
                 {
                     var all = NativePageUi.EnsureObject(_draft, "additionalProjectRoots");

@@ -300,7 +300,7 @@ describe("page-specific discovery", () => {
     fireEvent.click(screen.getByRole("button", { name: "Overview" }));
     fireEvent.click(screen.getByRole("button", { name: "What to sync" }));
     expect(detailedRead).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    fireEvent.click(screen.getByRole("button", { name: "Rescan project folders" }));
     await waitFor(() => expect(detailedRead).toHaveBeenCalledTimes(2));
     await act(async () => current.resolve(projectCatalog));
     expect(screen.getByLabelText("Estimated sync size for Product")).toHaveTextContent("100 B");

@@ -352,9 +352,9 @@ export default function App() {
             <p className="eyebrow">{page === "selection" ? "Sync policy" : page === "diagnostics" ? "Recovery tools" : page}</p>
             <h1>{page === "diagnostics" ? "Diagnostics" : navItems.find((item) => item.id === page)?.label}</h1>
           </div>
-          <Button className="icon-button" onClick={() => void refresh(config)} aria-label="Refresh">
+          {page !== "selection" && <Button className="icon-button" onClick={() => void refresh(config)} aria-label="Refresh">
             <RefreshCw size={18} />
-          </Button>
+          </Button>}
         </header>
 
         {error && !preview && <Banner kind="error" onClose={() => setError(null)}>{error}</Banner>}
@@ -553,16 +553,18 @@ export function SelectionScreen({ config, catalog: sourceCatalog, onSave, estima
   const scopeKey = sizeScope(draft);
   const savedScopeKey = sizeScope(config);
   const [localEstimate, setLocalEstimate] = useState<{ key: string; state: EstimateState; catalog?: ContentCatalog } | null>(null);
+  const sizeGeneration = useRef(0);
   const catalog = localEstimate?.key === scopeKey && localEstimate.catalog ? localEstimate.catalog : sourceCatalog;
-  const estimateState = scopeKey === savedScopeKey ? sourceEstimateState : localEstimate?.key === scopeKey ? localEstimate.state : "pending";
+  const estimateState = localEstimate?.key === scopeKey ? localEstimate.state : scopeKey === savedScopeKey ? sourceEstimateState : "pending";
   useEffect(() => {
     if (scopeKey === savedScopeKey) return;
     let active = true;
+    const generation = ++sizeGeneration.current;
     setLocalEstimate({ key: scopeKey, state: "pending" });
     const timer = window.setTimeout(() => {
       void api.listContent(draft).then((result) => {
-        if (active) setLocalEstimate({ key: scopeKey, state: "ready", catalog: result });
-      }).catch(() => { if (active) setLocalEstimate({ key: scopeKey, state: "unavailable" }); });
+        if (active && generation === sizeGeneration.current) setLocalEstimate({ key: scopeKey, state: "ready", catalog: result });
+      }).catch(() => { if (active && generation === sizeGeneration.current) setLocalEstimate({ key: scopeKey, state: "unavailable" }); });
     }, 250);
     return () => { active = false; window.clearTimeout(timer); };
   }, [scopeKey, savedScopeKey]);
@@ -634,11 +636,14 @@ export function SelectionScreen({ config, catalog: sourceCatalog, onSave, estima
   };
   const rescanProjects = async () => {
     const key = sizeScope(draft);
+    const generation = ++sizeGeneration.current;
     try {
-      setLocalEstimate({ key, state: "pending", catalog: await api.listContentQuick(draft) });
+      const quick = await api.listContentQuick(draft);
+      if (generation !== sizeGeneration.current) return;
+      setLocalEstimate({ key, state: "pending", catalog: quick });
       const result = await api.listContent(draft);
-      setLocalEstimate({ key, state: "ready", catalog: result });
-    } catch (cause) { setFolderError(toMessage(cause)); }
+      if (generation === sizeGeneration.current) setLocalEstimate({ key, state: "ready", catalog: result });
+    } catch (cause) { if (generation === sizeGeneration.current) setFolderError(toMessage(cause)); }
   };
   const visibleChats = catalog.threads.filter((thread) => {
     const matchesKind = tab === "projectless" ? thread.projectless : !thread.projectless;
@@ -702,7 +707,7 @@ export function SelectionScreen({ config, catalog: sourceCatalog, onSave, estima
             const override = draft.sourceRoots[key] ?? (index === 0 ? draft.sourceRoots[selectedProject.id] : undefined);
             const local = override ?? selectedProject.localRoots[index] ?? discovered;
             const destination = draft.destinationRoots[key] ?? (index === 0 ? draft.destinationRoots[selectedProject.id] : undefined);
-            return <div key={key}><FolderLocation label={selectedProject.roots.length > 1 ? `Folder ${index + 1} for ${selectedProject.name}` : `Local folder for ${selectedProject.name}`} path={local} onChoose={() => void browseProject(selectedProject.id, index, local)} onReset={override !== undefined ? () => setProjectFolder(selectedProject.id, index, null) : undefined} />{destination && destination !== local && <p className="sync-destination" title={destination}>Pull destination: {destination}</p>}{draft.additionalProjectRoots?.[selectedProject.id]?.some((item) => item.toLowerCase() === discovered.toLowerCase()) && <Button className="text-button" onClick={() => removeProjectRoot(selectedProject.id, index, discovered)}>Remove folder</Button>}</div>;
+            return <div key={key}><FolderLocation label={selectedProject.roots.length > 1 ? `Folder ${index + 1} for ${selectedProject.name}` : `Local folder for ${selectedProject.name}`} path={local} onChoose={() => void browseProject(selectedProject.id, index, local)} onReset={override !== undefined ? () => setProjectFolder(selectedProject.id, index, null) : undefined} />{destination && destination !== local && <p className="sync-destination" title={destination}>Pull destination: {destination}</p>}{draft.additionalProjectRoots?.[selectedProject.id]?.some((item) => item.toLowerCase() === discovered.toLowerCase()) && <Button className="text-button" disabled={draft.additionalProjectRoots?.[selectedProject.id]?.at(-1)?.toLowerCase() !== discovered.toLowerCase()} title="Remove newer added folders first" onClick={() => removeProjectRoot(selectedProject.id, index, discovered)}>Remove folder</Button>}</div>;
           })}<p>{selectedProject.roots.length ? "Changing a path does not move files." : "No workspace folder is recorded."}</p>
             <Button className="text-button" onClick={() => void browseAnotherRoot(selectedProject.id)}>Add another folder</Button>
             {(selectedProject.suggestedRoots ?? []).map((path) => <Button key={path} className="text-button" title={path} onClick={() => addProjectRoot(selectedProject.id, path)}>Add {path.split(/[\\/]/).pop()}</Button>)}
