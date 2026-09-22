@@ -7,7 +7,7 @@ This update refines the Overview, What to sync, Recovery, and Settings pages. It
 - 111 shared Rust engine tests pass. A new fixture gives one Kaptus project an Android root and an added Kaptus-iOS root, then confirms that both codebases enter one snapshot while the source Codex database remains untouched. Another regression check confirms that removing an added root does not delete its existing destination files.
 - 28 React interaction tests pass, including a check that changing the default mode preserves an existing project's mode.
 - The React production build, WinUI x64 Release build, Rust formatting, and Rust lint pass.
-- The Windows x64 and ARM64 installers were built with `-SkipStartupProbe`. Neither app was launched on the development PC.
+- The Windows x64 and ARM64 installers passed CI startup probes and installed-package checks on disposable profiles. Neither app was launched on the development PC. The Apple Silicon package passed its CI build, source tests, and checksum verification.
 - Mode-aware size estimation now walks working files only for Full projects. Switching a project to Full requests a fresh estimate.
 
 ## Before a personal handoff
