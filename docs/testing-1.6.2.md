@@ -10,5 +10,6 @@ Local verification completed:
 - Rust formatting and Clippy: passed.
 - Frontend: 28 tests passed, and the production bundle built.
 - Windows x64 and ARM64: the native app and Rust engine compiled, and per-user installers were packaged. Startup probes were skipped, so neither app nor engine was launched on the build PC.
+- macOS Apple Silicon: the CI test, lint, app, and DMG jobs passed. The ad-hoc signed DMG and app archive were downloaded and matched their SHA-256 checksums.
 
-Still to verify on real devices: installer startup, a 57/7 Push followed by Pull, Codex history display and continuation, and recovery after interruption. Those checks should use disposable Codex profiles first. The Mac package requires its Apple Silicon CI build and the same cross-device checks.
+Still to verify on real devices: installer startup, a 57/7 Push followed by Pull, Codex history display and continuation, and recovery after interruption. Those checks should use disposable Codex profiles first.

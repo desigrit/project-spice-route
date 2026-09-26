@@ -231,7 +231,7 @@ bash ./scripts/build-macos.sh aarch64-apple-darwin 1.6.2 apple-silicon
 
 The script builds Apple Silicon only and writes the DMG, zipped app, and checksums under `artifacts/macos-apple-silicon`. Local packages use ad-hoc signing. Normal public distribution still requires an Apple Developer identity and notarization.
 
-The [desktop build workflow](.github/workflows/desktop-builds.yml) compiles Windows x64, Windows ARM64, and macOS Apple Silicon packages from version tags. Each Windows job validates the app, engine, and native runtime architecture before producing its installer. See the [1.6.1 build run](https://github.com/desigrit/project-spice-route/actions/runs/35776641454) for platform build and installer verification.
+The [desktop build workflow](.github/workflows/desktop-builds.yml) compiles Windows x64, Windows ARM64, and macOS Apple Silicon packages from version tags. Each Windows job validates the app, engine, and native runtime architecture before producing its installer. See the [1.6.2 build run](https://github.com/desigrit/project-spice-route/actions/runs/36263615392) for platform build status.
 
 ### A quick map of the code
 
