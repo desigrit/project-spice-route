@@ -1,5 +1,7 @@
 # Architecture
 
+For a visual overview of the Codex schema, selected content, and Push and Pull flow, open [How Spice Route moves a Codex handoff](spice-route-sync-explained.html).
+
 ## Boundaries
 
 The interface in `src` contains Overview, What to sync, Recovery, Diagnostics, and Settings for macOS. It communicates through typed Tauri commands in `src-tauri/src/lib.rs`. Windows uses a native WinUI 3 shell under `native/windows` and connects to the same engine over typed JSON-line operations.

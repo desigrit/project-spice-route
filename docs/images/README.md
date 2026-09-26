@@ -1,5 +1,7 @@
 # README screenshots
 
+The `spice-route-*-explained.png` images show the current Push and Pull route, the selected Codex database tables, and the project transfer modes. They are renders of [the three-view visual guide](../spice-route-sync-explained.html), based on the Rust engine. They contain no personal data and do not represent a live transfer.
+
 The `native-*` images show the actual Spice Route 1.6.0 WinUI interface with fabricated projects, chats, device names, and locations. They come from the offscreen visual probe documented in [Windows verification](../testing-1.6.0.md). They illustrate the interface rather than a live cloud transfer. Native operating-system caption buttons are outside the captured XAML tree.
 
 The README includes all five current screens:
@@ -19,9 +21,10 @@ npm install --no-save --package-lock=false playwright
 npx playwright install chromium
 node scripts/render-previews.mjs
 node scripts/check-selection.mjs
+node docs/render-sync-explained.mjs
 ```
 
-Both scripts run headlessly. They do not open the installed app, access a personal Codex profile, or perform a Push or Pull. Output is written to the ignored `docs/design` folder.
+These scripts run headlessly. They do not open the installed app, access a personal Codex profile, or perform a Push or Pull. The preview scripts write to the ignored `docs/design` folder; the sync guide renderer updates the three explanatory images in this directory.
 
 Optional environment variables:
 
