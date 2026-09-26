@@ -191,7 +191,12 @@ pub fn inspect(home: &Path) -> Result<CompatibilityInfo> {
         .iter()
         .any(|p| Some(p.state) == state_migration && Some(p.history) == history_migration)
     {
-        format!("Found database migrations {}/{}; tested profiles are 52/6, 54/6, 55/6, and 57/7. Update Spice Route for this Codex format. Push and Pull remain blocked.", state_migration.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()), history_migration.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()))
+        let tested = crate::compatibility::PROFILES
+            .iter()
+            .map(|profile| format!("{}/{}", profile.state, profile.history))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("Found database migrations {}/{}; tested profiles are {tested}. Update Spice Route for this Codex format. Push and Pull remain blocked.", state_migration.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()), history_migration.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()))
     } else if !missing.is_empty() {
         format!("Required tables are missing: {}. Diagnostics are available, but Push and Pull are blocked.", missing.join(", "))
     } else {

@@ -1,6 +1,6 @@
 [package]
 name = "spice-route"
-version = "1.6.2"
+version = "1.6.3"
 description = "Verified, recoverable Codex handoffs through your cloud drive"
 authors = ["Spice Route"]
 edition = "2021"

@@ -14,18 +14,36 @@ const IMAGE_BYTES: &[u8] = b"disposable local image fixture";
 const OPAQUE_PAYLOAD: &str = "Keep exact bytes: {not-json}\nC:\\historical\\file.txt";
 
 fn create_home(home: &Path, migration: i64) {
+    create_home_pair(home, migration, if migration == 57 { 7 } else { 6 });
+}
+
+fn create_home_pair(home: &Path, state_migration: i64, history_migration: i64) {
+    create_home_pair_with_line_endings(home, state_migration, history_migration, false);
+}
+
+fn create_home_pair_with_line_endings(
+    home: &Path,
+    state_migration: i64,
+    history_migration: i64,
+    lf_only: bool,
+) {
     fs::create_dir_all(home).unwrap();
     let profile = compatibility::PROFILES
         .iter()
-        .find(|profile| profile.state == migration)
+        .find(|profile| profile.state == state_migration && profile.history == history_migration)
         .expect("tested schema profile");
-    let fixture: Value = serde_json::from_str(profile.schema).unwrap();
     for database in ["state_5.sqlite", "thread_history_1.sqlite"] {
+        let fixture: Value = serde_json::from_str(profile.schema_for(database)).unwrap();
         let db = Connection::open(home.join(database)).unwrap();
         let objects = fixture[database]["objects"].as_array().unwrap();
         for kind in ["table", "index", "trigger"] {
             for object in objects.iter().filter(|object| object["type"] == kind) {
-                db.execute_batch(object["sql"].as_str().unwrap()).unwrap();
+                let sql = object["sql"].as_str().unwrap();
+                if lf_only {
+                    db.execute_batch(&sql.replace("\r\n", "\n")).unwrap();
+                } else {
+                    db.execute_batch(sql).unwrap();
+                }
             }
         }
         db.execute(
@@ -671,6 +689,108 @@ fn schema57_creator_and_lifecycle_fields_round_trip_and_block_lossy_downgrades()
         before, after,
         "preflight must preserve the older destination"
     );
+}
+
+#[test]
+fn schema57_history6_mixed_profile_round_trips_across_mac_and_windows_layouts() {
+    let mixed = tempdir().unwrap();
+    let mixed_lf = tempdir().unwrap();
+    let newer = tempdir().unwrap();
+    let mixed_peer = tempdir().unwrap();
+    create_home_pair(mixed.path(), 57, 6);
+    create_home_pair_with_line_endings(mixed_lf.path(), 57, 6, true);
+    create_home(newer.path(), 57);
+    create_home_pair(mixed_peer.path(), 57, 6);
+
+    let mixed_info = codex::inspect(mixed.path()).unwrap();
+    assert!(mixed_info.supported);
+    assert_eq!(mixed_info.state_migration, Some(57));
+    assert_eq!(mixed_info.history_migration, Some(6));
+    assert_eq!(
+        mixed_info.schema_fingerprint,
+        "dac383732eddc28f1d2faca9a5b107ac23877db8dff8a6903bfd79b918a386c4"
+    );
+    assert_eq!(
+        codex::inspect(mixed_lf.path()).unwrap().schema_fingerprint,
+        mixed_info.schema_fingerprint,
+        "Mac and Windows line endings must describe the same storage layout"
+    );
+
+    seed_thread(mixed.path(), 57, "portable");
+    seed_thread(mixed.path(), 57, "excluded");
+    seed_thread(newer.path(), 57, "local");
+    seed_thread(mixed_peer.path(), 57, "local");
+    let captured = capture(mixed.path(), &["excluded"]);
+    assert_eq!(captured.manifest.threads.len(), 1);
+    assert_eq!(captured.manifest.threads[0].id, "portable");
+    codex::validate_snapshot_source(&captured.manifest).unwrap();
+    restore(newer.path(), &captured, &[]);
+    assert_restored_content(newer.path(), 57);
+    let newer_state = Connection::open(newer.path().join("state_5.sqlite")).unwrap();
+    let local_count: i64 = newer_state
+        .query_row("SELECT count(*) FROM threads WHERE id='local'", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(local_count, 1);
+    drop(newer_state);
+
+    let returned = capture(newer.path(), &["local"]);
+    assert_eq!(
+        returned.manifest.threads[0].fingerprint,
+        captured.manifest.threads[0].fingerprint
+    );
+    restore(mixed_peer.path(), &returned, &[]);
+    restore(mixed_peer.path(), &returned, &[]);
+    assert_restored_content(mixed_peer.path(), 57);
+    let peer_state = Connection::open(mixed_peer.path().join("state_5.sqlite")).unwrap();
+    let thread_count: i64 = peer_state
+        .query_row("SELECT count(*) FROM threads", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(thread_count, 2, "repeated Pull must not duplicate chats");
+    assert!(codex::inspect(mixed_peer.path()).unwrap().supported);
+
+    let state = Connection::open(mixed_lf.path().join("state_5.sqlite")).unwrap();
+    state
+        .execute_batch("DROP INDEX idx_thread_attachments_thread_created_id")
+        .unwrap();
+    assert!(
+        !codex::inspect(mixed_lf.path()).unwrap().supported,
+        "a known migration pair must still reject a changed layout"
+    );
+}
+
+#[test]
+fn schema57_history6_refuses_newer_nonnull_history_fields_without_mutation() {
+    let newer = tempdir().unwrap();
+    let mixed = tempdir().unwrap();
+    create_home(newer.path(), 57);
+    create_home_pair(mixed.path(), 57, 6);
+    seed_thread(newer.path(), 57, "portable");
+    seed_thread(mixed.path(), 57, "local");
+    let history = Connection::open(newer.path().join("thread_history_1.sqlite")).unwrap();
+    history
+        .execute(
+            "UPDATE thread_items SET started_at_ms=100, completed_at_ms=200 WHERE thread_id='portable'",
+            [],
+        )
+        .unwrap();
+    drop(history);
+    let captured = capture(newer.path(), &[]);
+    let issues = codex::transfer_issues(&captured.manifest, &codex::inspect(mixed.path()).unwrap());
+    assert_eq!(issues.len(), 1);
+    assert!(issues[0].contains("started_at_ms"));
+    assert!(issues[0].contains("completed_at_ms"));
+    let before: Vec<_> = ["state_5.sqlite", "thread_history_1.sqlite"]
+        .iter()
+        .map(|name| fs::read(mixed.path().join(name)).unwrap())
+        .collect();
+    assert!(apply_rows(mixed.path(), &captured.manifest, &[], &HashMap::new()).is_err());
+    let after: Vec<_> = ["state_5.sqlite", "thread_history_1.sqlite"]
+        .iter()
+        .map(|name| fs::read(mixed.path().join(name)).unwrap())
+        .collect();
+    assert_eq!(before, after);
 }
 
 #[test]
