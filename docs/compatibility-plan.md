@@ -1,10 +1,12 @@
-# Compatibility plan: Codex database migrations 52, 54, and 55
+# Compatibility plan: Codex database migrations 52, 54, 55, and 57
 
 ## Scope and evidence
 
 The original schema fixtures come from desktop 26.903.71938 with runtime 0.153.4 and state/history migrations 52/6, and desktop 26.908.40834 with runtime 0.154.0-alpha.6.2 and migrations 54/6. These definitions differ only by nullable `threads.originator TEXT` and `threads.daybreak_enabled BOOLEAN`.
 
 Runtime 0.155.0-alpha.9.2 uses state/history migrations 55/6. Read-only inspection found a successfully completed migration 55. Compared with schema 54, `thread_artifacts` becomes `thread_attachments`, `artifact_type` becomes `attachment_type`, and the associated index is renamed. The other state objects and the history schema match. Sanitized fixtures contain structure only, not user records or paths.
+
+Codex desktop 26.924.2738 uses state/history migrations 57/7 on the inspected Windows PC. Relative to 55/6, `threads` adds nullable `creator_user_id` and `creator_account_id`; `thread_items` adds nullable `started_at_ms` and `completed_at_ms`. Migration 57 is labeled as a cleanup of guardian thread metadata and adds no further schema objects. The inspected profile had non-null values in both new tables, so ignoring these columns would lose data. The fixture records only schema definitions.
 
 Schema fingerprints normalize CRLF and LF line endings before hashing. Codex databases created by equivalent Windows and macOS builds can otherwise contain identical SQL with platform-specific newlines. Previously published Windows fingerprints remain accepted when validating existing snapshot manifests.
 
@@ -17,6 +19,10 @@ Null/missing extension fields compare equally, keeping pre-existing migration-52
 Snapshot format 2 marks this stricter transfer contract so older Spice Route versions cannot silently discard extension values. New readers accept format 1 and 2, including the already-published source snapshot. Every device should update Spice Route before publishing format 2.
 
 For schema 55, the adapter translates attachment table and column names at the database boundary. Snapshots retain the existing canonical `thread_artifacts` and `artifact_type` representation. Payloads retain their values, with recognized operational file paths mapped during restoration. Equivalent chats keep the same fingerprints across the table rename, and existing snapshots remain readable. Imports preserve the destination's native schema and migration ledger. Install Spice Route 1.5.2 or newer on every computer before exchanging schema-55 snapshots across differing Codex patch runtimes.
+
+For schema 57/7, the adapter keeps the newer creator and lifecycle values in selected snapshots. Null extension fields compare as absent so unchanged chats retain their identity across supported profiles. A destination on 55/6 or earlier rejects a chat with non-null 57/7 fields before database mutation. A 57/7 destination accepts older chats and preserves its own database format. Install Spice Route 1.6.2 on every participating device before exchanging 57/7 snapshots.
+
+Additive columns can eventually be handled with a constrained capability check: preserve unknown nullable columns in known tables when both sides support them, and reject a downgrade that would drop a non-null value. New tables, triggers, constraints, path semantics, or migration behavior still need testing. A migration number alone cannot establish safety, and an unchanged SQL layout does not prove unchanged chat behavior.
 
 ## Why this is more than a folder copy
 

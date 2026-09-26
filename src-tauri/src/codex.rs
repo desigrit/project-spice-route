@@ -19,7 +19,7 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-pub const ADAPTER_NAME: &str = "codex-state-v5.52-54-55/history-v1.6";
+pub const ADAPTER_NAME: &str = "codex-state-v5.52-54-55-57/history-v1.6-7";
 pub const REFERENCE_CODEX_BUILDS: &[&str] = &["0.153.4", "0.154.0-alpha.6.2", "0.155.0-alpha.9.2"];
 const LOCAL_ONLY_THREAD_COLUMNS: &[&str] = &["sandbox_policy", "approval_mode", "agent_path"];
 const SAFE_IMPORTED_SANDBOX_POLICY: &str =
@@ -45,7 +45,7 @@ const HISTORY_THREAD_TABLES: &[(&str, &str)] = &[
 // has the same fingerprint before and after Codex's schema 55 rename.
 fn artifact_table(state_migration: Option<i64>) -> &'static str {
     match state_migration {
-        Some(55) => "thread_attachments",
+        Some(version) if version >= 55 => "thread_attachments",
         _ => "thread_artifacts",
     }
 }
@@ -77,7 +77,7 @@ fn state_rows_for_storage<'a>(
     rows: &'a [DatabaseRow],
     state_migration: Option<i64>,
 ) -> Result<Cow<'a, [DatabaseRow]>> {
-    if table != "thread_artifacts" || state_migration != Some(55) {
+    if table != "thread_artifacts" || !state_migration.is_some_and(|version| version >= 55) {
         return Ok(Cow::Borrowed(rows));
     }
     let mut rows = rows.to_vec();
@@ -186,13 +186,12 @@ pub fn inspect(home: &Path) -> Result<CompatibilityInfo> {
         false
     };
     let explanation = if supported {
-        format!("Database schema {}/6 matches a tested storage profile, including indexes and triggers.", state_migration.unwrap_or_default())
+        format!("Database schema {}/{} matches a tested storage profile, including indexes and triggers.", state_migration.unwrap_or_default(), history_migration.unwrap_or_default())
     } else if !crate::compatibility::PROFILES
         .iter()
-        .any(|p| Some(p.state) == state_migration)
-        || history_migration != Some(6)
+        .any(|p| Some(p.state) == state_migration && Some(p.history) == history_migration)
     {
-        format!("Found database migrations {}/{}; tested profiles are 52/6, 54/6, and 55/6. Update Spice Route for this Codex format. Push and Pull remain blocked.", state_migration.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()), history_migration.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()))
+        format!("Found database migrations {}/{}; tested profiles are 52/6, 54/6, 55/6, and 57/7. Update Spice Route for this Codex format. Push and Pull remain blocked.", state_migration.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()), history_migration.map(|v| v.to_string()).unwrap_or_else(|| "unknown".into()))
     } else if !missing.is_empty() {
         format!("Required tables are missing: {}. Diagnostics are available, but Push and Pull are blocked.", missing.join(", "))
     } else {
@@ -238,6 +237,10 @@ pub fn with_build_gate(
             })
     });
     compatibility.explanation = match build {
+        Some(build) if profile.runtime.is_empty() => format!(
+            "{} Codex runtime {} is recorded for diagnostics; the complete database storage profile is validated.",
+            compatibility.explanation, build
+        ),
         Some(build) if build == profile.runtime => format!(
             "{} Codex runtime {} matches the reference build for this storage profile.",
             compatibility.explanation, build
@@ -273,15 +276,38 @@ pub fn transfer_issues(
     manifest: &SnapshotManifest,
     destination: &CompatibilityInfo,
 ) -> Vec<String> {
-    if destination.state_migration != Some(52) {
-        return Vec::new();
-    }
     manifest.threads.iter().filter_map(|thread| {
-        let fields: Vec<_> = ["originator", "daybreak_enabled"].into_iter().filter(|field| {
-            thread.state_rows.get("threads").into_iter().flatten().any(|row|
-                row.values.get(*field).is_some_and(|value| !matches!(value, SqlValue::Null)))
-        }).collect();
-        (!fields.is_empty()).then(|| format!("Chat ‘{}’ contains newer Codex fields ({}). This destination's schema 52 cannot preserve them. Update Codex on this PC to a supported 54/6 or 55/6 build, or exclude this chat and Push again from the source. No data has been changed.", thread.title, fields.join(", ")))
+        let mut fields = Vec::new();
+        let state_columns: &[&str] = if destination.state_migration == Some(52) {
+            &["originator", "daybreak_enabled", "creator_user_id", "creator_account_id"]
+        } else if destination.state_migration.is_some_and(|version| version < 57) {
+            &["creator_user_id", "creator_account_id"]
+        } else {
+            &[]
+        };
+        for column in state_columns {
+            if thread.state_rows.get("threads").into_iter().flatten().any(|row|
+                row.values.get(*column).is_some_and(|value| !matches!(value, SqlValue::Null)))
+            {
+                fields.push(format!("threads.{column}"));
+            }
+        }
+        if destination.history_migration.is_some_and(|version| version < 7) {
+            for column in ["started_at_ms", "completed_at_ms"] {
+                if thread.history_rows.get("thread_items").into_iter().flatten().any(|row|
+                    row.values.get(column).is_some_and(|value| !matches!(value, SqlValue::Null)))
+                {
+                    fields.push(format!("thread_items.{column}"));
+                }
+            }
+        }
+        (!fields.is_empty()).then(|| format!(
+            "Chat '{}' contains values in newer Codex fields ({}). This device's database {}/{} cannot preserve them. Update Codex on this device to a tested compatible version, or exclude this chat on the source. Nothing has been changed.",
+            thread.title,
+            fields.join(", "),
+            destination.state_migration.unwrap_or_default(),
+            destination.history_migration.unwrap_or_default()
+        ))
     }).collect()
 }
 
@@ -950,7 +976,11 @@ pub fn export_selected(
         for (table, key) in STATE_THREAD_TABLES {
             let storage_table = state_storage_table(table, compatibility.state_migration);
             let mut rows = query_rows_eq(&state, storage_table, key, &summary.id)?;
-            if *table == "thread_artifacts" && compatibility.state_migration == Some(55) {
+            if *table == "thread_artifacts"
+                && compatibility
+                    .state_migration
+                    .is_some_and(|version| version >= 55)
+            {
                 rename_artifact_type(&mut rows, "attachment_type", "artifact_type")?;
             }
             state_rows.insert((*table).to_string(), rows);
@@ -1317,7 +1347,21 @@ fn hash_thread_rows(
                 row.values.remove(*column);
             }
             // A nullable column added by a later migration is equivalent to its absence.
-            for column in ["originator", "daybreak_enabled"] {
+            for column in [
+                "originator",
+                "daybreak_enabled",
+                "creator_user_id",
+                "creator_account_id",
+            ] {
+                if matches!(row.values.get(column), Some(SqlValue::Null)) {
+                    row.values.remove(column);
+                }
+            }
+        }
+    }
+    if let Some(rows) = normalized_history.get_mut("thread_items") {
+        for row in rows {
+            for column in ["started_at_ms", "completed_at_ms"] {
                 if matches!(row.values.get(column), Some(SqlValue::Null)) {
                     row.values.remove(column);
                 }
@@ -2066,8 +2110,16 @@ fn validate_row_columns(connection: &Connection, table: &str, rows: &[DatabaseRo
     for row in rows {
         for (column, value) in &row.values {
             if !available.contains(column)
-                && !(table == "threads"
-                    && matches!(column.as_str(), "originator" | "daybreak_enabled")
+                && !((table == "threads"
+                    && matches!(
+                        column.as_str(),
+                        "originator"
+                            | "daybreak_enabled"
+                            | "creator_user_id"
+                            | "creator_account_id"
+                    )
+                    || table == "thread_items"
+                        && matches!(column.as_str(), "started_at_ms" | "completed_at_ms"))
                     && matches!(value, SqlValue::Null))
             {
                 return Err(SpiceError::UnsupportedCodex(format!("The destination cannot represent {table}.{column}. Update Codex on the destination before importing. Nothing was discarded.")));
@@ -2615,7 +2667,7 @@ mod tests {
 
     #[test]
     fn schema_fingerprints_are_identical_across_windows_and_macos_line_endings() {
-        for migration in [52, 54, 55] {
+        for migration in [52, 54, 55, 57] {
             let crlf_home = tempdir().unwrap();
             create_profile_schema_with_line_endings(crlf_home.path(), migration, false);
             let lf_home = tempdir().unwrap();

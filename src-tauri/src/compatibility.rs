@@ -4,6 +4,7 @@ use serde_json::Value;
 
 pub struct Profile {
     pub state: i64,
+    pub history: i64,
     pub runtime: &'static str,
     pub fingerprint: &'static str,
     pub legacy_fingerprints: &'static [&'static str],
@@ -13,7 +14,7 @@ pub struct Profile {
 impl Profile {
     pub fn matches(&self, info: &CompatibilityInfo) -> bool {
         info.state_migration == Some(self.state)
-            && info.history_migration == Some(6)
+            && info.history_migration == Some(self.history)
             && (info.schema_fingerprint == self.fingerprint
                 || self
                     .legacy_fingerprints
@@ -24,6 +25,7 @@ impl Profile {
 pub const PROFILES: &[Profile] = &[
     Profile {
         state: 52,
+        history: 6,
         runtime: "0.153.4",
         fingerprint: "c2144b3e63ffbc0caa5b338f58f43d2f3293d5b080d5176c54bba03bb8ef5625",
         legacy_fingerprints: &["8f654166cba02b510074adbd0e4ebc66128b624672b74d9a6ca415b8e09eab16"],
@@ -31,6 +33,7 @@ pub const PROFILES: &[Profile] = &[
     },
     Profile {
         state: 54,
+        history: 6,
         runtime: "0.154.0-alpha.6.2",
         fingerprint: "8082e27f46c7a5691ae4dca5b004ce2103bacaafb3989f7be95607d34685c205",
         legacy_fingerprints: &["9422fcd06e5ff2ed83657ad39ff5247b27150bdd85d38f6cc4159641a52c5434"],
@@ -38,10 +41,19 @@ pub const PROFILES: &[Profile] = &[
     },
     Profile {
         state: 55,
+        history: 6,
         runtime: "0.155.0-alpha.9.2",
         fingerprint: "52ae661eafd5735306aafc892143c840a9b9662046d0d91a5f91083646ed3b36",
         legacy_fingerprints: &["c5d97837b0ea23df607c69a6721ba2612a6169733dee2b1d795a96af759208de"],
         schema: include_str!("fixtures/schema-55.json"),
+    },
+    Profile {
+        state: 57,
+        history: 7,
+        runtime: "",
+        fingerprint: "48182dfc86c349d16271b236fba65b8cbe627b324955380d0497d0ceefccbcb1",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-57.json"),
     },
 ];
 
@@ -83,7 +95,7 @@ mod tests {
                     supported: true,
                     adapter: String::new(),
                     state_migration: Some(expected.state),
-                    history_migration: Some(6),
+                    history_migration: Some(expected.history),
                     schema_fingerprint: (*fingerprint).into(),
                     explanation: String::new(),
                 };

@@ -38,7 +38,7 @@ fn create_home(home: &Path, migration: i64) {
 }
 
 fn attachment_layout(migration: i64) -> (&'static str, &'static str) {
-    if migration == 55 {
+    if migration >= 55 {
         ("thread_attachments", "attachment_type")
     } else {
         ("thread_artifacts", "artifact_type")
@@ -316,9 +316,20 @@ fn assert_restored_content(home: &Path, migration: i64) {
 }
 
 #[test]
-fn schema55_transfer_matrix_preserves_records_images_selection_and_destination() {
-    for (source_version, destination_version) in [(54, 55), (55, 54), (55, 55), (55, 52), (52, 55)]
-    {
+fn supported_schema_transfer_matrix_preserves_records_images_selection_and_destination() {
+    for (source_version, destination_version) in [
+        (54, 55),
+        (55, 54),
+        (55, 55),
+        (55, 52),
+        (52, 55),
+        (55, 57),
+        (57, 55),
+        (57, 57),
+        (57, 54),
+        (54, 57),
+        (52, 57),
+    ] {
         let source = tempdir().unwrap();
         let destination = tempdir().unwrap();
         create_home(source.path(), source_version);
@@ -379,7 +390,10 @@ fn schema55_transfer_matrix_preserves_records_images_selection_and_destination()
             compatibility_after.state_migration,
             Some(destination_version)
         );
-        assert_eq!(compatibility_after.history_migration, Some(6));
+        assert_eq!(
+            compatibility_after.history_migration,
+            Some(if destination_version == 57 { 7 } else { 6 })
+        );
         assert_eq!(
             compatibility_before.schema_fingerprint,
             compatibility_after.schema_fingerprint
@@ -586,6 +600,77 @@ fn schema55_nonnull_fields_block_downgrade_before_database_or_ui_mutation() {
             .threads
             .is_empty());
     }
+}
+
+#[test]
+fn schema57_creator_and_lifecycle_fields_round_trip_and_block_lossy_downgrades() {
+    let source = tempdir().unwrap();
+    let peer = tempdir().unwrap();
+    let older = tempdir().unwrap();
+    create_home(source.path(), 57);
+    create_home(peer.path(), 57);
+    create_home(older.path(), 55);
+    seed_thread(source.path(), 57, "portable");
+    seed_thread(older.path(), 55, "local");
+    let state = Connection::open(source.path().join("state_5.sqlite")).unwrap();
+    state.execute(
+        "UPDATE threads SET creator_user_id='disposable-user', creator_account_id='disposable-account' WHERE id='portable'",
+        [],
+    ).unwrap();
+    let history = Connection::open(source.path().join("thread_history_1.sqlite")).unwrap();
+    history.execute(
+        "UPDATE thread_items SET started_at_ms=100, completed_at_ms=200 WHERE thread_id='portable'",
+        [],
+    ).unwrap();
+    drop(state);
+    drop(history);
+
+    let captured = capture(source.path(), &[]);
+    let thread = &captured.manifest.threads[0];
+    assert!(matches!(
+        &thread.state_rows["threads"][0].values["creator_account_id"],
+        SqlValue::Text(value) if value == "disposable-account"
+    ));
+    assert!(matches!(
+        thread.history_rows["thread_items"][0].values["completed_at_ms"],
+        SqlValue::Integer(200)
+    ));
+    restore(peer.path(), &captured, &[]);
+    assert_eq!(
+        capture(peer.path(), &[]).manifest.threads[0].fingerprint,
+        thread.fingerprint
+    );
+
+    let issues = codex::transfer_issues(&captured.manifest, &codex::inspect(older.path()).unwrap());
+    assert_eq!(issues.len(), 1);
+    for field in [
+        "threads.creator_user_id",
+        "threads.creator_account_id",
+        "thread_items.started_at_ms",
+        "thread_items.completed_at_ms",
+    ] {
+        assert!(issues[0].contains(field), "{field} must be explained");
+    }
+    let files = ["state_5.sqlite", "thread_history_1.sqlite"];
+    let before: Vec<_> = files
+        .iter()
+        .map(|name| fs::read(older.path().join(name)).unwrap())
+        .collect();
+    assert!(apply_rows(
+        older.path(),
+        &captured.manifest,
+        &["local"],
+        &HashMap::new(),
+    )
+    .is_err());
+    let after: Vec<_> = files
+        .iter()
+        .map(|name| fs::read(older.path().join(name)).unwrap())
+        .collect();
+    assert_eq!(
+        before, after,
+        "preflight must preserve the older destination"
+    );
 }
 
 #[test]

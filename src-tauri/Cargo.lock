@@ -3082,7 +3082,7 @@ dependencies = [
 
 [[package]]
 name = "spice-route"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "spice-route-core",
  "tauri",
@@ -3092,7 +3092,7 @@ dependencies = [
 
 [[package]]
 name = "spice-route-core"
-version = "1.6.1"
+version = "1.6.2"
 dependencies = [
  "base64 0.22.1",
  "chrono",

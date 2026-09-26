@@ -103,3 +103,11 @@ docs/design/
 !artifacts/Spice-Route-1.6.1-windows-arm64-setup.exe.sha256
 !artifacts/macos-apple-silicon/Spice-Route-1.6.1-macos-apple-silicon.dmg
 !artifacts/macos-apple-silicon/Spice-Route-1.6.1-macos-apple-silicon.app.zip
+
+# Codex schema 57/7 compatibility packages
+!artifacts/Spice-Route-1.6.2-windows-x64-setup.exe
+!artifacts/Spice-Route-1.6.2-windows-x64-setup.exe.sha256
+!artifacts/Spice-Route-1.6.2-windows-arm64-setup.exe
+!artifacts/Spice-Route-1.6.2-windows-arm64-setup.exe.sha256
+!artifacts/macos-apple-silicon/Spice-Route-1.6.2-macos-apple-silicon.dmg
+!artifacts/macos-apple-silicon/Spice-Route-1.6.2-macos-apple-silicon.app.zip
