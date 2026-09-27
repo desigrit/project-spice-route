@@ -2533,7 +2533,6 @@ fn plan_project_aliases(
                 .filter_map(|thread| thread.project_id.as_deref()),
         )
         .collect();
-    let local_projects = state.get("local-projects").and_then(JsonValue::as_object);
     let hosts = state
         .get("app-server-project-id-by-legacy-project-id-by-host")
         .and_then(JsonValue::as_object);
@@ -2549,22 +2548,20 @@ fn plan_project_aliases(
         let aliases = known_project_aliases(state, host_key, &project.id);
         let canonical = preferred_project_alias(state, host_key, &project.id).or_else(|| {
             project.legacy_id.as_ref().map(|incoming| {
-                let taken = local_projects.is_some_and(|items| items.contains_key(incoming))
-                    || hosts.is_some_and(|hosts| {
-                        hosts
-                            .values()
-                            .filter_map(JsonValue::as_object)
-                            .any(|mapping| {
-                                mapping
-                                    .get(incoming)
-                                    .and_then(JsonValue::as_str)
-                                    .is_some_and(|id| id != project.id)
-                            })
-                    })
-                    || plan
-                        .canonical_by_project
+                let taken = hosts.is_some_and(|hosts| {
+                    hosts
                         .values()
-                        .any(|claimed| claimed == incoming);
+                        .filter_map(JsonValue::as_object)
+                        .any(|mapping| {
+                            mapping
+                                .get(incoming)
+                                .and_then(JsonValue::as_str)
+                                .is_some_and(|id| id != project.id)
+                        })
+                }) || plan
+                    .canonical_by_project
+                    .values()
+                    .any(|claimed| claimed == incoming);
                 if taken {
                     uuid::Uuid::new_v4().to_string()
                 } else {
@@ -3992,6 +3989,45 @@ mod tests {
             associations.legacy_by_project.get("shared-project"),
             Some(&"local-sidebar".to_string())
         );
+
+        // Some profiles have the same sidebar record but no host mapping yet.
+        // Its exact ID can be reused without inventing a second folder.
+        let unmapped = tempdir().unwrap();
+        let mut unmapped_config = config.clone();
+        unmapped_config.codex_home = unmapped.path().to_string_lossy().into_owned();
+        write_json(
+            &unmapped.path().join(".codex-global-state.json"),
+            &serde_json::json!({
+                "local-projects": {
+                    "source-sidebar": { "id": "source-sidebar", "name": "Shared" }
+                },
+                "project-order": ["source-sidebar"]
+            }),
+        )
+        .unwrap();
+        merge_global_state(
+            unmapped.path(),
+            &manifest.ui_state,
+            &manifest,
+            &incoming_threads,
+            &selected,
+            &HashSet::new(),
+            &HashSet::new(),
+            &unmapped_config,
+        )
+        .unwrap();
+        let restored: JsonValue =
+            read_json(&unmapped.path().join(".codex-global-state.json")).unwrap();
+        assert_eq!(
+            restored
+                .get("local-projects")
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(restored.pointer("/local-projects/source-sidebar").is_some());
     }
 
     #[test]

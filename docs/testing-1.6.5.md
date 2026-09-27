@@ -8,6 +8,7 @@ Disposable-data checks:
 
 - Pull into a profile with an existing sidebar ID for the same database project, then repeat the Pull. The project has one listing and its incoming and local chats point to it.
 - Add a stale sidebar alias for that exact database project. A repeated Pull offers a listing update and consolidates the aliases without dropping chat order or unrelated UI state.
+- Reuse an existing exact sidebar ID even if its old host mapping is missing, without creating a new folder.
 - Keep a separate project with a different database ID, the same name, and the same local root. It remains untouched.
 - Compare the same project across devices with different sidebar IDs. Its project fingerprint remains equal, so the difference alone does not create a conflict.
 - Run the full Rust engine suite and strict Clippy, plus frontend and native build checks.
