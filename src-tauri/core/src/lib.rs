@@ -15,6 +15,8 @@ pub mod models;
 pub mod platform;
 #[path = "../../src/recovery.rs"]
 pub mod recovery;
+#[path = "../../src/retained_history.rs"]
+pub mod retained_history;
 #[cfg(test)]
 #[path = "../../src/schema55_tests.rs"]
 mod schema55_tests;

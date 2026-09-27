@@ -19,7 +19,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 
 const config: AppConfig = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   deviceId: "device-a",
   deviceName: "Windows A",
   codexHome: "C:\\Users\\test\\.codex",

@@ -2,6 +2,7 @@
 use crate::codex;
 use crate::compatibility;
 use crate::models::{AppConfig, ObjectKind, ProjectMode, SnapshotManifest, SqlValue};
+use crate::retained_history::RetainedHistory;
 use crate::snapshot::{self, ObjectStore};
 use rusqlite::{params, Connection};
 use serde_json::{json, Value};
@@ -129,18 +130,29 @@ struct Captured {
 }
 
 fn capture(home: &Path, excluded: &[&str]) -> Captured {
+    capture_with_retained(home, excluded, None)
+}
+
+fn capture_with_retained(
+    home: &Path,
+    excluded: &[&str],
+    retained: Option<&RetainedHistory>,
+) -> Captured {
     let directory = tempdir().unwrap();
     let mut config = config(home);
     config.selection.excluded_thread_ids = excluded.iter().map(|id| (*id).into()).collect();
     let databases = directory.path().join("databases");
     codex::snapshot_databases(home, &databases).unwrap();
-    let export = codex::export_selected(
+    let mut export = codex::export_selected(
         home,
         &databases,
         &config.selection,
         Path::new(&config.projectless_root),
     )
     .unwrap();
+    if let Some(retained) = retained {
+        retained.overlay_export(&mut export, true).unwrap();
+    }
     let store = ObjectStore::new(directory.path().join("objects")).unwrap();
     let mut manifest = snapshot::build_manifest(&config, export, &store, None).unwrap();
     manifest.codex_version = Some(
@@ -194,6 +206,7 @@ fn apply_rows(
             })
             .collect(),
         attachment_paths,
+        None,
     )
 }
 
@@ -661,14 +674,13 @@ fn schema57_creator_and_lifecycle_fields_round_trip_and_block_lossy_downgrades()
 
     let issues = codex::transfer_issues(&captured.manifest, &codex::inspect(older.path()).unwrap());
     assert_eq!(issues.len(), 1);
-    for field in [
-        "threads.creator_user_id",
-        "threads.creator_account_id",
-        "thread_items.started_at_ms",
-        "thread_items.completed_at_ms",
-    ] {
+    for field in ["threads.creator_user_id", "threads.creator_account_id"] {
         assert!(issues[0].contains(field), "{field} must be explained");
     }
+    assert_eq!(
+        codex::transfer_warnings(&captured.manifest, &codex::inspect(older.path()).unwrap()).len(),
+        1
+    );
     let files = ["state_5.sqlite", "thread_history_1.sqlite"];
     let before: Vec<_> = files
         .iter()
@@ -761,13 +773,17 @@ fn schema57_history6_mixed_profile_round_trips_across_mac_and_windows_layouts() 
 }
 
 #[test]
-fn schema57_history6_refuses_newer_nonnull_history_fields_without_mutation() {
+fn schema57_history6_retains_newer_timing_fields_across_a_later_push() {
     let newer = tempdir().unwrap();
     let mixed = tempdir().unwrap();
+    let return_destination = tempdir().unwrap();
+    let local_data = tempdir().unwrap();
     create_home(newer.path(), 57);
     create_home_pair(mixed.path(), 57, 6);
+    create_home(return_destination.path(), 57);
     seed_thread(newer.path(), 57, "portable");
     seed_thread(mixed.path(), 57, "local");
+    seed_thread(return_destination.path(), 57, "unrelated");
     let history = Connection::open(newer.path().join("thread_history_1.sqlite")).unwrap();
     history
         .execute(
@@ -778,19 +794,120 @@ fn schema57_history6_refuses_newer_nonnull_history_fields_without_mutation() {
     drop(history);
     let captured = capture(newer.path(), &[]);
     let issues = codex::transfer_issues(&captured.manifest, &codex::inspect(mixed.path()).unwrap());
-    assert_eq!(issues.len(), 1);
-    assert!(issues[0].contains("started_at_ms"));
-    assert!(issues[0].contains("completed_at_ms"));
+    assert!(issues.is_empty());
+    let warnings =
+        codex::transfer_warnings(&captured.manifest, &codex::inspect(mixed.path()).unwrap());
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains("1 incoming chat contains"));
     let before: Vec<_> = ["state_5.sqlite", "thread_history_1.sqlite"]
         .iter()
         .map(|name| fs::read(mixed.path().join(name)).unwrap())
         .collect();
+    // A direct database import without durable retention remains prohibited.
     assert!(apply_rows(mixed.path(), &captured.manifest, &[], &HashMap::new()).is_err());
     let after: Vec<_> = ["state_5.sqlite", "thread_history_1.sqlite"]
         .iter()
         .map(|name| fs::read(mixed.path().join(name)).unwrap())
         .collect();
     assert_eq!(before, after);
+
+    assert!(crate::retained_history::load(local_data.path(), true).is_err());
+    let included = HashSet::from(["portable".to_string()]);
+    let retained = RetainedHistory::default()
+        .after_pull(&captured.manifest, &included, &HashSet::new(), Some(6))
+        .unwrap();
+    assert!(retained.has_entries());
+    retained.stage(local_data.path()).unwrap();
+    let retained = crate::retained_history::load(local_data.path(), true).unwrap();
+    assert!(retained.covers(&captured.manifest.threads[0]));
+    let restored_rollout = mixed.path().join("sessions").join("portable.jsonl");
+    fs::copy(
+        newer.path().join("sessions").join("portable.jsonl"),
+        &restored_rollout,
+    )
+    .unwrap();
+    codex::apply_bundle(
+        mixed.path(),
+        &captured.manifest,
+        &included,
+        &HashSet::new(),
+        &HashSet::new(),
+        &HashSet::new(),
+        &config(mixed.path()),
+        &HashMap::from([(
+            "portable".to_string(),
+            restored_rollout.to_string_lossy().into_owned(),
+        )]),
+        &HashMap::new(),
+        Some(&retained),
+    )
+    .unwrap();
+    assert!(codex::inspect(mixed.path()).unwrap().supported);
+    let first_capture = capture_with_retained(mixed.path(), &["local"], Some(&retained)).manifest;
+    assert_eq!(
+        first_capture.threads[0].fingerprint, captured.manifest.threads[0].fingerprint,
+        "an unchanged restored chat must not become a false conflict"
+    );
+    let mixed_history = Connection::open(mixed.path().join("thread_history_1.sqlite")).unwrap();
+    mixed_history
+        .execute(
+            "UPDATE thread_items SET item_json='{\"text\":\"continued on Mac\"}' WHERE thread_id='portable'",
+            [],
+        )
+        .unwrap();
+    drop(mixed_history);
+
+    let republished = capture_with_retained(mixed.path(), &["local"], Some(&retained)).manifest;
+    let item = &republished.threads[0].history_rows["thread_items"][0];
+    assert_eq!(item.values["started_at_ms"], SqlValue::Integer(100));
+    assert_eq!(item.values["completed_at_ms"], SqlValue::Integer(200));
+    assert!(
+        matches!(&item.values["item_json"], SqlValue::Text(value) if value.contains("continued on Mac"))
+    );
+    apply_rows(
+        return_destination.path(),
+        &republished,
+        &[],
+        &HashMap::new(),
+    )
+    .unwrap();
+    let returned =
+        Connection::open(return_destination.path().join("thread_history_1.sqlite")).unwrap();
+    let times: (i64, i64) = returned
+        .query_row(
+            "SELECT started_at_ms, completed_at_ms FROM thread_items WHERE thread_id='portable'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(times, (100, 200));
+    let unrelated: i64 = returned
+        .query_row(
+            "SELECT count(*) FROM thread_items WHERE thread_id='unrelated'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(unrelated, 1);
+
+    let mixed_history = Connection::open(mixed.path().join("thread_history_1.sqlite")).unwrap();
+    mixed_history
+        .execute("DELETE FROM thread_items WHERE thread_id='portable'", [])
+        .unwrap();
+    drop(mixed_history);
+    let database_stage = tempdir().unwrap();
+    codex::snapshot_databases(mixed.path(), database_stage.path()).unwrap();
+    let mut missing_item = codex::export_selected(
+        mixed.path(),
+        database_stage.path(),
+        &config(mixed.path()).selection,
+        &mixed.path().join("workspaces"),
+    )
+    .unwrap();
+    assert!(retained
+        .overlay_export(&mut missing_item.clone(), false)
+        .is_ok());
+    assert!(retained.overlay_export(&mut missing_item, true).is_err());
 }
 
 #[test]

@@ -4,6 +4,8 @@ For a visual overview of the Codex schema, selected content, and Push and Pull f
 
 ## Boundaries
 
+When a 57/6 Codex profile imports timing fields from 57/7, Spice Route keeps those two fields in local retained-history data and includes that file in Pull recovery. Push restores the values to the outgoing selected chat records. Codex's own database layout and migration ledger remain unchanged.
+
 The interface in `src` contains Overview, What to sync, Recovery, Diagnostics, and Settings for macOS. It communicates through typed Tauri commands in `src-tauri/src/lib.rs`. Windows uses a native WinUI 3 shell under `native/windows` and connects to the same engine over typed JSON-line operations.
 
 The Rust engine is split into narrow modules:

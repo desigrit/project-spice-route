@@ -732,6 +732,10 @@ mod tests {
         let db = rusqlite::Connection::open(&targets[0]).unwrap();
         db.execute_batch("INSERT INTO threads(id,rollout_path,created_at,updated_at,source,model_provider,cwd,title,sandbox_policy,approval_mode,originator,daybreak_enabled) VALUES('existing','rollout',1,1,'cli','openai','workspace','Existing','local','local','desktop',1)").unwrap();
         drop(db);
+        let retained = crate::retained_history::RetainedHistory::default()
+            .stage(app.path())
+            .unwrap();
+        targets.push(retained.clone());
         let before: Vec<_> = targets.iter().map(|path| fs::read(path).unwrap()).collect();
         let id = create(app.path(), "Before cross-version import", None, &targets).unwrap();
         let db = rusqlite::Connection::open(&targets[0]).unwrap();
@@ -740,12 +744,14 @@ mod tests {
         )
         .unwrap();
         drop(db);
+        fs::write(&retained, b"interrupted metadata write").unwrap();
         assert!(has_pending(app.path()));
         restore_files(app.path(), &id).unwrap();
         for (path, bytes) in targets.iter().zip(before) {
             assert_eq!(fs::read(path).unwrap(), bytes);
         }
         crate::codex::verify_databases(home.path()).unwrap();
+        crate::retained_history::load(app.path(), true).unwrap();
         assert_eq!(
             crate::codex::inspect(home.path()).unwrap().state_migration,
             Some(54)

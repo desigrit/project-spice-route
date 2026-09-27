@@ -131,7 +131,7 @@ public sealed partial class MainWindow : Window
         Directory.CreateDirectory(projectlessRoot);
         var config = new JsonObject
         {
-            ["schemaVersion"] = 1,
+            ["schemaVersion"] = 2,
             ["deviceId"] = "startup-probe",
             ["deviceName"] = "Startup probe",
             ["codexHome"] = codexHome,

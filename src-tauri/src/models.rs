@@ -411,6 +411,8 @@ pub struct LocalState {
     pub last_selection_revision: Option<String>,
     #[serde(default)]
     pub pending_merge_parent_ids: Vec<String>,
+    #[serde(default)]
+    pub retained_history_required: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -495,7 +497,7 @@ pub struct DatabaseRow {
     pub values: BTreeMap<String, SqlValue>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "value", rename_all = "camelCase")]
 pub enum SqlValue {
     Null,

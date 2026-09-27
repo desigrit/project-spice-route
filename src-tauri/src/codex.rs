@@ -4,6 +4,7 @@ use crate::models::{
     ProjectMode, ProjectSummary, SelectionRules, SnapshotManifest, SqlValue, ThreadExport,
     ThreadSummary,
 };
+use crate::retained_history::{self, RetainedHistory};
 use crate::util::{hash_json, write_json};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use rusqlite::backup::Backup;
@@ -297,15 +298,6 @@ pub fn transfer_issues(
                 fields.push(format!("threads.{column}"));
             }
         }
-        if destination.history_migration.is_some_and(|version| version < 7) {
-            for column in ["started_at_ms", "completed_at_ms"] {
-                if thread.history_rows.get("thread_items").into_iter().flatten().any(|row|
-                    row.values.get(column).is_some_and(|value| !matches!(value, SqlValue::Null)))
-                {
-                    fields.push(format!("thread_items.{column}"));
-                }
-            }
-        }
         (!fields.is_empty()).then(|| format!(
             "Chat '{}' contains values in newer Codex fields ({}). This device's database {}/{} cannot preserve them. Update Codex on this device to a tested compatible version, or exclude this chat on the source. Nothing has been changed.",
             thread.title,
@@ -314,6 +306,48 @@ pub fn transfer_issues(
             destination.history_migration.unwrap_or_default()
         ))
     }).collect()
+}
+
+pub fn transfer_warnings(
+    manifest: &SnapshotManifest,
+    destination: &CompatibilityInfo,
+) -> Vec<String> {
+    if !destination
+        .history_migration
+        .is_some_and(|version| version < 7)
+    {
+        return Vec::new();
+    }
+    let count = manifest
+        .threads
+        .iter()
+        .filter(|thread| {
+            thread
+                .history_rows
+                .get("thread_items")
+                .into_iter()
+                .flatten()
+                .any(|row| {
+                    ["started_at_ms", "completed_at_ms"].iter().any(|column| {
+                        row.values
+                            .get(*column)
+                            .is_some_and(|value| !matches!(value, SqlValue::Null))
+                    })
+                })
+        })
+        .count();
+    if count == 0 {
+        Vec::new()
+    } else {
+        let (noun, verb) = if count == 1 {
+            ("chat", "contains")
+        } else {
+            ("chats", "contain")
+        };
+        vec![format!(
+            "{count} incoming {noun} {verb} item timing values that this Codex history database cannot store. If imported, Spice Route will retain those values in its local data and include them in later handoffs."
+        )]
+    }
 }
 
 pub fn snapshot_databases(home: &Path, destination: &Path) -> Result<(PathBuf, PathBuf)> {
@@ -1378,6 +1412,11 @@ fn hash_thread_rows(
     hash_json(&(normalized, normalized_history))
 }
 
+pub(crate) fn refresh_thread_fingerprint(thread: &mut ThreadExport) -> Result<()> {
+    thread.fingerprint = hash_thread_rows(&thread.state_rows, &thread.history_rows)?;
+    Ok(())
+}
+
 fn scrub_local_thread_fields(state: &mut BTreeMap<String, Vec<DatabaseRow>>) {
     if let Some(rows) = state.get_mut("threads") {
         for row in rows {
@@ -1755,6 +1794,7 @@ pub fn apply_bundle(
     config: &AppConfig,
     rollout_paths: &HashMap<String, String>,
     attachment_paths: &HashMap<String, HashMap<String, String>>,
+    retained_history: Option<&RetainedHistory>,
 ) -> Result<()> {
     let compatibility = inspect(staged_home)?;
     if !compatibility.supported {
@@ -1786,7 +1826,28 @@ pub fn apply_bundle(
                     "Unknown source history table: {table}"
                 )));
             }
-            validate_row_columns(&history, table, rows)?;
+            if table == "thread_items" && compatibility.history_migration.is_some_and(|v| v < 7) {
+                let has_timing_values = rows.iter().any(|row| {
+                    ["started_at_ms", "completed_at_ms"].iter().any(|column| {
+                        row.values
+                            .get(*column)
+                            .is_some_and(|value| !matches!(value, SqlValue::Null))
+                    })
+                });
+                if has_timing_values
+                    && !retained_history.is_some_and(|retained| retained.covers(thread))
+                {
+                    return Err(SpiceError::UnsupportedCodex(format!(
+                        "Chat '{}' contains item timing values that require retained recovery metadata. Nothing was changed.",
+                        thread.title
+                    )));
+                }
+                let mut stored_rows = rows.clone();
+                retained_history::strip_unsupported_timing(&mut stored_rows);
+                validate_row_columns(&history, table, &stored_rows)?;
+            } else {
+                validate_row_columns(&history, table, rows)?;
+            }
         }
     }
     for project in manifest
@@ -1887,6 +1948,14 @@ pub fn apply_bundle(
         {
             let mut state_rows = thread.state_rows.clone();
             let mut history_rows = thread.history_rows.clone();
+            if compatibility
+                .history_migration
+                .is_some_and(|version| version < 7)
+            {
+                if let Some(rows) = history_rows.get_mut("thread_items") {
+                    retained_history::strip_unsupported_timing(rows);
+                }
+            }
             if let Some(replacements) = attachment_paths.get(&thread.id) {
                 rewrite_local_image_paths_in_rows(&mut state_rows, replacements);
                 rewrite_local_image_paths_in_rows(&mut history_rows, replacements);
@@ -3179,6 +3248,7 @@ mod tests {
             &config,
             &rollout_paths,
             &attachment_paths,
+            None,
         )
         .unwrap();
         verify_databases(&staged_home).unwrap();
@@ -3455,6 +3525,7 @@ mod tests {
                     &crate::settings::default_config(),
                     &HashMap::new(),
                     &HashMap::new(),
+                    None,
                 )
                 .unwrap_err();
                 assert!(
@@ -4057,6 +4128,7 @@ mod tests {
                 })
                 .collect(),
             &HashMap::new(),
+            None,
         )
     }
 

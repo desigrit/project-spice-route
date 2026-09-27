@@ -4,6 +4,7 @@ use crate::error::{Result, SpiceError};
 use crate::models::*;
 use crate::platform;
 use crate::recovery;
+use crate::retained_history;
 use crate::settings;
 use crate::snapshot::{self, ObjectStore};
 use crate::util::{
@@ -21,6 +22,12 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 const MIN_OPERATION_HEADROOM: u64 = 64 * 1024 * 1024;
+
+#[derive(Clone, Copy)]
+enum CapturePurpose {
+    Push,
+    Pull,
+}
 
 #[derive(Clone)]
 struct PreparedOperation {
@@ -311,6 +318,8 @@ impl Engine {
                 .map(|id| head_ids.contains(id))
                 .unwrap_or(false);
         let pending = recovery::has_pending(&self.data_dir);
+        let retained_history_missing =
+            state.retained_history_required && !retained_history::path(&self.data_dir).is_file();
         let cleanup_pending = self.data_dir.join("cloud-cleanup.json").is_file();
         let compatibility = codex::with_build_gate(
             codex::inspect(Path::new(&config.codex_home))?,
@@ -322,6 +331,12 @@ impl Engine {
             (
                 SyncState::Blocked,
                 "An interrupted pull needs attention in Recovery.".to_string(),
+            )
+        } else if retained_history_missing {
+            (
+                SyncState::Blocked,
+                "Retained history metadata is missing. Restore a Spice Route recovery point before another handoff."
+                    .to_string(),
             )
         } else if !compatibility.supported {
             (
@@ -423,7 +438,7 @@ impl Engine {
             &stage,
             primary.map(|item| item.id.clone()),
             None,
-            true,
+            CapturePurpose::Push,
             false,
         )?;
         manifest.additional_parent_ids = additional_parent_ids.clone();
@@ -536,6 +551,7 @@ impl Engine {
         let changes = diff_for_pull(config, &incoming, &current, baseline.as_ref())?;
         let local_fingerprint = pull_local_fingerprint(config, &current, &incoming)?;
         let mut warnings = incoming.warnings.clone();
+        warnings.extend(codex::transfer_warnings(&incoming, &current.compatibility));
         if let Some(base) = &baseline {
             for project in base.projects.iter().filter(|project| {
                 project.mode == ProjectMode::Full
@@ -621,7 +637,7 @@ impl Engine {
                 prepared.expected_latest.clone(),
                 Some(&prepared.cancel),
                 &store,
-                true,
+                CapturePurpose::Push,
             )?;
             manifest.additional_parent_ids = prepared.additional_parent_ids.clone();
             if snapshot::manifest_fingerprint(&manifest)? != prepared.local_fingerprint {
@@ -805,7 +821,7 @@ impl Engine {
                 &recheck_stage,
                 None,
                 Some(&prepared.cancel),
-                false,
+                CapturePurpose::Pull,
                 false,
             )?;
             log.destination_version(current.codex_version.as_deref());
@@ -827,7 +843,7 @@ impl Engine {
                 platform::assert_codex_closed()?;
                 self.ensure_heads(config, &prepared.expected_head_ids)?;
                 writer_monitor.check()?;
-                record_pull_baseline(&self.data_dir, &incoming, &prepared.expected_head_ids)?;
+                record_pull_baseline(&self.data_dir, &incoming, &prepared.expected_head_ids, None)?;
                 log.selection(&HashSet::new(), &HashSet::new());
                 log.verified(config, &HashSet::new(), &HashSet::new());
                 log.phase("keptLocalVersions");
@@ -886,6 +902,16 @@ impl Engine {
                 })
                 .map(|(key, _)| key.trim_start_matches("project:").to_string())
                 .collect();
+            let local_state = settings::load_local_state(&self.data_dir)?;
+            let retained_before =
+                retained_history::load(&self.data_dir, local_state.retained_history_required)?;
+            let retained_after = retained_before.after_pull(
+                &incoming,
+                &incoming_threads,
+                &deleted_threads,
+                current.compatibility.history_migration,
+            )?;
+            let staged_retained_history = retained_after.stage(&apply_stage)?;
             let mut rollout_paths = HashMap::new();
             let mut rollout_fingerprints = HashMap::new();
             let mut staged_rollouts = Vec::new();
@@ -974,6 +1000,7 @@ impl Engine {
                 config,
                 &rollout_paths,
                 &attachment_paths,
+                Some(&retained_after),
             )?;
             let file_operations =
                 plan_file_operations(config, &incoming, baseline.as_ref(), &decisions)?;
@@ -992,6 +1019,7 @@ impl Engine {
                 .collect();
             let mut recovery_targets = vec![
                 self.data_dir.join("state.json"),
+                retained_history::path(&self.data_dir),
                 live_home.join("state_5.sqlite"),
                 live_home.join("thread_history_1.sqlite"),
                 live_home.join(".codex-global-state.json"),
@@ -1147,6 +1175,18 @@ impl Engine {
                         }
                     }
                 }
+                replace_file(
+                    &staged_retained_history,
+                    &retained_history::path(&self.data_dir),
+                )?;
+                if !retained_history::path(&self.data_dir).is_file()
+                    || retained_history::load(&self.data_dir, true)? != retained_after
+                {
+                    return Err(SpiceError::User(
+                        "Retained history metadata failed verification. Use the pending recovery point before another handoff."
+                            .to_string(),
+                    ));
+                }
                 set_progress(
                     &prepared,
                     OperationPhase::FinalVerification,
@@ -1169,7 +1209,12 @@ impl Engine {
                 )?;
                 log.verified(config, &incoming_threads, &incoming_projects);
                 writer_monitor.check()?;
-                record_pull_baseline(&self.data_dir, &incoming, &prepared.expected_head_ids)?;
+                record_pull_baseline(
+                    &self.data_dir,
+                    &incoming,
+                    &prepared.expected_head_ids,
+                    Some(retained_after.has_entries()),
+                )?;
                 Ok(())
             })();
             if let Err(error) = apply_result {
@@ -1364,7 +1409,7 @@ impl Engine {
         stage: &Path,
         parent: Option<String>,
     ) -> Result<SnapshotManifest> {
-        self.capture_local_cancellable(config, stage, parent, None, false, false)
+        self.capture_local_cancellable(config, stage, parent, None, CapturePurpose::Pull, false)
     }
 
     fn capture_local_cancellable(
@@ -1373,7 +1418,7 @@ impl Engine {
         stage: &Path,
         parent: Option<String>,
         cancel: Option<&AtomicBool>,
-        require_project_sources: bool,
+        purpose: CapturePurpose,
         capture_content: bool,
     ) -> Result<SnapshotManifest> {
         let object_store = if capture_content {
@@ -1381,14 +1426,7 @@ impl Engine {
         } else {
             ObjectStore::for_preview(stage.join("objects"))
         };
-        self.capture_local_using_store(
-            config,
-            stage,
-            parent,
-            cancel,
-            &object_store,
-            require_project_sources,
-        )
+        self.capture_local_using_store(config, stage, parent, cancel, &object_store, purpose)
     }
 
     fn capture_local_using_store(
@@ -1398,7 +1436,7 @@ impl Engine {
         parent: Option<String>,
         cancel: Option<&AtomicBool>,
         object_store: &ObjectStore,
-        require_project_sources: bool,
+        purpose: CapturePurpose,
     ) -> Result<SnapshotManifest> {
         let db_dir = stage.join("db");
         codex::snapshot_databases(Path::new(&config.codex_home), &db_dir)?;
@@ -1411,6 +1449,12 @@ impl Engine {
             &config.selection,
             Path::new(&config.projectless_root),
         )?;
+        let local_state = settings::load_local_state(&self.data_dir)?;
+        let retained =
+            retained_history::load(&self.data_dir, local_state.retained_history_required)?;
+        // Push must not publish a missing retained item. Pull may preview the
+        // local difference so the user can choose the intact incoming chat.
+        retained.overlay_export(&mut export, matches!(purpose, CapturePurpose::Push))?;
         codex::append_configured_project_roots(&mut export, config);
         let mut manifest = snapshot::build_manifest_cancellable(
             config,
@@ -1418,7 +1462,7 @@ impl Engine {
             object_store,
             parent,
             cancel,
-            require_project_sources,
+            matches!(purpose, CapturePurpose::Push),
         )?;
         let version = platform::codex_version(platform::find_codex_executable().as_deref());
         manifest.compatibility = codex::with_build_gate(manifest.compatibility, version.as_deref());
@@ -1836,10 +1880,14 @@ fn record_pull_baseline(
     data_dir: &Path,
     incoming: &SnapshotManifest,
     heads: &[String],
+    retained_history_required: Option<bool>,
 ) -> Result<()> {
     let mut state = settings::load_local_state(data_dir)?;
     state.last_applied_snapshot_id = Some(incoming.id.clone());
     state.last_selection_revision = Some(incoming.selection_revision.clone());
+    if let Some(required) = retained_history_required {
+        state.retained_history_required = required;
+    }
     state.pending_merge_parent_ids = if heads.len() > 1 {
         heads.to_vec()
     } else {
@@ -3558,7 +3606,13 @@ mod tests {
             .values()
             .all(|decision| *decision == ApplyDecision::Local));
         fs::write(data.path().join("untouched.sqlite"), b"local database").unwrap();
-        record_pull_baseline(data.path(), &incoming, std::slice::from_ref(&incoming.id)).unwrap();
+        record_pull_baseline(
+            data.path(),
+            &incoming,
+            std::slice::from_ref(&incoming.id),
+            None,
+        )
+        .unwrap();
         let state = settings::load_local_state(data.path()).unwrap();
         assert_eq!(
             state.last_applied_snapshot_id.as_deref(),

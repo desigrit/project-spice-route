@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use uuid::Uuid;
 
-pub const CONFIG_SCHEMA: u32 = 1;
+pub const CONFIG_SCHEMA: u32 = 2;
 
 pub fn default_config() -> AppConfig {
     let codex_home = discover_codex_home()
@@ -99,7 +99,12 @@ pub fn load_config(data_dir: &Path) -> Result<AppConfig> {
         return Ok(default_config());
     }
     let mut config: AppConfig = read_json(&path)?;
-    if config.schema_version != CONFIG_SCHEMA {
+    if config.schema_version == 0 {
+        return Err(SpiceError::User(
+            "Settings format 0 is not supported.".into(),
+        ));
+    }
+    if config.schema_version > CONFIG_SCHEMA {
         return Err(SpiceError::User(format!(
             "Settings format {} is newer than this app supports.",
             config.schema_version
@@ -115,6 +120,12 @@ pub fn load_config(data_dir: &Path) -> Result<AppConfig> {
                 ))
             })?;
         }
+    }
+    if config.schema_version < CONFIG_SCHEMA {
+        // Older releases cannot retain newer Codex history fields after a Pull.
+        // Persist the upgraded format so reopening one cannot publish a lossy handoff.
+        config.schema_version = CONFIG_SCHEMA;
+        write_json(&path, &config)?;
     }
     Ok(config)
 }
@@ -321,6 +332,19 @@ mod tests {
             Path::new(r"D:\Codex\projects")
         );
         validate_config(&loaded).unwrap();
+    }
+
+    #[test]
+    fn legacy_settings_upgrade_on_load_and_block_older_writers() {
+        let data_dir = tempfile::tempdir().unwrap();
+        let mut legacy = default_config();
+        legacy.schema_version = 1;
+        write_json(&data_dir.path().join("config.json"), &legacy).unwrap();
+        let upgraded = load_config(data_dir.path()).unwrap();
+        assert_eq!(upgraded.schema_version, CONFIG_SCHEMA);
+        let saved: AppConfig = read_json(&data_dir.path().join("config.json")).unwrap();
+        assert_eq!(saved.schema_version, CONFIG_SCHEMA);
+        assert_eq!(saved.device_id, legacy.device_id);
     }
 
     #[test]

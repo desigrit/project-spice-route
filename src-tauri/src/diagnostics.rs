@@ -930,6 +930,7 @@ mod tests {
                 target_transcript.to_string_lossy().into_owned(),
             )]),
             &std::collections::HashMap::new(),
+            None,
         )
         .unwrap();
         log.verified(&config, &incoming_threads, &incoming_projects);
