@@ -61,7 +61,7 @@ When the completed review keeps every local version and requires no content chan
 
 ## Merge rules
 
-Task and project fingerprints exclude operational device paths and local permission fields. Project file fingerprints include relative paths, object hashes, executability, and Git state. Git index stat metadata can still produce conservative conflicts across devices.
+Task and project fingerprints exclude operational device paths and local permission fields. Project fingerprints also exclude device-specific legacy sidebar IDs. On Pull, the destination keeps its sidebar ID for a matching database project ID, and proven older aliases can be combined during a repeated Pull. The recovery journal protects that metadata change. Identical names or paths are not enough to combine distinct database projects. Project file fingerprints include relative paths, object hashes, executability, and Git state. Git index stat metadata can still produce conservative conflicts across devices.
 
 - A change on only one side wins automatically.
 - Equal changes on both sides coalesce.

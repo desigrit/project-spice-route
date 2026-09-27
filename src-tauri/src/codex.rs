@@ -13,6 +13,7 @@ use rusqlite::{params_from_iter, Connection, OpenFlags, OptionalExtension};
 use serde_json::{Map, Value as JsonValue};
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::fs::File;
@@ -742,12 +743,32 @@ fn read_ui_associations(home: &Path) -> UiAssociations {
                 .iter()
                 .filter_map(|(legacy, value)| value.as_str().map(|project| (legacy, project)))
             {
-                legacy_by_project
-                    .entry(project_id.to_string())
-                    .or_insert_with(|| legacy_id.clone());
                 project_by_legacy
                     .entry(legacy_id.clone())
                     .or_insert_with(|| project_id.to_string());
+            }
+        }
+        if let Some(current) = hosts
+            .get(&local_project_host_key(home))
+            .and_then(JsonValue::as_object)
+        {
+            for (legacy_id, project_id) in current {
+                if let Some(project_id) = project_id.as_str() {
+                    project_by_legacy.insert(legacy_id.clone(), project_id.to_string());
+                }
+            }
+        }
+        let project_ids: HashSet<&str> = hosts
+            .values()
+            .filter_map(JsonValue::as_object)
+            .flat_map(|mapping| mapping.values().filter_map(JsonValue::as_str))
+            .collect();
+        if let Some(object) = raw.as_object() {
+            let host_key = local_project_host_key(home);
+            for project_id in project_ids {
+                if let Some(alias) = preferred_project_alias(object, &host_key, project_id) {
+                    legacy_by_project.insert(project_id.to_string(), alias);
+                }
             }
         }
     }
@@ -783,6 +804,114 @@ fn read_ui_associations(home: &Path) -> UiAssociations {
         legacy_by_project,
         raw,
     }
+}
+
+fn local_project_host_key(home: &Path) -> String {
+    format!("local:{}", home.display())
+}
+
+// A legacy sidebar ID is local to a Codex host. Only aliases proven to map to
+// the same database project can be consolidated. Names and paths are not IDs.
+fn known_project_aliases(
+    state: &Map<String, JsonValue>,
+    host_key: &str,
+    project_id: &str,
+) -> Vec<String> {
+    let Some(hosts) = state
+        .get("app-server-project-id-by-legacy-project-id-by-host")
+        .and_then(JsonValue::as_object)
+    else {
+        return Vec::new();
+    };
+    let mut claims: HashMap<&str, HashSet<&str>> = HashMap::new();
+    for mapping in hosts.values().filter_map(JsonValue::as_object) {
+        for (alias, id) in mapping {
+            if let Some(id) = id.as_str() {
+                claims.entry(alias).or_default().insert(id);
+            }
+        }
+    }
+    let current = hosts.get(host_key).and_then(JsonValue::as_object);
+    let mut aliases: Vec<String> = claims
+        .into_iter()
+        .filter(|(alias, ids)| {
+            current
+                .and_then(|mapping| mapping.get(*alias))
+                .and_then(JsonValue::as_str)
+                == Some(project_id)
+                || (ids.len() == 1 && ids.contains(project_id))
+        })
+        .map(|(alias, _)| alias.to_string())
+        .collect();
+    aliases.sort();
+    aliases
+}
+
+fn preferred_project_alias(
+    state: &Map<String, JsonValue>,
+    host_key: &str,
+    project_id: &str,
+) -> Option<String> {
+    let mut aliases = known_project_aliases(state, host_key, project_id);
+    let current = state
+        .get("app-server-project-id-by-legacy-project-id-by-host")
+        .and_then(JsonValue::as_object)
+        .and_then(|hosts| hosts.get(host_key))
+        .and_then(JsonValue::as_object);
+    let projects = state.get("local-projects").and_then(JsonValue::as_object);
+    let assignments = state
+        .get("thread-project-assignments")
+        .and_then(JsonValue::as_object);
+    let order = state.get("project-order").and_then(JsonValue::as_array);
+    aliases.sort_by_key(|alias| {
+        let chat_count = assignments
+            .into_iter()
+            .flat_map(|items| items.values())
+            .filter(|value| {
+                value
+                    .as_str()
+                    .or_else(|| value.get("projectId").and_then(JsonValue::as_str))
+                    == Some(alias.as_str())
+            })
+            .count();
+        let position = order
+            .and_then(|ids| ids.iter().position(|id| id.as_str() == Some(alias)))
+            .unwrap_or(usize::MAX);
+        (
+            Reverse(chat_count),
+            !projects.is_some_and(|items| items.contains_key(alias)),
+            !current.is_some_and(|items| items.contains_key(alias)),
+            position,
+            alias.clone(),
+        )
+    });
+    aliases.into_iter().next()
+}
+
+pub fn duplicate_project_alias_ids(home: &Path, project_ids: &HashSet<String>) -> HashSet<String> {
+    let Ok(bytes) = fs::read(home.join(".codex-global-state.json")) else {
+        return HashSet::new();
+    };
+    let Ok(state) = serde_json::from_slice::<JsonValue>(&bytes) else {
+        return HashSet::new();
+    };
+    let Some(object) = state.as_object() else {
+        return HashSet::new();
+    };
+    let projects = object.get("local-projects").and_then(JsonValue::as_object);
+    let host_key = local_project_host_key(home);
+    project_ids
+        .iter()
+        .filter(|id| {
+            known_project_aliases(object, &host_key, id)
+                .iter()
+                .filter(|alias| projects.is_some_and(|items| items.contains_key(*alias)))
+                .take(2)
+                .count()
+                > 1
+        })
+        .cloned()
+        .collect()
 }
 
 // Spawned agents do not necessarily have their own project_id or sidebar assignment.
@@ -2381,6 +2510,225 @@ fn safe_name(name: &str, fallback: &str) -> String {
     }
 }
 
+struct ProjectAliasPlan {
+    canonical_by_project: HashMap<String, String>,
+    local_alias_to_canonical: HashMap<String, String>,
+}
+
+fn plan_project_aliases(
+    state: &Map<String, JsonValue>,
+    manifest: &SnapshotManifest,
+    incoming_threads: &HashSet<String>,
+    incoming_projects: &HashSet<String>,
+    host_key: &str,
+) -> Result<ProjectAliasPlan> {
+    let affected: HashSet<&str> = incoming_projects
+        .iter()
+        .map(String::as_str)
+        .chain(
+            manifest
+                .threads
+                .iter()
+                .filter(|thread| incoming_threads.contains(&thread.id))
+                .filter_map(|thread| thread.project_id.as_deref()),
+        )
+        .collect();
+    let local_projects = state.get("local-projects").and_then(JsonValue::as_object);
+    let hosts = state
+        .get("app-server-project-id-by-legacy-project-id-by-host")
+        .and_then(JsonValue::as_object);
+    let mut plan = ProjectAliasPlan {
+        canonical_by_project: HashMap::new(),
+        local_alias_to_canonical: HashMap::new(),
+    };
+    for project in manifest
+        .projects
+        .iter()
+        .filter(|project| affected.contains(project.id.as_str()))
+    {
+        let aliases = known_project_aliases(state, host_key, &project.id);
+        let canonical = preferred_project_alias(state, host_key, &project.id).or_else(|| {
+            project.legacy_id.as_ref().map(|incoming| {
+                let taken = local_projects.is_some_and(|items| items.contains_key(incoming))
+                    || hosts.is_some_and(|hosts| {
+                        hosts
+                            .values()
+                            .filter_map(JsonValue::as_object)
+                            .any(|mapping| {
+                                mapping
+                                    .get(incoming)
+                                    .and_then(JsonValue::as_str)
+                                    .is_some_and(|id| id != project.id)
+                            })
+                    })
+                    || plan
+                        .canonical_by_project
+                        .values()
+                        .any(|claimed| claimed == incoming);
+                if taken {
+                    uuid::Uuid::new_v4().to_string()
+                } else {
+                    incoming.clone()
+                }
+            })
+        });
+        let Some(canonical) = canonical else {
+            continue;
+        };
+        for alias in aliases {
+            if let Some(previous) = plan
+                .local_alias_to_canonical
+                .insert(alias.clone(), canonical.clone())
+            {
+                if previous != canonical {
+                    return Err(SpiceError::User(format!(
+                        "Codex sidebar ID {alias} maps to more than one project. No project folders were changed."
+                    )));
+                }
+            }
+        }
+        plan.canonical_by_project
+            .insert(project.id.clone(), canonical);
+    }
+    Ok(plan)
+}
+
+fn set_legacy_project_id(value: &mut JsonValue, canonical: &str) {
+    match value {
+        JsonValue::String(id) => *id = canonical.to_string(),
+        JsonValue::Object(object) => {
+            if let Some(id) = object.get_mut("projectId") {
+                *id = JsonValue::String(canonical.to_string());
+            }
+        }
+        _ => {}
+    }
+}
+
+fn extend_unique_ids(target: &mut JsonValue, incoming: &JsonValue) {
+    let Some(incoming) = incoming.as_array() else {
+        return;
+    };
+    if !target.is_array() {
+        *target = JsonValue::Array(Vec::new());
+    }
+    let target = target.as_array_mut().expect("array initialized");
+    let mut seen: HashSet<String> = target
+        .iter()
+        .filter_map(JsonValue::as_str)
+        .map(str::to_string)
+        .collect();
+    for id in incoming.iter().filter_map(JsonValue::as_str) {
+        if seen.insert(id.to_string()) {
+            target.push(JsonValue::String(id.to_string()));
+        }
+    }
+}
+
+fn merge_project_sidebar_values(
+    local: &mut Map<String, JsonValue>,
+    patch: &Map<String, JsonValue>,
+    manifest: &SnapshotManifest,
+    incoming_projects: &HashSet<String>,
+    plan: &ProjectAliasPlan,
+    config: &AppConfig,
+) {
+    for key in [
+        "local-projects",
+        "project-appearances",
+        "sidebar-project-thread-orders",
+    ] {
+        let has_aliases = local
+            .get(key)
+            .and_then(JsonValue::as_object)
+            .is_some_and(|values| {
+                plan.local_alias_to_canonical
+                    .iter()
+                    .any(|(alias, canonical)| alias != canonical && values.contains_key(alias))
+            });
+        let has_incoming = patch
+            .get(key)
+            .and_then(JsonValue::as_object)
+            .is_some_and(|values| {
+                manifest
+                    .projects
+                    .iter()
+                    .filter(|project| incoming_projects.contains(&project.id))
+                    .filter_map(|project| project.legacy_id.as_ref())
+                    .any(|source_id| values.contains_key(source_id))
+            });
+        if !has_aliases && !has_incoming {
+            continue;
+        }
+        let target = local
+            .entry(key)
+            .or_insert_with(|| JsonValue::Object(Map::new()));
+        if !target.is_object() {
+            *target = JsonValue::Object(Map::new());
+        }
+        let target = target.as_object_mut().expect("project map initialized");
+        for (alias, canonical) in &plan.local_alias_to_canonical {
+            if alias == canonical {
+                continue;
+            }
+            if let Some(mut value) = target.remove(alias) {
+                if key == "local-projects" {
+                    if let Some(object) = value.as_object_mut() {
+                        object.insert("id".to_string(), JsonValue::String(canonical.clone()));
+                    }
+                }
+                match target.get_mut(canonical) {
+                    Some(existing) if key == "sidebar-project-thread-orders" => {
+                        extend_unique_ids(existing, &value);
+                    }
+                    Some(_) => {}
+                    None => {
+                        target.insert(canonical.clone(), value);
+                    }
+                }
+            }
+        }
+        let Some(incoming) = patch.get(key).and_then(JsonValue::as_object) else {
+            continue;
+        };
+        for project in manifest
+            .projects
+            .iter()
+            .filter(|project| incoming_projects.contains(&project.id))
+        {
+            let Some(source_id) = project.legacy_id.as_ref() else {
+                continue;
+            };
+            let Some(canonical) = plan.canonical_by_project.get(&project.id) else {
+                continue;
+            };
+            let Some(mut value) = incoming.get(source_id).cloned() else {
+                continue;
+            };
+            if key == "local-projects" {
+                if let Some(object) = value.as_object_mut() {
+                    object.insert("id".to_string(), JsonValue::String(canonical.clone()));
+                    let roots = (0..project.source_roots.len().max(1))
+                        .filter_map(|index| destination_project_root(project, index, config))
+                        .map(|path| JsonValue::String(path.to_string_lossy().into_owned()))
+                        .collect();
+                    object.insert("rootPaths".to_string(), JsonValue::Array(roots));
+                }
+            }
+            if key == "sidebar-project-thread-orders" {
+                match target.get_mut(canonical) {
+                    Some(existing) => extend_unique_ids(existing, &value),
+                    None => {
+                        target.insert(canonical.clone(), value);
+                    }
+                }
+            } else {
+                target.insert(canonical.clone(), value);
+            }
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn merge_global_state(
     home: &Path,
@@ -2477,12 +2825,14 @@ fn merge_global_state(
         });
     }
 
-    let incoming_legacy_projects: HashSet<String> = manifest
-        .projects
-        .iter()
-        .filter(|project| incoming_projects.contains(&project.id))
-        .filter_map(|project| project.legacy_id.clone())
-        .collect();
+    let host_key = local_project_host_key(Path::new(&config.codex_home));
+    let aliases = plan_project_aliases(
+        local_object,
+        manifest,
+        incoming_threads,
+        incoming_projects,
+        &host_key,
+    )?;
     if let Some(patch_object) = patch.as_object() {
         for key in [
             "thread-project-assignments",
@@ -2496,44 +2846,17 @@ fn merge_global_state(
                 key,
                 incoming_threads,
                 |id, mut value| {
-                    if key == "thread-workspace-root-hints" {
-                        if let Some(thread) = manifest.threads.iter().find(|thread| thread.id == id)
-                        {
-                            value = JsonValue::String(destination_cwd(thread, manifest, config));
-                        }
-                    }
-                    value
-                },
-            );
-        }
-        for key in [
-            "local-projects",
-            "project-appearances",
-            "sidebar-project-thread-orders",
-        ] {
-            merge_keyed_values(
-                local_object,
-                patch_object,
-                key,
-                &incoming_legacy_projects,
-                |legacy_id, mut value| {
-                    if key == "local-projects" {
-                        if let Some(project) = manifest
-                            .projects
-                            .iter()
-                            .find(|project| project.legacy_id.as_deref() == Some(legacy_id))
-                        {
-                            if let Some(object) = value.as_object_mut() {
-                                let roots = (0..project.source_roots.len().max(1))
-                                    .filter_map(|index| {
-                                        destination_project_root(project, index, config)
-                                    })
-                                    .map(|path| {
-                                        JsonValue::String(path.to_string_lossy().into_owned())
-                                    })
-                                    .collect();
-                                object.insert("rootPaths".to_string(), JsonValue::Array(roots));
+                    if let Some(thread) = manifest.threads.iter().find(|thread| thread.id == id) {
+                        if key == "thread-project-assignments" {
+                            if let Some(canonical) = thread
+                                .project_id
+                                .as_ref()
+                                .and_then(|project| aliases.canonical_by_project.get(project))
+                            {
+                                set_legacy_project_id(&mut value, canonical);
                             }
+                        } else if key == "thread-workspace-root-hints" {
+                            value = JsonValue::String(destination_cwd(thread, manifest, config));
                         }
                     }
                     value
@@ -2546,15 +2869,84 @@ fn merge_global_state(
             "projectless-thread-ids",
             incoming_threads,
         );
-        merge_id_array(
+        merge_project_sidebar_values(
             local_object,
             patch_object,
-            "project-order",
-            &incoming_legacy_projects,
+            manifest,
+            incoming_projects,
+            &aliases,
+            config,
         );
     }
-
-    let host_key = format!("local:{}", config.codex_home);
+    if let Some(assignments) = local_object
+        .get_mut("thread-project-assignments")
+        .and_then(JsonValue::as_object_mut)
+    {
+        for value in assignments.values_mut() {
+            let old = value
+                .as_str()
+                .or_else(|| value.get("projectId").and_then(JsonValue::as_str));
+            if let Some(canonical) = old.and_then(|id| aliases.local_alias_to_canonical.get(id)) {
+                set_legacy_project_id(value, canonical);
+            }
+        }
+    }
+    if !aliases.canonical_by_project.is_empty()
+        && (local_object.contains_key("project-order")
+            || patch
+                .get("project-order")
+                .and_then(JsonValue::as_array)
+                .is_some())
+    {
+        let order = local_object
+            .entry("project-order")
+            .or_insert_with(|| JsonValue::Array(Vec::new()));
+        if !order.is_array() {
+            *order = JsonValue::Array(Vec::new());
+        }
+        let order = order.as_array_mut().expect("project order initialized");
+        let mut seen = HashSet::new();
+        let mut normalized = Vec::new();
+        for value in order.drain(..) {
+            if let Some(id) = value.as_str() {
+                let canonical = aliases
+                    .local_alias_to_canonical
+                    .get(id)
+                    .map(String::as_str)
+                    .unwrap_or(id);
+                let affected = aliases.local_alias_to_canonical.contains_key(id)
+                    || aliases
+                        .canonical_by_project
+                        .values()
+                        .any(|value| value == id);
+                if seen.insert(canonical.to_string()) || !affected {
+                    normalized.push(JsonValue::String(canonical.to_string()));
+                }
+            } else {
+                normalized.push(value);
+            }
+        }
+        if let Some(incoming_order) = patch.get("project-order").and_then(JsonValue::as_array) {
+            for project in manifest
+                .projects
+                .iter()
+                .filter(|project| incoming_projects.contains(&project.id))
+            {
+                if project.legacy_id.as_ref().is_some_and(|id| {
+                    incoming_order
+                        .iter()
+                        .any(|value| value.as_str() == Some(id))
+                }) {
+                    if let Some(canonical) = aliases.canonical_by_project.get(&project.id) {
+                        if seen.insert(canonical.clone()) {
+                            normalized.push(JsonValue::String(canonical.clone()));
+                        }
+                    }
+                }
+            }
+        }
+        *order = normalized;
+    }
     let hosts = local_object
         .entry("app-server-project-id-by-legacy-project-id-by-host")
         .or_insert_with(|| JsonValue::Object(Map::new()));
@@ -2569,13 +2961,18 @@ fn merge_global_state(
         *mapping = JsonValue::Object(Map::new());
     }
     let mapping = mapping.as_object_mut().expect("project mapping created");
+    for (alias, canonical) in &aliases.local_alias_to_canonical {
+        if alias != canonical {
+            mapping.remove(alias);
+        }
+    }
     for project in manifest
         .projects
         .iter()
-        .filter(|project| incoming_projects.contains(&project.id))
+        .filter(|project| aliases.canonical_by_project.contains_key(&project.id))
     {
-        if let Some(legacy_id) = &project.legacy_id {
-            mapping.insert(legacy_id.clone(), JsonValue::String(project.id.clone()));
+        if let Some(canonical) = aliases.canonical_by_project.get(&project.id) {
+            mapping.insert(canonical.clone(), JsonValue::String(project.id.clone()));
         }
     }
     if let Some(outputs) = local_object
@@ -3421,6 +3818,180 @@ mod tests {
         assert_eq!(project_entries, 1);
         assert!(session_index.contains("chat-local"));
         assert!(!session_index.contains("chat-individual"));
+    }
+
+    #[test]
+    fn pull_consolidates_only_sidebar_aliases_for_the_same_project() {
+        let home = tempdir().unwrap();
+        let mut config = crate::settings::default_config();
+        config.codex_home = home.path().to_string_lossy().into_owned();
+        config.projectless_root = home
+            .path()
+            .join("Workspaces")
+            .to_string_lossy()
+            .into_owned();
+        let destination_root = home.path().join("Project code");
+        config.destination_roots.insert(
+            "shared-project:0".to_string(),
+            destination_root.to_string_lossy().into_owned(),
+        );
+        let host = local_project_host_key(home.path());
+        let existing = serde_json::json!({
+            "local-projects": {
+                "local-sidebar": { "id": "local-sidebar", "name": "Shared", "rootPaths": [destination_root.to_string_lossy()] },
+                "stale-sidebar": { "id": "stale-sidebar", "name": "Shared", "rootPaths": [destination_root.to_string_lossy()] },
+                "other-sidebar": { "id": "other-sidebar", "name": "Shared", "rootPaths": [destination_root.to_string_lossy()] }
+            },
+            "app-server-project-id-by-legacy-project-id-by-host": {
+                host.clone(): {
+                    "local-sidebar": "shared-project",
+                    "stale-sidebar": "shared-project",
+                    "other-sidebar": "different-project"
+                }
+            },
+            "project-order": ["stale-sidebar", "other-sidebar", "local-sidebar"],
+            "thread-project-assignments": {
+                "local-chat-1": { "projectKind": "local", "projectId": "local-sidebar" },
+                "local-chat-2": { "projectKind": "local", "projectId": "local-sidebar" },
+                "old-chat": { "projectKind": "local", "projectId": "stale-sidebar" },
+                "other-chat": { "projectKind": "local", "projectId": "other-sidebar" }
+            },
+            "sidebar-project-thread-orders": {
+                "local-sidebar": ["local-chat-1", "local-chat-2"],
+                "stale-sidebar": ["old-chat"],
+                "other-sidebar": ["other-chat"]
+            },
+            "project-appearances": {
+                "local-sidebar": { "color": "blue" },
+                "stale-sidebar": { "color": "red" }
+            },
+            "queued-follow-ups": { "private": "keep" }
+        });
+        write_json(&home.path().join(".codex-global-state.json"), &existing).unwrap();
+        let selected = HashSet::from(["shared-project".to_string()]);
+        assert_eq!(
+            duplicate_project_alias_ids(home.path(), &selected),
+            selected
+        );
+        let incoming_root = home.path().join("Source code");
+        let manifest = SnapshotManifest {
+            schema_version: 1,
+            id: "snapshot".to_string(),
+            created_at: "2026-09-26T00:00:00Z".to_string(),
+            device_id: "source".to_string(),
+            device_name: "Source".to_string(),
+            parent_id: None,
+            additional_parent_ids: Vec::new(),
+            selection_revision: "selection".to_string(),
+            selection: config.selection.clone(),
+            compatibility: CompatibilityInfo {
+                supported: true,
+                adapter: ADAPTER_NAME.to_string(),
+                state_migration: Some(57),
+                history_migration: Some(6),
+                schema_fingerprint: "fixture".to_string(),
+                explanation: String::new(),
+            },
+            codex_version: None,
+            threads: vec![ThreadExport {
+                id: "incoming-chat".to_string(),
+                title: "Incoming chat".to_string(),
+                project_id: Some("shared-project".to_string()),
+                projectless: false,
+                archived: false,
+                source_cwd: incoming_root.to_string_lossy().into_owned(),
+                rollout_relative_path: None,
+                projectless_relative_root: None,
+                attachments: Vec::new(),
+                state_rows: BTreeMap::new(),
+                history_rows: BTreeMap::new(),
+                fingerprint: "fixture".to_string(),
+            }],
+            projects: vec![ProjectExport {
+                id: "shared-project".to_string(),
+                legacy_id: Some("source-sidebar".to_string()),
+                name: "Shared".to_string(),
+                mode: ProjectMode::Full,
+                source_roots: vec![incoming_root.to_string_lossy().into_owned()],
+                rows: BTreeMap::new(),
+                git: Vec::new(),
+            }],
+            objects: Vec::new(),
+            ui_state: serde_json::json!({
+                "local-projects": {
+                    "source-sidebar": { "id": "source-sidebar", "name": "Shared", "rootPaths": [incoming_root.to_string_lossy()] }
+                },
+                "project-order": ["source-sidebar"],
+                "thread-project-assignments": {
+                    "incoming-chat": { "projectKind": "local", "projectId": "source-sidebar" }
+                },
+                "sidebar-project-thread-orders": { "source-sidebar": ["incoming-chat"] }
+            }),
+            session_index_lines: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let incoming_threads = HashSet::from(["incoming-chat".to_string()]);
+        for _ in 0..2 {
+            merge_global_state(
+                home.path(),
+                &manifest.ui_state,
+                &manifest,
+                &incoming_threads,
+                &selected,
+                &HashSet::new(),
+                &HashSet::new(),
+                &config,
+            )
+            .unwrap();
+        }
+        let restored: JsonValue = read_json(&home.path().join(".codex-global-state.json")).unwrap();
+        let projects = restored.get("local-projects").unwrap().as_object().unwrap();
+        assert_eq!(projects.len(), 2);
+        assert!(projects.contains_key("local-sidebar"));
+        assert!(projects.contains_key("other-sidebar"));
+        assert!(!projects.contains_key("stale-sidebar"));
+        assert!(!projects.contains_key("source-sidebar"));
+        assert_eq!(
+            restored.get("project-order").unwrap(),
+            &serde_json::json!(["local-sidebar", "other-sidebar"])
+        );
+        assert_eq!(
+            restored
+                .pointer("/thread-project-assignments/incoming-chat/projectId")
+                .and_then(JsonValue::as_str),
+            Some("local-sidebar")
+        );
+        assert_eq!(
+            restored
+                .pointer("/thread-project-assignments/old-chat/projectId")
+                .and_then(JsonValue::as_str),
+            Some("local-sidebar")
+        );
+        assert_eq!(
+            restored
+                .pointer("/thread-project-assignments/other-chat/projectId")
+                .and_then(JsonValue::as_str),
+            Some("other-sidebar")
+        );
+        assert_eq!(
+            restored.pointer("/sidebar-project-thread-orders/local-sidebar"),
+            Some(&serde_json::json!([
+                "local-chat-1",
+                "local-chat-2",
+                "old-chat",
+                "incoming-chat"
+            ]))
+        );
+        assert_eq!(
+            restored.pointer("/queued-follow-ups/private"),
+            Some(&serde_json::json!("keep"))
+        );
+        assert!(duplicate_project_alias_ids(home.path(), &selected).is_empty());
+        let associations = read_ui_associations(home.path());
+        assert_eq!(
+            associations.legacy_by_project.get("shared-project"),
+            Some(&"local-sidebar".to_string())
+        );
     }
 
     #[test]

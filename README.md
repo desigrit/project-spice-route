@@ -10,7 +10,7 @@ Sometimes you start something at your desk and want to pick it up on your laptop
 
 Spice Route is a desktop app for Windows and macOS that transfers selected Codex chats and project workspaces through a folder managed by **Google Drive, OneDrive, or iCloud Drive**. Choose what travels, push from one computer, and pull on the other. Your existing cloud client handles sign-in and delivery.
 
-[Windows x64](artifacts/Spice-Route-1.6.4-windows-x64-setup.exe) · [Windows ARM64](artifacts/Spice-Route-1.6.4-windows-arm64-setup.exe) · [macOS Apple Silicon](artifacts/macos-apple-silicon/Spice-Route-1.6.4-macos-apple-silicon.dmg) · [Getting started](#getting-started) · [Report an issue](https://github.com/desigrit/project-spice-route/issues)
+[Windows x64](artifacts/Spice-Route-1.6.5-windows-x64-setup.exe) · [Windows ARM64](artifacts/Spice-Route-1.6.5-windows-arm64-setup.exe) · [macOS Apple Silicon](artifacts/macos-apple-silicon/Spice-Route-1.6.5-macos-apple-silicon.dmg) · [Getting started](#getting-started) · [Report an issue](https://github.com/desigrit/project-spice-route/issues)
 
 ![Spice Route Overview in light mode, showing Push and Pull actions and the latest visible snapshot](docs/images/native-overview-light.png)
 
@@ -18,7 +18,7 @@ Spice Route is a desktop app for Windows and macOS that transfers selected Codex
 
 ## A little context before you begin
 
-**The current desktop version is 1.6.4.** A Mac with Codex database profile 57/6 can now pull chats from 57/7 even when they contain newer item timing values. Spice Route keeps those values in local app data, protects them with the Pull recovery point, and restores them to later handoffs. It still checks the full database layout before allowing writes. Windows has native x64 and ARM64 packages; new Mac releases target Apple Silicon. Version 1.5.2 remains the final archived Intel Mac build. Install 1.6.4 on the computers you use together.
+**The current desktop version is 1.6.5.** Pull now reuses a destination project's existing Codex sidebar identity instead of adding a second listing for the same database project. A repeated Pull can also combine duplicate listings created by earlier Spice Route pulls, while keeping their chat assignments and actual folders. The 1.6.4 fix for transferring newer chat timing values into a 57/6 Mac remains included. Windows has native x64 and ARM64 packages; new Mac releases target Apple Silicon. Version 1.5.2 remains the final archived Intel Mac build. Install 1.6.5 on the computers you use together.
 
 For a visual explanation, see the [Push and Pull map](docs/images/spice-route-route-explained.png) and [Codex schema map](docs/images/spice-route-schema-explained.png). The [three-view guide](docs/spice-route-sync-explained.html) can be opened locally.
 
@@ -41,6 +41,8 @@ You do not have to move every project just to bring a conversation along.
 
 A Codex project can have more than one code folder. For example, one Kaptus project can include an Android codebase and a separate Kaptus-iOS codebase. Select the project in What to sync and add another folder from its details. Folder paths stay on the current computer, while sync modes and content preferences are shared across devices.
 
+Codex also gives each sidebar project a device-specific identity. Spice Route keeps that identity when the same database project arrives from another computer. Matching names or folder paths alone do not prove that two independently created Codex projects are the same, so Spice Route preserves those distinct projects for explicit review.
+
 Recognized dependencies, caches, and build outputs are excluded by default, including generated packaging output and staging folders. New configurations include project files such as `.env`, local credentials, keys, and certificates. Existing installations keep their saved choices. Set secrets, build folders, archived chats, and additional exclusions in each project's details. Additional exclusions in Settings apply to projectless workspace files. Git history is transferred intact.
 
 ![What to sync in dark mode, with a compact project table and a selected-project detail pane](docs/images/native-selection-dark.png)
@@ -51,23 +53,23 @@ Recognized dependencies, caches, and build outputs are excluded by default, incl
 
 On Windows, choose the package that matches the processor:
 
-- [Windows x64](artifacts/Spice-Route-1.6.4-windows-x64-setup.exe) for Intel and AMD computers
-- [Windows ARM64](artifacts/Spice-Route-1.6.4-windows-arm64-setup.exe) for Windows on Arm computers
+- [Windows x64](artifacts/Spice-Route-1.6.5-windows-x64-setup.exe) for Intel and AMD computers
+- [Windows ARM64](artifacts/Spice-Route-1.6.5-windows-arm64-setup.exe) for Windows on Arm computers
 
 Each installer bundles .NET, Windows App SDK, and the matching C++ runtime. You do not need Node.js, Rust, or development scripts to use it.
 
 The installers are not code-signed, so Windows may show a SmartScreen warning. SHA-256 checksums are included beside both downloads. Check your copy in PowerShell:
 
 ```powershell
-Get-FileHash .\Spice-Route-1.6.4-windows-x64-setup.exe -Algorithm SHA256
-Get-FileHash .\Spice-Route-1.6.4-windows-arm64-setup.exe -Algorithm SHA256
+Get-FileHash .\Spice-Route-1.6.5-windows-x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Spice-Route-1.6.5-windows-arm64-setup.exe -Algorithm SHA256
 ```
 
 You will also need Codex and an installed cloud drive client. Git must be available when transferring Git repositories. The native interface does not use WebView2.
 
 Spice Route installs under `%LOCALAPPDATA%\Programs\Spice Route`. Close Spice Route before running the installer. An upgrade replaces the complete app payload so an obsolete native runtime file cannot remain beside the new version. Your saved device identity, folder choices, and recovery history remain in the separate local Spice Route profile. Do not run two copies against the same profile at once.
 
-On macOS, download the [Apple Silicon DMG](artifacts/macos-apple-silicon/Spice-Route-1.6.4-macos-apple-silicon.dmg) for M-series Macs. Intel Mac builds have been discontinued; [1.5.2 remains available](artifacts/macos-intel/Spice-Route-1.5.2-macos-intel.dmg) as the final archived version. Open the DMG and move Spice Route to Applications. These first packages are ad-hoc signed and are not notarized. If macOS blocks the first launch, open **System Settings > Privacy & Security** and approve Spice Route there.
+On macOS, download the [Apple Silicon DMG](artifacts/macos-apple-silicon/Spice-Route-1.6.5-macos-apple-silicon.dmg) for M-series Macs. Intel Mac builds have been discontinued; [1.5.2 remains available](artifacts/macos-intel/Spice-Route-1.5.2-macos-intel.dmg) as the final archived version. Open the DMG and move Spice Route to Applications. These first packages are ad-hoc signed and are not notarized. If macOS blocks the first launch, open **System Settings > Privacy & Security** and approve Spice Route there.
 
 ### 2. Connect a cloud folder
 
@@ -192,7 +194,7 @@ rustup toolchain install stable-x86_64-pc-windows-msvc
 ./scripts/build-native-windows.ps1
 ```
 
-The script produces `artifacts/Spice-Route-1.6.4-windows-x64-setup.exe` and its checksum. Pass `-Architecture arm64` for the native Windows on Arm package. It builds and packages the application without opening it when `-SkipStartupProbe` is supplied. See the [1.6.4 verification guide](docs/testing-1.6.4.md) for completed checks and interactive acceptance checks.
+The script produces `artifacts/Spice-Route-1.6.5-windows-x64-setup.exe` and its checksum. Pass `-Architecture arm64` for the native Windows on Arm package. It builds and packages the application without opening it when `-SkipStartupProbe` is supplied. See the [1.6.5 verification guide](docs/testing-1.6.5.md) for completed checks and interactive acceptance checks.
 
 ### macOS app
 
@@ -229,12 +231,12 @@ cargo clippy --release --manifest-path src-tauri/core/Cargo.toml --all-targets -
 Build the Apple Silicon app and DMG:
 
 ```bash
-bash ./scripts/build-macos.sh aarch64-apple-darwin 1.6.4 apple-silicon
+bash ./scripts/build-macos.sh aarch64-apple-darwin 1.6.5 apple-silicon
 ```
 
 The script builds Apple Silicon only and writes the DMG, zipped app, and checksums under `artifacts/macos-apple-silicon`. Local packages use ad-hoc signing. Normal public distribution still requires an Apple Developer identity and notarization.
 
-The [desktop build workflow](.github/workflows/desktop-builds.yml) compiles Windows x64, Windows ARM64, and macOS Apple Silicon packages from version tags or a manual dispatch. Each Windows job validates the app, engine, and native runtime architecture before producing its installer. See the [1.6.4 verification guide](docs/testing-1.6.4.md) for platform build status.
+The [desktop build workflow](.github/workflows/desktop-builds.yml) compiles Windows x64, Windows ARM64, and macOS Apple Silicon packages from version tags or a manual dispatch. Each Windows job validates the app, engine, and native runtime architecture before producing its installer. See the [1.6.5 verification guide](docs/testing-1.6.5.md) for platform build status.
 
 ### A quick map of the code
 

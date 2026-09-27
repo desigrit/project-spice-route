@@ -2082,6 +2082,13 @@ fn diff_for_pull(
     let local_projects = project_map(local);
     let incoming_projects = project_map(incoming);
     let base_projects = baseline.map(project_map).unwrap_or_default();
+    let project_ids = incoming
+        .projects
+        .iter()
+        .map(|item| item.id.clone())
+        .collect();
+    let duplicate_aliases =
+        codex::duplicate_project_alias_ids(Path::new(&config.codex_home), &project_ids);
     let base_objects = baseline.map(object_map).unwrap_or_default();
     // Older snapshots can contain internal approval tasks. Keep their historical
     // records in the immutable snapshot, but never offer or import them as chats.
@@ -2096,20 +2103,29 @@ fn diff_for_pull(
         let base_value = base_projects
             .get(project.id.as_str())
             .map(|value| project_fingerprint(value).unwrap_or_default());
-        let action = three_way(
+        let mut action = three_way(
             local_value.as_deref(),
             Some(&incoming_value),
             base_value.as_deref(),
         );
+        let repairing_listing =
+            action == ChangeAction::Unchanged && duplicate_aliases.contains(&project.id);
+        if repairing_listing {
+            action = ChangeAction::Update;
+        }
         changes.push(with_conflict(change(
             format!("project:{}", project.id),
             ChangeKind::Project,
             action,
             &project.name,
-            match project.mode {
-                ProjectMode::Full => "Incoming full project",
-                ProjectMode::HistoryOnly => "Incoming history-only project",
-                ProjectMode::Excluded => "Excluded",
+            if repairing_listing {
+                "Combine duplicate project listings"
+            } else {
+                match project.mode {
+                    ProjectMode::Full => "Incoming full project",
+                    ProjectMode::HistoryOnly => "Incoming history-only project",
+                    ProjectMode::Excluded => "Excluded",
+                }
             },
             0,
         )));
@@ -2345,7 +2361,6 @@ fn project_fingerprint(project: &ProjectExport) -> Result<String> {
         .collect::<Vec<_>>();
     hash_json(&(
         project.id.as_str(),
-        project.legacy_id.as_deref(),
         project.name.as_str(),
         project.mode,
         rows,
@@ -3865,7 +3880,8 @@ mod tests {
     #[test]
     fn project_fingerprint_ignores_device_paths_and_capture_only_git_fields() {
         let windows_a = project(r"C:\Users\alice\source", "common-a", "bundle-a");
-        let windows_b = project(r"D:\Work\source", "common-b", "bundle-b");
+        let mut windows_b = project(r"D:\Work\source", "common-b", "bundle-b");
+        windows_b.legacy_id = Some("another-device-sidebar-id".to_string());
         assert_eq!(
             project_fingerprint(&windows_a).unwrap(),
             project_fingerprint(&windows_b).unwrap()
@@ -3876,6 +3892,66 @@ mod tests {
         assert_ne!(
             project_fingerprint(&windows_a).unwrap(),
             project_fingerprint(&changed).unwrap()
+        );
+    }
+
+    #[test]
+    fn repeated_pull_offers_repair_for_duplicate_sidebar_aliases() {
+        let home = tempdir().unwrap();
+        let mut config = settings::default_config();
+        config.codex_home = path_string(home.path());
+        let mut local = review_manifest();
+        let mut incoming = review_manifest();
+        let mut local_project = project("local-root", "common", "bundle");
+        local_project.legacy_id = Some("local-sidebar".to_string());
+        local.projects.push(local_project);
+        let mut source_project = project("source-root", "common", "bundle");
+        source_project.legacy_id = Some("source-sidebar".to_string());
+        incoming.projects.push(source_project);
+        let host = format!("local:{}", config.codex_home);
+        let duplicated = serde_json::json!({
+            "local-projects": {
+                "local-sidebar": { "id": "local-sidebar" },
+                "stale-sidebar": { "id": "stale-sidebar" }
+            },
+            "app-server-project-id-by-legacy-project-id-by-host": {
+                host: {
+                    "local-sidebar": "project-1",
+                    "stale-sidebar": "project-1"
+                }
+            }
+        });
+        fs::write(
+            home.path().join(".codex-global-state.json"),
+            serde_json::to_vec(&duplicated).unwrap(),
+        )
+        .unwrap();
+        let changes = diff_for_pull(&config, &incoming, &local, Some(&incoming)).unwrap();
+        let project = changes
+            .iter()
+            .find(|change| change.key == "project:project-1")
+            .unwrap();
+        assert_eq!(project.action, ChangeAction::Update);
+        assert_eq!(project.detail, "Combine duplicate project listings");
+
+        let mut repaired = duplicated;
+        repaired["local-projects"]
+            .as_object_mut()
+            .unwrap()
+            .remove("stale-sidebar");
+        fs::write(
+            home.path().join(".codex-global-state.json"),
+            serde_json::to_vec(&repaired).unwrap(),
+        )
+        .unwrap();
+        let changes = diff_for_pull(&config, &incoming, &local, Some(&incoming)).unwrap();
+        assert_eq!(
+            changes
+                .iter()
+                .find(|change| change.key == "project:project-1")
+                .unwrap()
+                .action,
+            ChangeAction::Unchanged
         );
     }
 
