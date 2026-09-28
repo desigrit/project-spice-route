@@ -14,6 +14,8 @@ The README includes all five current screens:
 | `native-review-light.png` | `light-wide-review.png` |
 | `native-diagnostics-light.png` | `light-wide-diagnostics.png` |
 
+The `macos-overview-light.png` and `macos-overview-dark.png` files come from the 1.6.6 headless React preview at 1180 pixels wide. They use fabricated data and show the Mac interface styling, not a running Tauri window.
+
 The images without the `native-` prefix show the React/Tauri interface. To render the current Mac pages headlessly, install Playwright separately from the app dependencies:
 
 ```powershell

@@ -171,17 +171,19 @@ jobs:
           if ($probe.ExitCode -ne 0) {
             $errorPath = Join-Path $captures 'visual-probe-error.txt'
             if (Test-Path -LiteralPath $errorPath) { Get-Content -LiteralPath $errorPath }
+            $reportPath = Join-Path $captures 'visual-probe-report.json'
+            if (Test-Path -LiteralPath $reportPath) { Get-Content -LiteralPath $reportPath }
             throw "The sample WinUI visual probe returned exit code $($probe.ExitCode)."
           }
           $report = Get-Content -LiteralPath (Join-Path $captures 'visual-probe-report.json') -Raw | ConvertFrom-Json
           if (-not $report.passed) { throw 'The sample WinUI visual checks did not pass.' }
 
       - name: Upload sample WinUI screens
-        if: matrix.architecture == 'x64'
+        if: always() && matrix.architecture == 'x64'
         uses: actions/upload-artifact@v4
         with:
           name: spice-route-${{ env.SPICE_ROUTE_VERSION }}-winui-sample-screens
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
           path: visual-probe-captures/
 

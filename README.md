@@ -16,6 +16,8 @@ Spice Route is a desktop app for Windows and macOS that transfers selected Codex
 
 *The Overview screenshot shows the actual WinUI 3 interface in version 1.6.6, captured with sample data. Other Windows screenshots show the same interface family from version 1.6.0. No personal conversations are shown.*
 
+The [Mac Overview in light mode](docs/images/macos-overview-light.png) and [dark mode](docs/images/macos-overview-dark.png) are headless renders of the 1.6.6 interface using the same kind of fabricated sample data.
+
 ## A little context before you begin
 
 **The current desktop version is 1.6.6.** Overview now compares this computer's selected chats and projects with the latest visible handoff's actual chat and project counts. Its handoff row shows the date, selected size, and short identifier. The duplicate project-listing repair from 1.6.5 and the Mac history compatibility fix from 1.6.4 remain included. Windows has native x64 and ARM64 packages; new Mac releases target Apple Silicon. Version 1.5.2 remains the final archived Intel Mac build. Install 1.6.6 on the computers you use together.

@@ -25,6 +25,8 @@ Overview shows your current selection on the left. Push opens a review of the fi
 
 ![Sample Overview screen showing the local selection and latest visible handoff](images/native-overview-light.png)
 
+The [Mac Overview](images/macos-overview-light.png) follows the same flow, with Mac-specific window styling. A [dark-mode preview](images/macos-overview-dark.png) is available too.
+
 ![Sample Push review showing files, attention items, and transfer size](images/native-review-light.png)
 
 ## 3. Let the drive app deliver the handoff
@@ -39,4 +41,4 @@ After Pull succeeds, open Codex and continue your work. If history does not appe
 
 ![Sample Recovery diagnostics screen with findings and export controls](images/native-diagnostics-light.png)
 
-These images use fabricated data. The Overview image is from the 1.6.6 WinUI interface; the other Windows interface captures are from 1.6.0. They do not show a live transfer or imply that a cloud provider has completed delivery.
+These images use fabricated data. The Windows Overview image is from the 1.6.6 WinUI interface; the other Windows interface captures are from 1.6.0. The Mac previews are headless renders of the 1.6.6 React interface. They do not show a live transfer or imply that a cloud provider has completed delivery.
