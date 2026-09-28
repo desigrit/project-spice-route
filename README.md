@@ -1,271 +1,36 @@
 <p align="center">
-  <img src="src/assets/boat-mark.png" alt="Spice Route sweeping-sail icon in navy and ivory" width="88">
+  <img src="src/assets/boat-mark.png" alt="Spice Route boat icon" width="88">
 </p>
 
 # Project Spice Route
 
-**Your Codex conversations and project work, ready for the next computer.**
+**Leave one computer. Pick up your Codex work on another.**
 
-Sometimes you start something at your desk and want to pick it up on your laptop. The conversation matters, but so do the files, the unfinished changes, and the place you left off. Spice Route brings them together in a handoff you can review before anything moves.
+Spice Route is a desktop app that carries the chats and project work you choose through a folder synced by OneDrive, Google Drive, or iCloud Drive. Bring a whole project, including its files and Git history, or take just the conversations. Your cloud app handles sign-in and delivery.
 
-Spice Route is a desktop app for Windows and macOS that transfers selected Codex chats and project workspaces through a folder managed by **Google Drive, OneDrive, or iCloud Drive**. Choose what travels, push from one computer, and pull on the other. Your existing cloud client handles sign-in and delivery.
+[Windows x64](artifacts/Spice-Route-1.6.6-windows-x64-setup.exe) · [Windows ARM64](artifacts/Spice-Route-1.6.6-windows-arm64-setup.exe) · [Mac, Apple Silicon](artifacts/macos-apple-silicon/Spice-Route-1.6.6-macos-apple-silicon.dmg)
 
-[Windows x64](artifacts/Spice-Route-1.6.6-windows-x64-setup.exe) · [Windows ARM64](artifacts/Spice-Route-1.6.6-windows-arm64-setup.exe) · [macOS Apple Silicon](artifacts/macos-apple-silicon/Spice-Route-1.6.6-macos-apple-silicon.dmg) · [Getting started](#getting-started) · [Report an issue](https://github.com/desigrit/project-spice-route/issues)
+![Overview showing this computer beside the latest handoff visible in the sync folder](docs/images/native-overview-light.png)
 
-![Spice Route Overview in light mode, showing Push and Pull actions and the latest visible snapshot](docs/images/native-overview-light.png)
+*See what is selected here and compare it with the latest handoff visible in your sync folder.*
 
-*The Overview screenshot shows the actual WinUI 3 interface in version 1.6.6, captured with sample data. Other Windows screenshots show the same interface family from version 1.6.0. No personal conversations are shown.*
+## Choose what travels
 
-See [Windows dark mode](docs/images/native-overview-dark.png) too.
+Select individual chats and give each project its own setting: **Full project**, **Chat history only**, or **Excluded**. A project can include several code folders, even when they live in different places on your computer.
 
-The [Mac Overview in light mode](docs/images/macos-overview-light.png) and [dark mode](docs/images/macos-overview-dark.png) are headless renders of the 1.6.6 interface using the same kind of fabricated sample data.
+## Make a handoff
 
-## A little context before you begin
+1. Install Spice Route on both computers. Choose a dedicated cloud drive folder that syncs between them.
+2. Choose your Codex tasks and history folder, usually `.codex`, then select the chats and project folders you want to carry. If you use a separate folder for projectless chat working files, choose that too. Codex’s internal `.codex/sessions` folder is already covered by that selection.
+3. On the computer you are leaving, choose **Push** and review the handoff. Wait for your drive app to finish syncing.
+4. On the other computer, match the handoff ID, choose **Pull**, review any conflicts, and continue in Codex.
 
-**The current desktop version is 1.6.6.** Overview now compares this computer's selected chats and projects with the latest visible handoff's actual chat and project counts. Its handoff row shows the date, selected size, and short identifier. The duplicate project-listing repair from 1.6.5 and the Mac history compatibility fix from 1.6.4 remain included. Windows has native x64 and ARM64 packages; new Mac releases target Apple Silicon. Version 1.5.2 remains the final archived Intel Mac build. Install 1.6.6 on the computers you use together.
+![Review push showing the files and conversations in a handoff](docs/images/native-review-light.png)
 
-For a visual explanation with interface screenshots, see the [handoff walkthrough](docs/handoff-walkthrough.md). The [Push and Pull map](docs/images/spice-route-route-explained.png), [Codex schema map](docs/images/spice-route-schema-explained.png), and [three-view guide](docs/spice-route-sync-explained.html) show more detail.
+*Review chats and files before publishing or restoring a handoff.*
 
-Overview puts this device's selected content beside the latest visible cloud handoff. The handoff counts describe what is in that snapshot, not everything currently on this computer. The navigation collapses when the window gets narrow. In What to sync, each project has its own archived-chat, secret-file, build-folder, and exclusion choices. The sync mode in Settings applies only to projects discovered later; changing it keeps current project choices.
+Spice Route checks the content it receives and keeps a local recovery point before a Pull changes files. Your Codex settings and credentials stay on each computer. A handoff visible in a sync folder may still be downloading, so check your drive app before switching devices.
 
-Windows uses WinUI 3 navigation, menus, folder pickers and virtualized lists. Mac keeps the same two-page arrangement with its existing platform styling. Review retains separate Files, Attention and Notes tabs. A visible cloud handoff is not proof that the drive client has finished delivering it.
+Want a closer look? Follow the [visual handoff guide](docs/handoff-walkthrough.md). For setup and technical details, see the [architecture notes](docs/architecture.md) and [verification guide](docs/testing-1.6.6.md). If something goes wrong, [tell us what happened](https://github.com/desigrit/project-spice-route/issues).
 
-This is an independent project, not an official OpenAI product. It works with Codex's local storage, which can change between releases. Unknown formats are blocked until an adapter has been tested. The first macOS packages use ad-hoc signing and are intended for hands-on testing before a notarized release.
-
-## Choose what comes with you
-
-You do not have to move every project just to bring a conversation along.
-
-| Content | What travels | Your controls |
-| --- | --- | --- |
-| Projectless chats | Selected history, transcripts, supported attachments, and workspace files within the configured workspace folder | All chats, including archived chats, are selected by default. Exclude individual chats as needed. |
-| Full project | Project listing, chats, selected files, Git history, and working state | Set a default for new projects, then override any project. |
-| Chat history only | Project listing and chats, without the project's code or working files | Keep a reference on a device that does not need the whole project. |
-| Excluded project | No further transfer | Existing local copies and retained cloud snapshots stay in place. |
-
-A Codex project can have more than one code folder. For example, one Kaptus project can include an Android codebase and a separate Kaptus-iOS codebase. Select the project in What to sync and add another folder from its details. Folder paths stay on the current computer, while sync modes and content preferences are shared across devices.
-
-Codex also gives each sidebar project a device-specific identity. Spice Route keeps that identity when the same database project arrives from another computer. Matching names or folder paths alone do not prove that two independently created Codex projects are the same, so Spice Route preserves those distinct projects for explicit review.
-
-Recognized dependencies, caches, and build outputs are excluded by default, including generated packaging output and staging folders. New configurations include project files such as `.env`, local credentials, keys, and certificates. Existing installations keep their saved choices. Set secrets, build folders, archived chats, and additional exclusions in each project's details. Additional exclusions in Settings apply to projectless workspace files. Git history is transferred intact.
-
-![What to sync in dark mode, with a compact project table and a selected-project detail pane](docs/images/native-selection-dark.png)
-
-## Getting started
-
-### 1. Install the desktop app
-
-On Windows, choose the package that matches the processor:
-
-- [Windows x64](artifacts/Spice-Route-1.6.6-windows-x64-setup.exe) for Intel and AMD computers
-- [Windows ARM64](artifacts/Spice-Route-1.6.6-windows-arm64-setup.exe) for Windows on Arm computers
-
-Each installer bundles .NET, Windows App SDK, and the matching C++ runtime. You do not need Node.js, Rust, or development scripts to use it.
-
-The installers are not code-signed, so Windows may show a SmartScreen warning. SHA-256 checksums are included beside both downloads. Check your copy in PowerShell:
-
-```powershell
-Get-FileHash .\Spice-Route-1.6.6-windows-x64-setup.exe -Algorithm SHA256
-Get-FileHash .\Spice-Route-1.6.6-windows-arm64-setup.exe -Algorithm SHA256
-```
-
-You will also need Codex and an installed cloud drive client. Git must be available when transferring Git repositories. The native interface does not use WebView2.
-
-Spice Route installs under `%LOCALAPPDATA%\Programs\Spice Route`. Close Spice Route before running the installer. An upgrade replaces the complete app payload so an obsolete native runtime file cannot remain beside the new version. Your saved device identity, folder choices, and recovery history remain in the separate local Spice Route profile. Do not run two copies against the same profile at once.
-
-On macOS, download the [Apple Silicon DMG](artifacts/macos-apple-silicon/Spice-Route-1.6.6-macos-apple-silicon.dmg) for M-series Macs. Intel Mac builds have been discontinued; [1.5.2 remains available](artifacts/macos-intel/Spice-Route-1.5.2-macos-intel.dmg) as the final archived version. Open the DMG and move Spice Route to Applications. These first packages are ad-hoc signed and are not notarized. If macOS blocks the first launch, open **System Settings > Privacy & Security** and approve Spice Route there.
-
-### 2. Connect a cloud folder
-
-Sign in through the Google Drive, OneDrive, or iCloud desktop client first. In Spice Route, give your computer a recognizable name and choose a dedicated folder inside that drive, such as `OneDrive\Spice Route`.
-
-Choose the corresponding synced folder on the other computer. Spice Route uses that folder for snapshots; keep active Codex data and working project folders outside it.
-
-### 3. Confirm the local folders
-
-These folders have different jobs:
-
-| Folder | What it contains | Where to configure it |
-| --- | --- | --- |
-| Codex task and history folder | Codex databases, metadata, and transcript files, usually under `.codex` | Onboarding or Settings |
-| Projectless chat workspaces folder | Working files and artifacts associated with chats outside a project | Onboarding or Settings |
-| A project's local folder | That project's code and working files | Select the project in What to sync, then use its folder's **…** menu |
-
-The projectless workspace folder is not a replacement for Codex's internal transcript directory. Chats still need the task and history folder to transfer correctly.
-
-On macOS, a typical setup uses `/Users/your-name/.codex` for Codex tasks and history, and `/Users/your-name/Documents/Codex Sessions` for projectless working files. Do not select `~/.codex/sessions` as the projectless workspace folder. That directory contains Codex's internal session transcripts and is already covered by the task and history folder.
-
-When you first pull a full project onto another computer, Spice Route asks where each project folder should live. The optional project discovery and restore location also scans its immediate Git folders when you refresh What to sync. Changing a mapping does not move existing files.
-
-![Settings in light mode, with device preferences, cloud provider, and local folder controls](docs/images/native-settings-light.png)
-
-### 4. Review your selection
-
-Open **What to sync** and select a project. Choose **Full project**, **Chat history only** or **Excluded** in its detail pane; the selected size updates with the choice. Use the chat tabs to exclude individual conversations. The refresh icon rescans project folders. If a newly found folder belongs to an existing project, add it from that project's details. New-project mode lives in **Settings > Content preferences** and does not alter projects already listed. Save your choices when you are ready.
-
-## The everyday handoff
-
-Use one computer at a time for a given handoff. Push before you leave, and pull before you resume on the other device.
-
-Review gives you room to inspect the handoff. Filter by project, search for a file or conversation, and check Attention for anything that needs a decision. Files keep their own scrolling area, so notices do not crowd them out.
-
-![Review push with expanded navigation, project filters, search, and aligned file and conversation rows](docs/images/native-review-light.png)
-
-**On the computer you are leaving:**
-
-1. Finish your active Codex work and close Codex. This helps keep the preview stable.
-2. Choose **Push** and review the proposed changes.
-3. Complete the Push and note its handoff ID.
-4. Wait for your cloud client to finish syncing.
-
-**On the computer you are moving to:**
-
-1. Wait for the cloud client to receive the files.
-2. Match the visible snapshot's source, time, and handoff ID with the one you pushed.
-3. Choose **Pull**, confirm any project folders, and review conflicts.
-4. Apply the handoff, then open Codex yourself and continue your work.
-
-If Codex is still open, Spice Route can request a graceful exit. It blocks the transfer while known Codex writers remain running. If local work changes after a preview, make a fresh review before proceeding.
-
-### What the cloud status means
-
-A file appearing in your local drive folder does not prove it has reached another computer. Spice Route keeps these states distinct:
-
-| Status | Meaning |
-| --- | --- |
-| Saved to sync folder | This computer finished writing the snapshot into its local cloud folder. |
-| Visible in sync folder | A snapshot manifest is visible here. Its required content still needs checking. |
-| Received and verified | This computer read the required objects and verified their content hashes. |
-
-The current folder-based integration cannot universally confirm a provider's upload completion. Use the drive client's status and match handoff IDs across computers. Spice Route does not declare remote delivery successful after a timer.
-
-## When both copies have changed
-
-Spice Route compares changes with a shared ancestor, rather than choosing whichever file has the newest timestamp. Separate chat changes can coexist. When the same chat or project has changed on both sides, you choose:
-
-- **Keep mine** retains the current local version.
-- **Use incoming** selects the version in the incoming snapshot.
-
-Conversation histories are not concatenated. Choosing a version is a real content decision, not simply a way to dismiss a warning.
-
-If a computer has no saved sync baseline, it can take either path. Pull compares the visible handoff with the local copy and lets you choose versions. Push opens an explicit replacement review and can make the current selection authoritative, including a chats-only selection that omits previously shared project files. The preview becomes stale if another device publishes before execution, so a newly visible head cannot be overwritten without a fresh review.
-
-Before applying a Pull, Spice Route creates a local rollback set. Interrupted operations appear in **Recovery**, and new transfers are blocked until recovery is resolved. The latest ten completed rollback sets are retained, along with unresolved recovery data.
-
-
-
-## What stays local
-
-Global Codex settings, credentials, device identity, task permission configuration, queues, skills, plugins, and automations stay on their own computer. Running terminals, processes, browser sessions, and installed toolchains cannot travel in a snapshot.
-
-Other useful boundaries:
-
-- **Chat history only is not a read-only lock in Codex.** A managed empty folder may be used when Codex requires a project root, but the mode does not guarantee that replying is disabled.
-- **External Git resources need separate attention.** Git LFS objects outside the checkout and external submodule resources are not fully portable through this release.
-- **Old stored objects can remain.** A replacement Push removes omitted items from the new visible handoff, but content-addressed objects from older snapshots can remain in the sync folder. Reset cloud history is the explicit storage cleanup action.
-- **There is no app-level encryption.** Snapshots contain readable history and compressed project content. Use a cloud folder and account appropriate for that work.
-- **Large repositories still take time.** Previews avoid unnecessary compression, but content hashing and Git capture remain part of the comparison.
-
-## Codex compatibility
-
-Spice Route validates the complete database structure before allowing writes and records the detected runtime for diagnostics. Codex patch releases can keep an identical storage format, so a runtime string by itself does not decide compatibility.
-
-| State / history migrations | Reference runtime | Requirement |
-| --- | --- | --- |
-| `52 / 6` | `0.153.4` | Exact tested tables, indexes, triggers, and completed migrations |
-| `54 / 6` | `0.154.0-alpha.6.2` | Exact tested tables, indexes, triggers, and completed migrations |
-| `55 / 6` | `0.155.0-alpha.9.2` | Exact tested tables, indexes, triggers, and completed migrations |
-| `57 / 7` | Codex desktop `26.924.2738` | Exact tested layout, including creator identity and item lifecycle fields |
-| `57 / 6` | Mixed pair reported on macOS | Exact state 57 and history 6 layouts, including triggers and completed migrations |
-| Other database layouts | Any | Diagnostics only until a matching adapter is tested |
-
-Transfers keep the destination's own database schema. Older records can move into a supported newer profile. Schema 55 renames the attachment table; Spice Route translates that rename while retaining a consistent snapshot representation, so existing snapshots remain readable. State migration 57 adds nullable creator identity fields, while history migration 7 adds nullable item timing fields. The mixed 57/6 profile has the first set but not the second. Spice Route 1.6.4 retains incoming timing values that 57/6 cannot store in its local app data, then adds them back to later handoffs. Other nonrepresentable fields still block before any files change. Spice Route does not replace whole databases because selections, unrelated destination chats, and local settings must be preserved.
-
-The reported Mac migration pair does not prove that its full schema matches the 57/6 profile. If the updated app remains blocked, export a compatibility report so the difference can be investigated without guessing. After a 1.6.4 Pull, keep using 1.6.4 or newer: older releases cannot carry retained timing values forward and are blocked by the upgraded local settings format. See the [compatibility design](docs/compatibility-plan.md) and [1.6.4 testing notes](docs/testing-1.6.4.md) for the exact boundaries.
-
-## Build from source
-
-The Windows app uses **WinUI 3**, **C#**, and the shared **Rust sync engine**. The macOS app uses **Tauri 2**, **React**, the system WebKit view, and the same engine. No hosted service is involved.
-
-Both interfaces use the same Rust engine for compatibility checks, snapshot capture, transfer performance, settings validation, progress reporting, diagnostics, and recovery. See the [performance audit](docs/performance-audit.md) for measured background.
-
-To build the native Windows installer, install the .NET 9 SDK, Rust's Windows MSVC toolchain, Visual Studio C++ Build Tools, a Windows SDK, and NSIS 3. Then run:
-
-```powershell
-git clone https://github.com/desigrit/project-spice-route.git
-cd project-spice-route
-rustup toolchain install stable-x86_64-pc-windows-msvc
-./scripts/build-native-windows.ps1
-```
-
-The script produces `artifacts/Spice-Route-1.6.6-windows-x64-setup.exe` and its checksum. Pass `-Architecture arm64` for the native Windows on Arm package. It builds and packages the application without opening it when `-SkipStartupProbe` is supplied. See the [1.6.6 verification guide](docs/testing-1.6.6.md) for completed checks and interactive acceptance checks.
-
-### macOS app
-
-On macOS, install:
-
-- Node.js 22.12 or newer and npm.
-- Rust with the Apple Silicon target for your Mac.
-- Xcode Command Line Tools and Git.
-
-```bash
-git clone https://github.com/desigrit/project-spice-route.git
-cd project-spice-route
-npm ci
-rustup target add aarch64-apple-darwin
-```
-
-Start the actual desktop app for development:
-
-```bash
-npm run tauri dev
-```
-
-`npm run dev` starts only Vite's browser interface. Use `npm run tauri dev` when testing native dialogs, discovery, Push, or Pull.
-
-Run the checks:
-
-```bash
-npm test
-npm run build
-cargo test --release --manifest-path src-tauri/core/Cargo.toml
-cargo clippy --release --manifest-path src-tauri/core/Cargo.toml --all-targets -- -D warnings
-```
-
-Build the Apple Silicon app and DMG:
-
-```bash
-bash ./scripts/build-macos.sh aarch64-apple-darwin 1.6.6 apple-silicon
-```
-
-The script builds Apple Silicon only and writes the DMG, zipped app, and checksums under `artifacts/macos-apple-silicon`. Local packages use ad-hoc signing. Normal public distribution still requires an Apple Developer identity and notarization.
-
-The [desktop build workflow](.github/workflows/desktop-builds.yml) compiles Windows x64, Windows ARM64, and macOS Apple Silicon packages from version tags or a manual dispatch. Each Windows job validates the app, engine, and native runtime architecture before producing its installer. See the [1.6.6 verification guide](docs/testing-1.6.6.md) for platform build status.
-
-### A quick map of the code
-
-```text
-src/                       React interface, themes, and frontend tests
-native/windows/            WinUI 3 app and per-user installer definition
-native/tests/              Headless native engine-client contract tests
-src-tauri/src/             Sync engine, Codex adapter, recovery, and platform code
-src-tauri/src/fixtures/    Sanitized database schema fixtures
-src-tauri/core/            Engine crate, native sidecar, and standalone tests
-scripts/                   Build helpers, diagnostics, and headless visual checks
-docs/                      Architecture, compatibility, and testing notes
-artifacts/                 Current Windows installer and checksum
-```
-
-Read [the architecture notes](docs/architecture.md) for the storage format and transfer flow, or [the validation guide](docs/validation.md) for test coverage and release gates.
-
-To reproduce the sample screenshots and visual checks, see [the screenshot guide](docs/images/README.md). These checks use fabricated content and do not open personal Codex profiles.
-
-## Help shape the next version
-
-If Pull finishes but Codex shows no history, open **Recovery > Diagnose missing chats** on the affected computer, then choose **Export log**. The report checks Codex folder candidates, restored record counts, and available pull events. It excludes conversation text and credentials. New pulls keep diagnostic events automatically; an earlier pull can still be investigated from its saved baseline and the current local profile.
-
-![Diagnostics in the native Windows app, showing the pull destination, record counts, and findings](docs/images/native-diagnostics-light.png)
-
-If a handoff feels confusing or something fails, please [open an issue](https://github.com/desigrit/project-spice-route/issues). Include the Spice Route version, Codex versions on both computers, the cloud client, and the exact error. A short description of what you expected is especially useful. Keep private conversations, credentials, and full database files out of public reports.
-
-The next milestones are reliable Windows and macOS round trips across supported cloud clients, continued Codex compatibility coverage, and notarized Mac distribution. Small, well-tested improvements to the interface and recovery flow are welcome along the way.
+Spice Route is an independent project, not an official OpenAI product. Windows installers are unsigned; the Mac package is ad-hoc signed and not notarized. There is no app-level encryption.
