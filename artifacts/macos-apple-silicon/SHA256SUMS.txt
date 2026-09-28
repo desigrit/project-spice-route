@@ -10,3 +10,5 @@ dff52078b143f13d38b02b6781646b87ea1c31dc8f963c0fa88a3b654c66c6c4  Spice-Route-1.
 1c5300b425952d1bba42c38b5ea1d3ee1dffa06931b5fdbc9aca31c4be804e09  Spice-Route-1.6.4-macos-apple-silicon.app.zip
 ab1efd6a52e8861d94667f268b5abf4cbb37ba813bade6276359a4aef6f50a73  Spice-Route-1.6.5-macos-apple-silicon.dmg
 549c171f4a77624305d4b9a831c9d3d2ddbaabb975c32e1541de2517256c81b0  Spice-Route-1.6.5-macos-apple-silicon.app.zip
+51f378712ea20cdf152103878eefbbb40cb5ab43b4d385b7980f4e8034dc3ad5  Spice-Route-1.6.6-macos-apple-silicon.dmg
+99718f055f0b669e36d60b98ee725b997f774a81923f0d900683ed5bd70d4916  Spice-Route-1.6.6-macos-apple-silicon.app.zip
