@@ -191,9 +191,9 @@ Windows primary buttons retain the accent-button states, disabled system resourc
 
 ### Overview
 
-Show selected chat and project counts once beside the device action. Show the latest visible handoff, its content amount, and its state on this device beside Pull. Use readable dates with a unique suffix and keep the full identifier selectable in Details. Snapshot ancestry remains independent of display dates.
+Show selected chat and project counts once beside the device action. The device name and computer icon lead that pane; "This device" sits directly below. Beside Pull, show the latest visible handoff's date, selected size, short ID, chat count, and project count by mode. Keep the full identifier selectable in Details and delivery state in Recent handoffs. Snapshot ancestry remains independent of display dates. Do not claim that a local device has the latest handoff beneath its name.
 
-Draw Overview from the quick catalog and known status. Do not scan working trees just to render the page. When a full-project estimate is unavailable, show **Calculated in review**. Keep **Saved to sync folder**, **Received and verified**, and **Not yet pulled** distinct; the drive application still controls delivery.
+Draw local Overview counts from the quick catalog and cloud counts from the completed snapshot manifest. Do not scan working trees just to render the page. When a full-project estimate is unavailable, show **Calculated in review**. Keep **Saved to sync folder**, **Received and verified**, and **Not yet pulled** distinct in recent activity and Details; the drive application still controls delivery.
 
 ### What to sync
 

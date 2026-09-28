@@ -4,7 +4,7 @@
 
 ## Platform
 
-adaptive desktop
+adaptive
 
 Windows uses native WinUI 3. macOS uses Tauri with the system WebKit view and Mac-specific window styling. Both applications call the same Rust sync engine and read the same snapshot format.
 

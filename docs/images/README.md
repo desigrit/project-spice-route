@@ -2,7 +2,7 @@
 
 The `spice-route-*-explained.png` images show the current Push and Pull route, the selected Codex database tables, and the project transfer modes. They are renders of [the three-view visual guide](../spice-route-sync-explained.html), based on the Rust engine. They contain no personal data and do not represent a live transfer.
 
-The `native-*` images show the actual Spice Route 1.6.0 WinUI interface with fabricated projects, chats, device names, and locations. They come from the offscreen visual probe documented in [Windows verification](../testing-1.6.0.md). They illustrate the interface rather than a live cloud transfer. Native operating-system caption buttons are outside the captured XAML tree.
+The `native-*` images show the actual Spice Route WinUI interface with fabricated projects, chats, device names, and locations. The Overview image comes from the 1.6.6 offscreen visual probe in the [desktop build workflow](../../.github/workflows/desktop-builds.yml); the other captures come from the 1.6.0 probe documented in [Windows verification](../testing-1.6.0.md). They illustrate the interface rather than a live cloud transfer. Native operating-system caption buttons are outside the captured XAML tree.
 
 The README includes all five current screens:
 

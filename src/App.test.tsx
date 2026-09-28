@@ -72,6 +72,10 @@ function snapshot(id: string, deviceName: string): SnapshotSummary {
     logicalBytes: 10,
     storedBytes: 8,
     objectCount: 1,
+    chatCount: 2,
+    projectCount: 1,
+    fullProjectCount: 1,
+    historyOnlyProjectCount: 0,
     verified: true,
     clientSyncState: "unknown",
   };
@@ -106,6 +110,15 @@ function renderOverview(syncStatus: SyncStatus) {
 }
 
 describe("concurrent handoff actions", () => {
+  it("shows the cloud handoff's chats and project modes beside this device's selection", () => {
+    const visible = { ...snapshot("snapshot-visible", "Travel laptop"), chatCount: 28, projectCount: 3, fullProjectCount: 1, historyOnlyProjectCount: 2 };
+    renderOverview({ ...status(false), latestSnapshot: visible, visibleHeads: [visible] });
+    const cloud = screen.getByRole("region", { name: "Cloud handoff" });
+    expect(within(cloud).getByText("28")).toBeInTheDocument();
+    expect(within(cloud).getByText("3 · 1 full · 2 history only")).toBeInTheDocument();
+    expect(screen.queryByText("This device has the latest handoff")).not.toBeInTheDocument();
+  });
+
   it("does not claim visible content is verified before Pull checks it", () => {
     const visible = { ...snapshot("snapshot-visible", "Windows A"), verified: false };
     renderOverview({ ...status(false), latestSnapshot: visible, visibleHeads: [visible] });

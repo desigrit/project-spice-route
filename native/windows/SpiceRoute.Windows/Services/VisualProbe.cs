@@ -40,8 +40,8 @@ internal sealed class VisualProbeFixture
           {"id":"chat-7","title":"Compare a few ideas","projectless":true,"estimatedBytes":180000}]}
         """)!.AsObject();
     internal JsonArray Snapshots { get; } = JsonNode.Parse("""
-        [{"id":"20260918T173000-workspace","shortId":"20260918.1030-A81B72C3","createdAt":"2026-09-18T17:30:00Z","deviceName":"Workspace PC","logicalBytes":29580000,"storedBytes":18430000,"objectCount":126,"verified":true},
-         {"id":"20260917T154000-laptop","shortId":"20260917.0840-D32A90B1","createdAt":"2026-09-17T15:40:00Z","deviceName":"Travel laptop","logicalBytes":26780000,"storedBytes":16120000,"objectCount":121,"verified":true}]
+        [{"id":"20260918T173000-workspace","shortId":"20260918.1030-A81B72C3","createdAt":"2026-09-18T17:30:00Z","deviceName":"Workspace PC","logicalBytes":29580000,"storedBytes":18430000,"objectCount":126,"chatCount":7,"projectCount":3,"fullProjectCount":1,"historyOnlyProjectCount":2,"verified":true},
+         {"id":"20260917T154000-laptop","shortId":"20260917.0840-D32A90B1","createdAt":"2026-09-17T15:40:00Z","deviceName":"Travel laptop","logicalBytes":26780000,"storedBytes":16120000,"objectCount":121,"chatCount":6,"projectCount":3,"fullProjectCount":1,"historyOnlyProjectCount":2,"verified":true}]
         """)!.AsArray();
     internal JsonObject Status { get; }
     internal JsonArray ReviewChanges { get; } = JsonNode.Parse("""

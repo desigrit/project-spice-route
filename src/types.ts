@@ -107,6 +107,10 @@ export interface SnapshotSummary {
   logicalBytes: number;
   storedBytes: number;
   objectCount: number;
+  chatCount: number;
+  projectCount: number;
+  fullProjectCount: number;
+  historyOnlyProjectCount: number;
   verified: boolean;
   clientSyncState: "unknown" | "waiting" | "reportedSynced";
 }

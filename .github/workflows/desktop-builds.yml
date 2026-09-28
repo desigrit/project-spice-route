@@ -6,7 +6,7 @@ on:
       version:
         description: Release version, without a leading v
         required: true
-        default: 1.6.5
+        default: 1.6.6
   push:
     tags:
       - "v*"
@@ -159,6 +159,31 @@ jobs:
           ./scripts/build-native-windows.ps1
           -Version $env:SPICE_ROUTE_VERSION
           -Architecture ${{ matrix.architecture }}
+
+      - name: Capture sample WinUI screens
+        if: matrix.architecture == 'x64'
+        shell: pwsh
+        run: |
+          $app = Join-Path $PWD 'artifacts/native-win-x64/SpiceRoute.exe'
+          $captures = Join-Path $PWD 'visual-probe-captures'
+          New-Item -ItemType Directory -Path $captures -Force | Out-Null
+          $probe = Start-Process -FilePath $app -ArgumentList @('--visual-probe', $captures) -WorkingDirectory (Split-Path $app) -WindowStyle Hidden -PassThru -Wait
+          if ($probe.ExitCode -ne 0) {
+            $errorPath = Join-Path $captures 'visual-probe-error.txt'
+            if (Test-Path -LiteralPath $errorPath) { Get-Content -LiteralPath $errorPath }
+            throw "The sample WinUI visual probe returned exit code $($probe.ExitCode)."
+          }
+          $report = Get-Content -LiteralPath (Join-Path $captures 'visual-probe-report.json') -Raw | ConvertFrom-Json
+          if (-not $report.passed) { throw 'The sample WinUI visual checks did not pass.' }
+
+      - name: Upload sample WinUI screens
+        if: matrix.architecture == 'x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: spice-route-${{ env.SPICE_ROUTE_VERSION }}-winui-sample-screens
+          if-no-files-found: error
+          retention-days: 30
+          path: visual-probe-captures/
 
       - name: Test installed native package
         shell: pwsh

@@ -205,6 +205,10 @@ pub struct SnapshotSummary {
     pub logical_bytes: u64,
     pub stored_bytes: u64,
     pub object_count: usize,
+    pub chat_count: usize,
+    pub project_count: usize,
+    pub full_project_count: usize,
+    pub history_only_project_count: usize,
     pub verified: bool,
     pub client_sync_state: ClientSyncState,
 }
@@ -552,6 +556,18 @@ impl SnapshotManifest {
             logical_bytes: self.objects.iter().map(|item| item.raw_size).sum(),
             stored_bytes,
             object_count: self.objects.len(),
+            chat_count: self.threads.len(),
+            project_count: self.projects.len(),
+            full_project_count: self
+                .projects
+                .iter()
+                .filter(|project| project.mode == ProjectMode::Full)
+                .count(),
+            history_only_project_count: self
+                .projects
+                .iter()
+                .filter(|project| project.mode == ProjectMode::HistoryOnly)
+                .count(),
             verified,
             client_sync_state: ClientSyncState::Unknown,
         }

@@ -60,7 +60,8 @@ const catalog = { projects, threads, totalEstimatedBytes: 241172480, warnings: [
 const snapshot = {
   id: 'preview-snapshot', shortId: 'A7C9E24B', deviceId: 'other-device', deviceName: 'Travel laptop',
   createdAt: '2026-09-11T13:40:00Z', parentId: null, logicalBytes: 241172480,
-  storedBytes: 114294784, objectCount: 1248, verified: false, clientSyncState: 'unknown',
+  storedBytes: 114294784, objectCount: 1248, chatCount: 28, projectCount: 3,
+  fullProjectCount: 2, historyOnlyProjectCount: 1, verified: false, clientSyncState: 'unknown',
 };
 const status = { latestSnapshot: snapshot, visibleHeads: [snapshot], lastAppliedSnapshotId: snapshot.id,
   lastPushedSnapshotId: null, cloudBytes: 467664896, incomingAvailable: false, mergeReady: false,
@@ -105,7 +106,7 @@ try {
         'aria-current': page === id ? 'page' : undefined }, h(Icon, { size: 18 }), h('span', null, label)))),
       h('div', { className: 'sidebar-footer' }, h('div', { className: 'device-chip' }, h(Laptop, { size: 16 }),
         h('span', null, h('small', null, 'This device'), config.deviceName)),
-        h('div', { className: 'sidebar-version' }, 'Spice Route 1.6.0'))),
+        h('div', { className: 'sidebar-version' }, 'Spice Route 1.6.6'))),
     h('main', { className: 'main-content' }, h('header', { className: 'topbar' },
       h('div', null, h('p', { className: 'eyebrow' }, page === 'selection' ? 'Sync policy' : page),
         h('h1', null, nav.find(([id]) => id === page)?.[1] || 'Overview')),

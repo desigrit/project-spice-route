@@ -19,6 +19,7 @@ import {
   MoreHorizontal,
   HardDrive,
   History,
+  Info,
   Laptop,
   LoaderCircle,
   Moon,
@@ -58,7 +59,7 @@ const navItems: Array<{ id: Page; label: string; icon: typeof Route }> = [
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
-const appVersion = "1.6.5";
+const appVersion = "1.6.6";
 
 type BusyState = { label: string; operationId?: string } | null;
 type EstimateState = "pending" | "ready" | "unavailable";
@@ -474,7 +475,14 @@ function handoffDate(value: string): string {
 function handoffLabel(snapshot: SnapshotSummary): string {
   const suffix = (snapshot.shortId || snapshot.id).split("-").pop()?.slice(-8).toUpperCase();
   const date = new Date(snapshot.createdAt);
-  return Number.isNaN(date.valueOf()) ? snapshot.shortId : `${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} · ${suffix}`;
+  const detail = `${formatBytes(snapshot.logicalBytes)} · ${suffix}`;
+  return Number.isNaN(date.valueOf()) ? detail : `${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })} · ${detail}`;
+}
+
+function handoffProjects(snapshot: SnapshotSummary): string {
+  if (!snapshot.projectCount) return "0";
+  const modes = [snapshot.fullProjectCount && `${snapshot.fullProjectCount} full`, snapshot.historyOnlyProjectCount && `${snapshot.historyOnlyProjectCount} history only`].filter(Boolean);
+  return `${snapshot.projectCount}${modes.length ? ` · ${modes.join(" · ")}` : ""}`;
 }
 
 export function Overview({ config, environment, catalog, status, onPush, onPull, onNavigate, estimateState = "ready" }: {
@@ -514,8 +522,8 @@ export function Overview({ config, environment, catalog, status, onPush, onPull,
     {!environment.compatibility?.supported && <p className="handoff-compatibility">{environment.compatibility?.explanation || "Check the Codex data folder in Settings, then refresh."}</p>}
     <div className="handoff-pair">
       <section className="handoff-pane" aria-label="This device">
-        <div className="handoff-pane-label"><Laptop size={17} />This device</div>
-        <h2>{config.deviceName}</h2><p className="handoff-device-state">{aligned ? <Check size={15} /> : <CircleAlert size={15} />}{aligned ? "This device has the latest handoff" : "This device may have an out of date snapshot"}</p>
+        <h2 className="handoff-device-heading"><Laptop size={22} aria-hidden="true" />{config.deviceName}</h2>
+        <p className="handoff-device-caption">This device</p>
         <dl className="handoff-facts">
           <div><dt>Selected chats</dt><dd>{selectedThreadCount(config, catalog)}</dd></div>
           <div><dt>Projects</dt><dd>{full + history} · {modeSummary}</dd></div>
@@ -528,8 +536,8 @@ export function Overview({ config, environment, catalog, status, onPush, onPull,
         <h2>{latest ? handoffDate(latest.createdAt) : "No handoff yet"}</h2><p>{latest ? `From ${latest.deviceName} · latest visible handoff` : hasBranches ? "Choose a visible branch below." : "Push to create your first handoff."}</p>
         <dl className="handoff-facts">
           <div><dt>Handoff</dt><dd>{latest ? handoffLabel(latest) : "None published"}</dd></div>
-          <div><dt>Contents</dt><dd>{latest ? formatBytes(latest.logicalBytes) + " selected" : "No selected content"}</dd></div>
-          <div><dt>On this device</dt><dd>{latest ? localHandoffState(latest, status) : "Ready to Push"}</dd></div>
+          <div><dt>Chats</dt><dd>{latest?.chatCount.toLocaleString() ?? "0"}</dd></div>
+          <div><dt>Projects</dt><dd>{latest ? handoffProjects(latest) : "0"}</dd></div>
         </dl>
         <div className="handoff-actions"><Button className="secondary-button" icon={<ArrowDownToLine size={16} />} onClick={() => onPull()} disabled={!ready || !latest || hasBranches}>Pull</Button>
           {latest && <Popover positioning="below-end"><PopoverTrigger disableButtonEnhancement><Button className="text-button">Details</Button></PopoverTrigger><PopoverSurface className="handoff-details"><h3>Handoff details</h3><p className="selectable-id">{latest.id}</p><p>{latest.objectCount.toLocaleString()} content objects · {formatBytes(latest.storedBytes)} stored</p><p>{latest.verified ? "Contents verified on this device." : "Visible in sync folder. Contents are checked during Pull."}</p><p>Match this identifier on your other device. Cloud delivery is not confirmed by a successful Push.</p></PopoverSurface></Popover>}
@@ -542,7 +550,7 @@ export function Overview({ config, environment, catalog, status, onPush, onPull,
       {rows.length === 0 && <p className="handoff-empty">{historyError ? "Recent handoffs could not load. Refresh to try again." : "Published handoffs will appear here."}</p>}
     </section>
     {hasBranches && <section className="handoff-branches"><h3>Visible branches</h3><p>Choose the device history you want to review.</p>{heads.map((head) => <div key={head.id}><span>{head.deviceName} · {handoffDate(head.createdAt)}</span><Button className="secondary-button" disabled={!ready} onClick={() => onPull(head.id)}>Review branch</Button></div>)}</section>}
-    <p className="cloud-note"><CircleAlert size={15} /> Your drive app handles delivery. A visible handoff may still be downloading.</p>
+    <p className="cloud-note"><Info size={15} aria-hidden="true" /> Your drive app needs to fully sync files before you begin the transition.</p>
   </div>;
 }
 

@@ -44,7 +44,7 @@ public sealed class OverviewPage : Page
         var note = Ui.ColumnsWithSpacing(8, new GridLength(16), new GridLength(1, GridUnitType.Star));
         note.Margin = new Thickness(0, 22, 0, 24);
         var icon = Ui.Icon("\uE946", 14); icon.Style = Ui.Style("SpiceMutedIconStyle"); Ui.Add(note, icon);
-        Ui.Add(note, Ui.Muted("Your drive app handles delivery. A visible handoff may still be downloading.", 12), column: 1);
+        Ui.Add(note, Ui.Muted("Your drive app needs to fully sync files before you begin the transition.", 12), column: 1);
         body.Children.Add(note);
         if (active) _ = LoadRecentAsync();
     }
@@ -52,6 +52,7 @@ public sealed class OverviewPage : Page
     private Grid BuildHeader()
     {
         var header = Ui.ColumnsWithSpacing(12, new GridLength(1, GridUnitType.Star), GridLength.Auto);
+        header.Margin = new Thickness(0, 0, 0, 20);
         Ui.Add(header, Ui.PageTitle("Overview"));
         var refresh = Ui.IconButton("Refresh", "\uE72C"); refresh.IsEnabled = !refreshing;
         refresh.Click += async (_, _) =>
@@ -74,7 +75,7 @@ public sealed class OverviewPage : Page
         if (ready && heads.Count <= 1 && aligned) return null;
 
         var row = Ui.ColumnsWithSpacing(10, new GridLength(16), new GridLength(1, GridUnitType.Star), GridLength.Auto);
-        row.Margin = new Thickness(0, 20, 0, 0); row.Padding = new Thickness(0, 0, 0, 18);
+        row.Padding = new Thickness(0, 0, 0, 18);
         var message = !ready ? Wire.Bool(context.Status, "pendingRecovery") ? "Finish recovery before your next handoff."
             : !Wire.Bool(context.Config, "onboardingComplete") ? "Connect your folders to begin." : "Codex compatibility needs attention."
             : heads.Count > 1 ? Wire.Bool(context.Status, "mergeReady") ? "The reviewed branches are ready to publish." : "Several handoffs need review. Choose a branch below."
@@ -110,7 +111,7 @@ public sealed class OverviewPage : Page
         var heading = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         var icon = Ui.Icon(glyph, 16); icon.Style = Ui.Style("SpiceAccentIconStyle"); heading.Children.Add(icon); heading.Children.Add(Ui.Muted(label, 13));
         pane.Children.Add(heading);
-        pane.Children.Add(Ui.WithMargin(Ui.Text(title, 23, true), new Thickness(0, 5, 0, 5)));
+        pane.Children.Add(Ui.WithMargin(Ui.Text(title, 23, true), new Thickness(0, 2, 0, 2)));
         if (caption.Length > 0) pane.Children.Add(Ui.Muted(caption, 12));
         return pane;
     }
@@ -120,21 +121,20 @@ public sealed class OverviewPage : Page
         var row = Ui.ColumnsWithSpacing(14, new GridLength(1, GridUnitType.Star), new GridLength(1.45, GridUnitType.Star)); row.MinHeight = 35;
         Ui.Add(row, Ui.WithAlignment(Ui.Muted(label, 12), VerticalAlignment.Center));
         var text = Ui.Text(value, 12, true); text.IsTextSelectionEnabled = copy;
+        text.TextWrapping = TextWrapping.Wrap; text.TextAlignment = Microsoft.UI.Xaml.TextAlignment.Right;
         Ui.Add(row, Ui.WithAlignment(text, VerticalAlignment.Center, HorizontalAlignment.Right), column: 1);
         return row;
     }
 
     private FrameworkElement BuildDevice(bool ready, JsonArray heads)
     {
-        var pane = Pane("\uE7F4", "This device", Wire.Text(context.Config, "deviceName", "This PC"), "");
-        var latest = context.Status["latestSnapshot"] as JsonObject;
-        var latestId = latest is null ? "" : Wire.Text(latest, "id");
-        var aligned = latestId.Length > 0 && (latestId == Wire.Text(context.Status, "lastAppliedSnapshotId") || latestId == Wire.Text(context.Status, "lastPushedSnapshotId"));
-        var handoff = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        var sign = Ui.Icon(aligned ? "\uE73E" : "\uE946", 14); sign.Style = Ui.Style("SpiceMutedIconStyle");
-        handoff.Children.Add(sign);
-        handoff.Children.Add(Ui.Muted(aligned ? "This device has the latest handoff" : "This device may have an out of date snapshot", 12));
-        pane.Children.Add(handoff);
+        var pane = new StackPanel();
+        var heading = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 9 };
+        var icon = Ui.Icon("\uE7F4", 20); icon.Style = Ui.Style("SpiceAccentIconStyle");
+        heading.Children.Add(icon);
+        heading.Children.Add(Ui.Text(Wire.Text(context.Config, "deviceName", "This PC"), 23, true));
+        pane.Children.Add(heading);
+        pane.Children.Add(Ui.WithMargin(Ui.Muted("This device", 12), new Thickness(29, 2, 0, 0)));
         var summary = SelectionSummary.Count(context.Config, context.Catalog);
         var modes = summary.Full > 0 && summary.History > 0 ? $"{summary.Full} full · {summary.History} history only" : summary.Full > 0 ? "full projects" : "chat history only";
         var facts = new StackPanel { Margin = new Thickness(0, 22, 0, 20) };
@@ -160,9 +160,9 @@ public sealed class OverviewPage : Page
             latest is null ? "No handoff yet" : HandoffTime(Wire.Text(latest, "createdAt")),
             latest is null ? heads.Count > 1 ? "Choose a visible branch below." : "Push to create your first handoff." : $"From {Wire.Text(latest, "deviceName")} · latest visible handoff");
         var facts = new StackPanel { Margin = new Thickness(0, 22, 0, 20) };
-        facts.Children.Add(Fact("Handoff", latest is null ? "None published" : FriendlyHandoffId(latest), true));
-        facts.Children.Add(Fact("Contents", latest is null ? "No selected content" : Wire.Bytes(Wire.Number(latest, "logicalBytes")) + " selected"));
-        facts.Children.Add(Fact("On this device", latest is null ? "Ready to Push" : LocalState(latest)));
+        facts.Children.Add(Fact("Handoff", latest is null ? "None published" : HandoffFact(latest), true));
+        facts.Children.Add(Fact("Chats", latest is null ? "0" : Wire.Number(latest, "chatCount").ToString("N0", CultureInfo.CurrentCulture)));
+        facts.Children.Add(Fact("Projects", latest is null ? "0" : ProjectFact(latest)));
         pane.Children.Add(facts);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
         var pull = Ui.Button("Pull", "\uE74B"); pull.IsEnabled = ready && latest is not null && heads.Count <= 1;
@@ -224,12 +224,27 @@ public sealed class OverviewPage : Page
     }
     private static string ProviderName(string provider) => provider switch { "oneDrive" => "OneDrive", "googleDrive" => "Google Drive", "iCloud" => "iCloud Drive", _ => "Cloud" };
     private static string HandoffTime(string value) => DateTimeOffset.TryParse(value, out var date) ? date.ToLocalTime().ToString("MMM d, h:mm tt", CultureInfo.CurrentCulture) : value;
-    private static string FriendlyHandoffId(JsonObject latest)
+    private static string HandoffFact(JsonObject latest)
     {
         var raw = Wire.Text(latest, "shortId", Wire.Text(latest, "id"));
         var suffix = raw.Split('-', StringSplitOptions.RemoveEmptyEntries).LastOrDefault() ?? raw;
         if (suffix.Length > 8) suffix = suffix[^8..];
-        return DateTimeOffset.TryParse(Wire.Text(latest, "createdAt"), out var date) ? $"{date.ToLocalTime():MMM d} · {suffix.ToUpperInvariant()}" : raw;
+        var size = Wire.Bytes(Wire.Number(latest, "logicalBytes"));
+        return DateTimeOffset.TryParse(Wire.Text(latest, "createdAt"), out var date)
+            ? $"{date.ToLocalTime():MMM d} · {size} · {suffix.ToUpperInvariant()}"
+            : $"{size} · {suffix.ToUpperInvariant()}";
+    }
+
+    private static string ProjectFact(JsonObject latest)
+    {
+        var count = (int)Wire.Number(latest, "projectCount");
+        if (count == 0) return "0";
+        var full = (int)Wire.Number(latest, "fullProjectCount");
+        var history = (int)Wire.Number(latest, "historyOnlyProjectCount");
+        var modes = new List<string>();
+        if (full > 0) modes.Add($"{full} full");
+        if (history > 0) modes.Add($"{history} history only");
+        return modes.Count == 0 ? count.ToString(CultureInfo.CurrentCulture) : $"{count} · {string.Join(" · ", modes)}";
     }
 
     private async Task LoadRecentAsync()
