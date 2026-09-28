@@ -9,6 +9,7 @@ The README includes all five current screens:
 | README image | Offscreen probe capture |
 | --- | --- |
 | `native-overview-light.png` | `light-wide-overview.png` |
+| `native-overview-dark.png` | `dark-wide-overview.png` |
 | `native-selection-dark.png` | `dark-wide-selection.png` |
 | `native-settings-light.png` | `light-wide-settings.png` |
 | `native-review-light.png` | `light-wide-review.png` |

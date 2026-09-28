@@ -185,6 +185,11 @@ internal static class VisualProbe
             }
         }
 
+        // The loop ends at the narrow viewport. Return to a wide viewport before
+        // checking that the labelled navigation is expanded.
+        window.AppWindow.MoveAndResize(new RectInt32(-32000, -32000, 1180, 820));
+        window.ShowVisualProbePage("overview", ElementTheme.Light);
+        await SettleAsync(root);
         var navigation = window.VisualProbeNavigation;
         var hamburger = Descendants(root).OfType<Button>().FirstOrDefault(button => button.Name is "TogglePaneButton" or "PaneToggleButton");
         checks.Add(new JsonObject
@@ -292,8 +297,12 @@ internal static class VisualProbe
         checks.Add(new JsonObject
         {
             ["check"] = $"{theme} history-only mode updates size and preserves project selection",
-            ["passed"] = before != after && after == NativePageUi.Bytes(3220000d) && save?.IsEnabled == true && ReferenceEquals(selected, list.SelectedItem),
-            ["before"] = before, ["after"] = after, ["screenshot"] = filename
+            ["passed"] = before != after && after == NativePageUi.Bytes(3220000d) && save?.IsEnabled == true
+                && selected is SyncChoiceRow original && list.SelectedItem is SyncChoiceRow currentRow && original.Id == currentRow.Id,
+            ["before"] = before, ["after"] = after, ["screenshot"] = filename,
+            ["selectedProjectBefore"] = (selected as SyncChoiceRow)?.Id,
+            ["selectedProjectAfter"] = (list.SelectedItem as SyncChoiceRow)?.Id,
+            ["saveEnabled"] = save?.IsEnabled
         });
         var search = Descendants(root).OfType<TextBox>().First(control => AutomationProperties.GetName(control) == "Search sync choices");
         search.Text = "Research";

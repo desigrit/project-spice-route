@@ -25,6 +25,8 @@ Overview shows your current selection on the left. Push opens a review of the fi
 
 ![Sample Overview screen showing the local selection and latest visible handoff](images/native-overview-light.png)
 
+The [Windows dark-mode capture](images/native-overview-dark.png) shows the same layout with the system dark palette.
+
 The [Mac Overview](images/macos-overview-light.png) follows the same flow, with Mac-specific window styling. A [dark-mode preview](images/macos-overview-dark.png) is available too.
 
 ![Sample Push review showing files, attention items, and transfer size](images/native-review-light.png)

@@ -16,6 +16,8 @@ Spice Route is a desktop app for Windows and macOS that transfers selected Codex
 
 *The Overview screenshot shows the actual WinUI 3 interface in version 1.6.6, captured with sample data. Other Windows screenshots show the same interface family from version 1.6.0. No personal conversations are shown.*
 
+See [Windows dark mode](docs/images/native-overview-dark.png) too.
+
 The [Mac Overview in light mode](docs/images/macos-overview-light.png) and [dark mode](docs/images/macos-overview-dark.png) are headless renders of the 1.6.6 interface using the same kind of fabricated sample data.
 
 ## A little context before you begin
