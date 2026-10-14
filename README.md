@@ -4,7 +4,7 @@
 
 # Project Spice Route
 
-**Leave one computer. Pick up your Codex work on another.**
+**Got multiple devices like I do? Start a project on one PC, and pick up your Codex work on another.**
 
 Spice Route is a desktop app that carries the chats and project work you choose through a folder synced by OneDrive, Google Drive, or iCloud Drive. Bring a whole project, including its files and Git history, or take just the conversations. Your cloud app handles sign-in and delivery.
 
