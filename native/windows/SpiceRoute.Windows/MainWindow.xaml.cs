@@ -129,32 +129,18 @@ public sealed partial class MainWindow : Window
         var projectlessRoot = Path.Combine(dataDirectory, "projectless");
         Directory.CreateDirectory(codexHome);
         Directory.CreateDirectory(projectlessRoot);
-        var config = new JsonObject
-        {
-            ["schemaVersion"] = 2,
-            ["deviceId"] = "startup-probe",
-            ["deviceName"] = "Startup probe",
-            ["codexHome"] = codexHome,
-            ["projectlessRoot"] = projectlessRoot,
-            ["projectsRoot"] = "",
-            ["cloudRoot"] = "",
-            ["cloudProvider"] = "custom",
-            ["theme"] = "system",
-            ["onboardingComplete"] = false,
-            ["sourceRoots"] = new JsonObject(),
-            ["destinationRoots"] = new JsonObject(),
-            ["selection"] = new JsonObject
-            {
-                ["revision"] = "startup-probe",
-                ["defaultProjectMode"] = "full",
-                ["projectModes"] = new JsonObject(),
-                ["excludedThreadIds"] = new JsonArray(),
-                ["includeArchived"] = true,
-                ["includeBuildOutputs"] = false,
-                ["includeSensitiveFiles"] = true,
-                ["extraExcludePatterns"] = new JsonArray()
-            }
-        };
+        // Use the engine's current settings contract, just as onboarding does.
+        // The engine has its own disposable data directory for this probe.
+        var config = await context.Engine.CallAsync("load_config") as JsonObject
+            ?? throw new InvalidOperationException("The startup probe could not load its configuration.");
+        config["deviceName"] = "Startup probe";
+        config["codexHome"] = codexHome;
+        config["projectlessRoot"] = projectlessRoot;
+        config["projectsRoot"] = "";
+        config["cloudRoot"] = "";
+        config["cloudProvider"] = "custom";
+        config["theme"] = "system";
+        config["onboardingComplete"] = false;
         await context.Engine.CallAsync("save_config", new JsonObject { ["config"] = config });
         await InitializeAsync(throwOnFailure: true);
 
