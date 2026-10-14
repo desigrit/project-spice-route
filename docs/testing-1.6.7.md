@@ -17,4 +17,21 @@ Local settings format 3 prevents older Spice Route builds from reopening a profi
 
 Local validation passed: 123 engine tests, strict Rust Clippy, 29 frontend tests, and the production frontend build. Tests use disposable profiles; no personal Codex records were imported or changed.
 
-Platform build results and package checksums will be added after verification. Real-device handoff through a cloud client remains a separate acceptance check.
+The [final desktop build](https://github.com/desigrit/project-spice-route/actions/runs/38491067713) passed on all three platforms:
+
+- Windows x64 and ARM64: 123 engine tests each, 29 frontend tests each, strict Clippy, packaged startup probes, and installation checks. Each installed engine passed 13 native client contract checks.
+- Apple Silicon: 120 engine tests, 29 frontend tests, strict Clippy, and an ad-hoc signed app and DMG with verified architecture and entitlements.
+- WinUI: all 59 offscreen visual checks passed, covering wide and narrow layouts in light and dark themes.
+
+The Windows startup probe now loads the engine's current default settings instead of hardcoding a settings version. All startup and installation checks ran on disposable CI profiles.
+
+The downloaded packages match their CI SHA-256 values:
+
+| Package | SHA-256 |
+| --- | --- |
+| Windows x64 installer | `82ac37fbc1c8e4622be43cefc692c18ee65b8b7394cfe0ebf845ae0a5f336ffd` |
+| Windows ARM64 installer | `17239a7a4bad6bfaddc3ab27f166307179ef9d6b36875c5dbd2719b609200e0f` |
+| Apple Silicon DMG | `7e57f8cce297f29120f866daa17cc11b458807b2261aca5eb467a964c1d2126f` |
+| Apple Silicon app ZIP | `6e2aea08509c3051d0e56e555e35060269b6b53fb2b5abc822113bc235975838` |
+
+Real-device handoff through a cloud client remains a separate acceptance check. No personal database was restored, and the installed app on the working computer was not launched.
