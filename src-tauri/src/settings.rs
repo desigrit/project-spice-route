@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use uuid::Uuid;
 
-pub const CONFIG_SCHEMA: u32 = 2;
+pub const CONFIG_SCHEMA: u32 = 3;
 
 pub fn default_config() -> AppConfig {
     let codex_home = discover_codex_home()

@@ -228,7 +228,7 @@ pub fn restore_cancellable(data_dir: &Path, id: &str, cancel: Arc<AtomicBool>) -
 }
 
 #[cfg(test)]
-fn restore_files(data_dir: &Path, id: &str) -> Result<()> {
+pub(crate) fn restore_files(data_dir: &Path, id: &str) -> Result<()> {
     restore_files_cancellable(data_dir, id, None, &mut |_| Ok(()), &mut || Ok(()))
 }
 

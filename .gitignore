@@ -119,3 +119,9 @@ docs/design/
 !artifacts/Spice-Route-1.6.6-windows-arm64-setup.exe.sha256
 !artifacts/macos-apple-silicon/Spice-Route-1.6.6-macos-apple-silicon.dmg
 !artifacts/macos-apple-silicon/Spice-Route-1.6.6-macos-apple-silicon.app.zip
+!artifacts/Spice-Route-1.6.7-windows-x64-setup.exe
+!artifacts/Spice-Route-1.6.7-windows-x64-setup.exe.sha256
+!artifacts/Spice-Route-1.6.7-windows-arm64-setup.exe
+!artifacts/Spice-Route-1.6.7-windows-arm64-setup.exe.sha256
+!artifacts/macos-apple-silicon/Spice-Route-1.6.7-macos-apple-silicon.dmg
+!artifacts/macos-apple-silicon/Spice-Route-1.6.7-macos-apple-silicon.app.zip

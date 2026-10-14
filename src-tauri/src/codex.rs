@@ -21,7 +21,7 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-pub const ADAPTER_NAME: &str = "codex-state-v5.52-54-55-57/history-v1.6-7";
+pub const ADAPTER_NAME: &str = "codex-state-v5.52-54-55-57-59/history-v1.6-7-8";
 pub const REFERENCE_CODEX_BUILDS: &[&str] = &["0.153.4", "0.154.0-alpha.6.2", "0.155.0-alpha.9.2"];
 const LOCAL_ONLY_THREAD_COLUMNS: &[&str] = &["sandbox_policy", "approval_mode", "agent_path"];
 const SAFE_IMPORTED_SANDBOX_POLICY: &str =
@@ -315,7 +315,7 @@ pub fn transfer_warnings(
 ) -> Vec<String> {
     if !destination
         .history_migration
-        .is_some_and(|version| version < 7)
+        .is_some_and(|version| version < 8)
     {
         return Vec::new();
     }
@@ -323,18 +323,17 @@ pub fn transfer_warnings(
         .threads
         .iter()
         .filter(|thread| {
-            thread
-                .history_rows
-                .get("thread_items")
-                .into_iter()
-                .flatten()
-                .any(|row| {
-                    ["started_at_ms", "completed_at_ms"].iter().any(|column| {
+            thread.history_rows.iter().any(|(table, rows)| {
+                let columns =
+                    retained_history::unsupported_columns(table, destination.history_migration);
+                rows.iter().any(|row| {
+                    columns.iter().any(|column| {
                         row.values
                             .get(*column)
                             .is_some_and(|value| !matches!(value, SqlValue::Null))
                     })
                 })
+            })
         })
         .count();
     if count == 0 {
@@ -346,7 +345,7 @@ pub fn transfer_warnings(
             ("chats", "contain")
         };
         vec![format!(
-            "{count} incoming {noun} {verb} item timing values that this Codex history database cannot store. If imported, Spice Route will retain those values in its local data and include them in later handoffs."
+            "{count} incoming {noun} {verb} newer history metadata. Spice Route will preserve it on this computer and include it in later handoffs."
         )]
     }
 }
@@ -1536,6 +1535,13 @@ fn hash_thread_rows(
             }
         }
     }
+    if let Some(rows) = normalized_history.get_mut("thread_turns") {
+        for row in rows {
+            if matches!(row.values.get("root_turn_id"), Some(SqlValue::Null)) {
+                row.values.remove("root_turn_id");
+            }
+        }
+    }
     normalize_local_image_paths_in_rows(&mut normalized);
     normalize_local_image_paths_in_rows(&mut normalized_history);
     hash_json(&(normalized, normalized_history))
@@ -1955,24 +1961,27 @@ pub fn apply_bundle(
                     "Unknown source history table: {table}"
                 )));
             }
-            if table == "thread_items" && compatibility.history_migration.is_some_and(|v| v < 7) {
-                let has_timing_values = rows.iter().any(|row| {
-                    ["started_at_ms", "completed_at_ms"].iter().any(|column| {
+            let unsupported =
+                retained_history::unsupported_columns(table, compatibility.history_migration);
+            if !unsupported.is_empty() {
+                let has_newer_values = rows.iter().any(|row| {
+                    unsupported.iter().any(|column| {
                         row.values
                             .get(*column)
                             .is_some_and(|value| !matches!(value, SqlValue::Null))
                     })
                 });
-                if has_timing_values
-                    && !retained_history.is_some_and(|retained| retained.covers(thread))
+                if has_newer_values
+                    && !retained_history
+                        .is_some_and(|retained| retained.covers_table(thread, table))
                 {
                     return Err(SpiceError::UnsupportedCodex(format!(
-                        "Chat '{}' contains item timing values that require retained recovery metadata. Nothing was changed.",
+                        "Chat '{}' contains newer history values that require retained recovery metadata. Nothing was changed.",
                         thread.title
                     )));
                 }
                 let mut stored_rows = rows.clone();
-                retained_history::strip_unsupported_timing(&mut stored_rows);
+                retained_history::strip_unsupported_fields(&mut stored_rows, unsupported);
                 validate_row_columns(&history, table, &stored_rows)?;
             } else {
                 validate_row_columns(&history, table, rows)?;
@@ -2077,13 +2086,10 @@ pub fn apply_bundle(
         {
             let mut state_rows = thread.state_rows.clone();
             let mut history_rows = thread.history_rows.clone();
-            if compatibility
-                .history_migration
-                .is_some_and(|version| version < 7)
-            {
-                if let Some(rows) = history_rows.get_mut("thread_items") {
-                    retained_history::strip_unsupported_timing(rows);
-                }
+            for (table, rows) in &mut history_rows {
+                let unsupported =
+                    retained_history::unsupported_columns(table, compatibility.history_migration);
+                retained_history::strip_unsupported_fields(rows, unsupported);
             }
             if let Some(replacements) = attachment_paths.get(&thread.id) {
                 rewrite_local_image_paths_in_rows(&mut state_rows, replacements);
@@ -2322,7 +2328,8 @@ fn validate_row_columns(connection: &Connection, table: &str, rows: &[DatabaseRo
                             | "creator_account_id"
                     )
                     || table == "thread_items"
-                        && matches!(column.as_str(), "started_at_ms" | "completed_at_ms"))
+                        && matches!(column.as_str(), "started_at_ms" | "completed_at_ms")
+                    || table == "thread_turns" && column == "root_turn_id")
                     && matches!(value, SqlValue::Null))
             {
                 return Err(SpiceError::UnsupportedCodex(format!("The destination cannot represent {table}.{column}. Update Codex on the destination before importing. Nothing was discarded.")));
@@ -3135,7 +3142,7 @@ mod tests {
 
     #[test]
     fn schema_fingerprints_are_identical_across_windows_and_macos_line_endings() {
-        for migration in [52, 54, 55, 57] {
+        for migration in [52, 54, 55, 57, 59] {
             let crlf_home = tempdir().unwrap();
             create_profile_schema_with_line_endings(crlf_home.path(), migration, false);
             let lf_home = tempdir().unwrap();

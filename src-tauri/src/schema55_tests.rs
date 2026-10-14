@@ -15,7 +15,15 @@ const IMAGE_BYTES: &[u8] = b"disposable local image fixture";
 const OPAQUE_PAYLOAD: &str = "Keep exact bytes: {not-json}\nC:\\historical\\file.txt";
 
 fn create_home(home: &Path, migration: i64) {
-    create_home_pair(home, migration, if migration == 57 { 7 } else { 6 });
+    create_home_pair(
+        home,
+        migration,
+        match migration {
+            59 => 8,
+            57 => 7,
+            _ => 6,
+        },
+    );
 }
 
 fn create_home_pair(home: &Path, state_migration: i64, history_migration: i64) {
@@ -176,6 +184,16 @@ fn apply_rows(
     deleted: &[&str],
     attachment_paths: &HashMap<String, HashMap<String, String>>,
 ) -> crate::error::Result<()> {
+    apply_rows_with_retained(home, manifest, deleted, attachment_paths, None)
+}
+
+fn apply_rows_with_retained(
+    home: &Path,
+    manifest: &SnapshotManifest,
+    deleted: &[&str],
+    attachment_paths: &HashMap<String, HashMap<String, String>>,
+    retained: Option<&RetainedHistory>,
+) -> crate::error::Result<()> {
     codex::apply_bundle(
         home,
         manifest,
@@ -206,11 +224,20 @@ fn apply_rows(
             })
             .collect(),
         attachment_paths,
-        None,
+        retained,
     )
 }
 
 fn restore(home: &Path, captured: &Captured, deleted: &[&str]) {
+    restore_with_retained(home, captured, deleted, None);
+}
+
+fn restore_with_retained(
+    home: &Path,
+    captured: &Captured,
+    deleted: &[&str],
+    retained: Option<&RetainedHistory>,
+) {
     let mut replacements: HashMap<String, HashMap<String, String>> = HashMap::new();
     for object in captured
         .manifest
@@ -253,7 +280,7 @@ fn restore(home: &Path, captured: &Captured, deleted: &[&str]) {
             codex::rewrite_rollout_local_image_paths(&destination, paths).unwrap();
         }
     }
-    apply_rows(home, &captured.manifest, deleted, &replacements).unwrap();
+    apply_rows_with_retained(home, &captured.manifest, deleted, &replacements, retained).unwrap();
     codex::verify_databases(home).unwrap();
 }
 
@@ -360,6 +387,15 @@ fn supported_schema_transfer_matrix_preserves_records_images_selection_and_desti
         (57, 54),
         (54, 57),
         (52, 57),
+        (59, 59),
+        (59, 57),
+        (57, 59),
+        (59, 55),
+        (55, 59),
+        (59, 54),
+        (54, 59),
+        (59, 52),
+        (52, 59),
     ] {
         let source = tempdir().unwrap();
         let destination = tempdir().unwrap();
@@ -423,7 +459,11 @@ fn supported_schema_transfer_matrix_preserves_records_images_selection_and_desti
         );
         assert_eq!(
             compatibility_after.history_migration,
-            Some(if destination_version == 57 { 7 } else { 6 })
+            Some(match destination_version {
+                59 => 8,
+                57 => 7,
+                _ => 6,
+            })
         );
         assert_eq!(
             compatibility_before.schema_fingerprint,
@@ -908,6 +948,249 @@ fn schema57_history6_retains_newer_timing_fields_across_a_later_push() {
         .overlay_export(&mut missing_item.clone(), false)
         .is_ok());
     assert!(retained.overlay_export(&mut missing_item, true).is_err());
+}
+
+#[test]
+fn schema59_known_pairs_match_on_both_platforms_and_still_reject_schema_drift() {
+    for (state_version, history_version) in [(59, 8), (59, 7), (59, 6), (57, 8)] {
+        let windows = tempdir().unwrap();
+        let mac = tempdir().unwrap();
+        create_home_pair(windows.path(), state_version, history_version);
+        create_home_pair_with_line_endings(mac.path(), state_version, history_version, true);
+        let before = codex::inspect(windows.path()).unwrap();
+        assert_eq!(
+            before.schema_fingerprint,
+            codex::inspect(mac.path()).unwrap().schema_fingerprint
+        );
+        let history = Connection::open(mac.path().join("thread_history_1.sqlite")).unwrap();
+        history.execute_batch("CREATE TRIGGER unexpected_history_delete AFTER DELETE ON thread_turns BEGIN DELETE FROM thread_items WHERE thread_id=OLD.thread_id; END;").unwrap();
+        assert!(!codex::inspect(mac.path()).unwrap().supported);
+        history
+            .execute_batch("DROP TRIGGER unexpected_history_delete;")
+            .unwrap();
+        assert!(codex::inspect(mac.path()).unwrap().supported);
+        history.execute("INSERT INTO _sqlx_migrations(version,description,success,checksum,execution_time) VALUES(100,'failed fixture',0,X'00',0)", []).unwrap();
+        assert!(!codex::inspect(mac.path()).unwrap().supported);
+    }
+    let home = tempdir().unwrap();
+    create_home(home.path(), 59);
+    let state = Connection::open(home.path().join("state_5.sqlite")).unwrap();
+    state
+        .execute_batch("DROP INDEX idx_thread_attachments_identity_thread;")
+        .unwrap();
+    assert!(!codex::inspect(home.path()).unwrap().supported);
+}
+
+#[test]
+fn schema59_root_and_timing_metadata_round_trip_through_every_supported_profile() {
+    let source = tempdir().unwrap();
+    create_home(source.path(), 59);
+    seed_thread(source.path(), 59, "portable");
+    seed_thread(source.path(), 59, "excluded");
+    let history = Connection::open(source.path().join("thread_history_1.sqlite")).unwrap();
+    history.execute_batch("UPDATE thread_turns SET root_turn_id='root-turn'; UPDATE thread_items SET started_at_ms=100, completed_at_ms=200;").unwrap();
+    drop(history);
+    let captured = capture(source.path(), &["excluded"]);
+    assert_eq!(captured.manifest.threads.len(), 1);
+    let included = HashSet::from(["portable".to_string()]);
+    for profile in compatibility::PROFILES {
+        let destination = tempdir().unwrap();
+        let local_data = tempdir().unwrap();
+        let returned = tempdir().unwrap();
+        create_home_pair(destination.path(), profile.state, profile.history);
+        create_home(returned.path(), 59);
+        seed_thread(destination.path(), profile.state, "local");
+        seed_thread(returned.path(), 59, "unrelated");
+        let before = codex::inspect(destination.path()).unwrap();
+        assert!(codex::transfer_issues(&captured.manifest, &before).is_empty());
+        assert_eq!(
+            codex::transfer_warnings(&captured.manifest, &before).len(),
+            usize::from(profile.history < 8)
+        );
+        let retained = RetainedHistory::default()
+            .after_pull(
+                &captured.manifest,
+                &included,
+                &HashSet::new(),
+                Some(profile.history),
+            )
+            .unwrap();
+        assert_eq!(retained.has_entries(), profile.history < 8);
+        retained.stage(local_data.path()).unwrap();
+        let retained = crate::retained_history::load(local_data.path(), true).unwrap();
+        for _ in 0..2 {
+            restore_with_retained(destination.path(), &captured, &[], Some(&retained));
+        }
+        assert_eq!(
+            before.schema_fingerprint,
+            codex::inspect(destination.path())
+                .unwrap()
+                .schema_fingerprint
+        );
+        assert_restored_content(destination.path(), profile.state);
+        let recaptured = capture_with_retained(destination.path(), &["local"], Some(&retained));
+        assert_eq!(
+            recaptured.manifest.threads[0].fingerprint, captured.manifest.threads[0].fingerprint,
+            "unchanged content must stay unchanged through {}/{}",
+            profile.state, profile.history
+        );
+        let local_history =
+            Connection::open(destination.path().join("thread_history_1.sqlite")).unwrap();
+        local_history
+            .execute(
+                "UPDATE thread_turns SET status='interrupted' WHERE thread_id='portable'",
+                [],
+            )
+            .unwrap();
+        local_history.execute("INSERT INTO thread_turns(thread_id,turn_id,rollout_ordinal,status) VALUES('portable','continued-turn',2,'completed')", []).unwrap();
+        drop(local_history);
+        let continued = capture_with_retained(destination.path(), &["local"], Some(&retained));
+        restore(returned.path(), &continued, &[]);
+        let returned_history =
+            Connection::open(returned.path().join("thread_history_1.sqlite")).unwrap();
+        let root: String = returned_history.query_row("SELECT root_turn_id FROM thread_turns WHERE thread_id='portable' AND turn_id='turn'", [], |r| r.get(0)).unwrap();
+        assert_eq!(root, "root-turn");
+        let times: (i64, i64) = returned_history
+            .query_row(
+                "SELECT started_at_ms,completed_at_ms FROM thread_items WHERE thread_id='portable'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(times, (100, 200));
+        let counts: (i64, i64, i64) = returned_history.query_row("SELECT (SELECT count(*) FROM thread_turns WHERE thread_id='portable'), (SELECT count(*) FROM thread_items WHERE thread_id='unrelated'), (SELECT count(*) FROM thread_items WHERE thread_id='excluded')", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).unwrap();
+        assert_eq!(counts, (2, 1, 0));
+        let cleared = retained
+            .after_pull(&continued.manifest, &included, &HashSet::new(), Some(8))
+            .unwrap();
+        assert!(
+            !cleared.has_entries(),
+            "native storage retires imported retained values"
+        );
+    }
+}
+
+#[test]
+fn schema59_root_retention_checks_identity_and_prevents_unprotected_imports() {
+    let source = tempdir().unwrap();
+    let destination = tempdir().unwrap();
+    create_home(source.path(), 59);
+    create_home(destination.path(), 57);
+    seed_thread(source.path(), 59, "portable");
+    let history = Connection::open(source.path().join("thread_history_1.sqlite")).unwrap();
+    history
+        .execute("UPDATE thread_turns SET root_turn_id='root-turn'", [])
+        .unwrap();
+    drop(history);
+    let captured = capture(source.path(), &[]);
+    let before: Vec<_> = ["state_5.sqlite", "thread_history_1.sqlite"]
+        .iter()
+        .map(|name| fs::read(destination.path().join(name)).unwrap())
+        .collect();
+    assert!(apply_rows(destination.path(), &captured.manifest, &[], &HashMap::new()).is_err());
+    let after: Vec<_> = ["state_5.sqlite", "thread_history_1.sqlite"]
+        .iter()
+        .map(|name| fs::read(destination.path().join(name)).unwrap())
+        .collect();
+    assert_eq!(before, after);
+    let included = HashSet::from(["portable".to_string()]);
+    let retained = RetainedHistory::default()
+        .after_pull(&captured.manifest, &included, &HashSet::new(), Some(7))
+        .unwrap();
+    assert!(retained.covers_table(&captured.manifest.threads[0], "thread_turns"));
+    let mut changed = captured.manifest.threads.clone();
+    changed[0].history_rows.get_mut("thread_turns").unwrap()[0]
+        .values
+        .insert("rollout_ordinal".into(), SqlValue::Integer(999));
+    assert!(!retained.covers_table(&changed[0], "thread_turns"));
+    assert!(retained.overlay_threads(&mut changed, true).is_err());
+    assert!(retained.overlay_threads(&mut changed, false).is_ok());
+    let mut missing = captured.manifest.threads.clone();
+    missing[0].history_rows.remove("thread_turns");
+    assert!(retained.overlay_threads(&mut missing, true).is_err());
+    let mut native_changed = captured.manifest.threads.clone();
+    native_changed[0]
+        .history_rows
+        .get_mut("thread_turns")
+        .unwrap()[0]
+        .values
+        .insert(
+            "root_turn_id".into(),
+            SqlValue::Text("native-new-root".into()),
+        );
+    retained.overlay_threads(&mut native_changed, true).unwrap();
+    assert_eq!(
+        native_changed[0].history_rows["thread_turns"][0].values["root_turn_id"],
+        SqlValue::Text("native-new-root".into())
+    );
+    let mut invalid = captured.manifest.clone();
+    invalid.threads[0]
+        .history_rows
+        .get_mut("thread_turns")
+        .unwrap()[0]
+        .values
+        .insert("root_turn_id".into(), SqlValue::Integer(1));
+    assert!(RetainedHistory::default()
+        .after_pull(&invalid, &included, &HashSet::new(), Some(7))
+        .is_err());
+    let cleared = retained
+        .after_pull(&captured.manifest, &HashSet::new(), &included, Some(7))
+        .unwrap();
+    assert!(!cleared.has_entries());
+}
+
+#[test]
+fn schema59_retained_root_file_and_databases_recover_together_after_interruption() {
+    let source = tempdir().unwrap();
+    let destination = tempdir().unwrap();
+    let local_data = tempdir().unwrap();
+    create_home(source.path(), 59);
+    create_home(destination.path(), 57);
+    seed_thread(source.path(), 59, "portable");
+    let history = Connection::open(source.path().join("thread_history_1.sqlite")).unwrap();
+    history
+        .execute("UPDATE thread_turns SET root_turn_id='root-turn'", [])
+        .unwrap();
+    drop(history);
+    let captured = capture(source.path(), &[]);
+    let retained = RetainedHistory::default()
+        .after_pull(
+            &captured.manifest,
+            &HashSet::from(["portable".into()]),
+            &HashSet::new(),
+            Some(7),
+        )
+        .unwrap();
+    restore_with_retained(destination.path(), &captured, &[], Some(&retained));
+    let retained_path = retained.stage(local_data.path()).unwrap();
+    let targets = vec![
+        destination.path().join("state_5.sqlite"),
+        destination.path().join("thread_history_1.sqlite"),
+        retained_path.clone(),
+    ];
+    let recovery = crate::recovery::create(
+        local_data.path(),
+        "fixture interrupted pull",
+        Some(captured.manifest.id.clone()),
+        &targets,
+    )
+    .unwrap();
+    RetainedHistory::default().stage(local_data.path()).unwrap();
+    let history = Connection::open(destination.path().join("thread_history_1.sqlite")).unwrap();
+    history
+        .execute("DELETE FROM thread_turns WHERE thread_id='portable'", [])
+        .unwrap();
+    drop(history);
+    assert!(crate::recovery::has_pending(local_data.path()));
+    crate::recovery::restore_files(local_data.path(), &recovery).unwrap();
+    assert!(!crate::recovery::has_pending(local_data.path()));
+    let restored = crate::retained_history::load(local_data.path(), true).unwrap();
+    assert_eq!(restored, retained);
+    let recaptured = capture_with_retained(destination.path(), &[], Some(&restored));
+    assert_eq!(
+        recaptured.manifest.threads[0].fingerprint,
+        captured.manifest.threads[0].fingerprint
+    );
 }
 
 #[test]

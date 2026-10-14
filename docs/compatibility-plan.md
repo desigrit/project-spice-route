@@ -1,8 +1,16 @@
-# Compatibility plan: Codex database migrations 52, 54, 55, and 57
+# Compatibility plan: Codex database migrations 52, 54, 55, 57, and 59
 
 ## Scope and evidence
 
 The original schema fixtures come from desktop 26.903.71938 with runtime 0.153.4 and state/history migrations 52/6, and desktop 26.908.40834 with runtime 0.154.0-alpha.6.2 and migrations 54/6. These definitions differ only by nullable `threads.originator TEXT` and `threads.daybreak_enabled BOOLEAN`.
+
+Spice Route 1.6.7 adds the exact 59/8 layout inspected read-only on Windows with Codex desktop 26.1007.2314. State migrations 58 and 59 add four non-unique archive-sorting and attachment-lookup indexes. History migration 8 adds nullable `thread_turns.root_turn_id TEXT`. Existing tables, columns, and triggers are otherwise unchanged from 57/7. The sanitized 59 fixture contains schema definitions only.
+
+The additional 59/7, 59/6, and 57/8 profiles combine these tested database layouts with previously supported layouts because Codex migrates the two files independently. Their complete layouts, migration success, and normalized fingerprints remain mandatory. Unknown layouts remain blocked.
+
+On a destination with history 6 or 7, 1.6.7 keeps incoming non-null `root_turn_id` values in its local retained-history file, alongside any item timing fields needed by history 6. The file participates in the existing Pull journal and rollback. Later Push operations restore the values into the portable records only when the chat, turn ID, and original rollout ordinal still match. Missing or replaced turns block Push. Native non-null values take precedence after a Codex upgrade. Null roots compare as absent fields, avoiding false conflicts when moving older chats into history 8.
+
+Retained-history format 2 reads the earlier format 1 without losing timing values. Local settings move to format 3 so older Spice Route versions cannot reopen the updated profile and discard newer retained fields. Use 1.6.7 or later on all participating computers. [Verification notes](testing-1.6.7.md) cover the transfer matrix and recovery checks.
 
 Runtime 0.155.0-alpha.9.2 uses state/history migrations 55/6. Read-only inspection found a successfully completed migration 55. Compared with schema 54, `thread_artifacts` becomes `thread_attachments`, `artifact_type` becomes `attachment_type`, and the associated index is renamed. The other state objects and the history schema match. Sanitized fixtures contain structure only, not user records or paths.
 

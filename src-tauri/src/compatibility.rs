@@ -79,6 +79,44 @@ pub const PROFILES: &[Profile] = &[
         schema: include_str!("fixtures/schema-57.json"),
         history_schema: Some(include_str!("fixtures/schema-55.json")),
     },
+    Profile {
+        state: 59,
+        history: 8,
+        runtime: "",
+        fingerprint: "458b6878908bd3e2838eca804b7b01614c7118c9f31a84f725f641116390af09",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-59.json"),
+        history_schema: None,
+    },
+    // Each database is migrated independently. These pairs combine exact,
+    // tested layouts, including their indexes, triggers, and column defaults.
+    Profile {
+        state: 59,
+        history: 7,
+        runtime: "",
+        fingerprint: "0dd0c8b09331115b23e54bccb2dd1a2e6c524387151d1554452a71c03b54771d",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-59.json"),
+        history_schema: Some(include_str!("fixtures/schema-57.json")),
+    },
+    Profile {
+        state: 59,
+        history: 6,
+        runtime: "",
+        fingerprint: "e979c9863ff7fea3456858ce9f352b5261fbde9772ef04cb778b754e469fdbdc",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-59.json"),
+        history_schema: Some(include_str!("fixtures/schema-55.json")),
+    },
+    Profile {
+        state: 57,
+        history: 8,
+        runtime: "",
+        fingerprint: "91d01bae6e8037d47a549c454f9ef2f2545c15c6e4f000bb4cbd48e671df3dea",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-57.json"),
+        history_schema: Some(include_str!("fixtures/schema-59.json")),
+    },
 ];
 
 pub fn profile(info: &CompatibilityInfo) -> Option<&'static Profile> {
