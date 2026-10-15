@@ -5,5 +5,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
-  <ItemGroup><Compile Include="../../windows/SpiceRoute.Windows/Services/AppUpdates.cs" Link="AppUpdates.cs" /></ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../windows/SpiceRoute.Windows/Services/AppUpdates.cs" Link="AppUpdates.cs" />
+    <Compile Include="../../windows/SpiceRoute.Windows/Services/EngineClient.cs" Link="EngineClient.cs" />
+    <Compile Include="../../windows/SpiceRoute.Windows/Services/Wire.cs" Link="Wire.cs" />
+  </ItemGroup>
 </Project>

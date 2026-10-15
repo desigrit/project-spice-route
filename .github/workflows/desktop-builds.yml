@@ -34,6 +34,11 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            /*
+            !/artifacts/
+          sparse-checkout-cone-mode: false
 
       - name: Resolve release version
         id: release
@@ -120,6 +125,11 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            /*
+            !/artifacts/
+          sparse-checkout-cone-mode: false
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -245,6 +255,9 @@ jobs:
           if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { throw 'The update signing key is not configured.' }
           npx --no-install tauri signer sign "artifacts/Spice-Route-$env:SPICE_ROUTE_VERSION-windows-${{ matrix.architecture }}-setup.exe"
           if ($LASTEXITCODE -ne 0) { throw 'Update signing failed.' }
+          $package = "artifacts/Spice-Route-$env:SPICE_ROUTE_VERSION-windows-${{ matrix.architecture }}-setup.exe"
+          dotnet run --project native/tests/AppUpdates/AppUpdates.csproj --configuration Release -- "artifacts/native-win-${{ matrix.architecture }}/SpiceRoute.Engine.exe" $package "$package.sig"
+          if ($LASTEXITCODE -ne 0) { throw 'The release signature does not match the app update key.' }
 
       - name: Upload Windows installer and update signature
         uses: actions/upload-artifact@v4
@@ -276,6 +289,11 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            /*
+            !/artifacts/
+          sparse-checkout-cone-mode: false
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -331,6 +349,11 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            /*
+            !/artifacts/
+          sparse-checkout-cone-mode: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22

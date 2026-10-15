@@ -59,6 +59,22 @@ try
 finally { Directory.Delete(root); }
 Console.WriteLine($"Passed {count} updater checks. No app or installer was launched.");
 
+if (args.Length == 3)
+{
+    var profile = Path.Combine(Path.GetTempPath(), "spice-update-signature-" + Guid.NewGuid().ToString("N"));
+    try
+    {
+        await using var engine = new EngineClient(Path.GetFullPath(args[0]), profile);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await engine.CallAsync("verify_update_artifact", new() {
+            ["path"] = Path.GetFullPath(args[1]), ["signature"] = File.ReadAllText(args[2]).Trim()
+        }, timeout.Token);
+        Console.WriteLine("The release package signature matches the application's embedded public key.");
+    }
+    finally { if (Directory.Exists(profile)) Directory.Delete(profile, true); }
+}
+else if (args.Length != 0) throw new ArgumentException("Optional arguments: engine package signature-file");
+
 sealed class FakeHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
 {
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
