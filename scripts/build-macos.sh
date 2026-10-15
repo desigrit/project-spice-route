@@ -89,10 +89,17 @@ mkdir -p "$artifact_dir"
 artifact_base="Spice-Route-$version-macos-$artifact_arch"
 cp "$dmg_path" "$artifact_dir/$artifact_base.dmg"
 ditto -c -k --sequesterRsrc --keepParent "$app_path" "$artifact_dir/$artifact_base.app.zip"
+updater_archive="$bundle_root/macos/Spice Route.app.tar.gz"
+if [[ ! -f "$updater_archive" || ! -f "$updater_archive.sig" ]]; then
+  echo "The signed macOS updater archive was not produced." >&2
+  exit 1
+fi
+cp "$updater_archive" "$artifact_dir/$artifact_base.app.tar.gz"
+cp "$updater_archive.sig" "$artifact_dir/$artifact_base.app.tar.gz.sig"
 
 (
   cd "$artifact_dir"
-  shasum -a 256 "$artifact_base.dmg" "$artifact_base.app.zip" > SHA256SUMS.txt
+  shasum -a 256 "$artifact_base.dmg" "$artifact_base.app.zip" "$artifact_base.app.tar.gz" > SHA256SUMS.txt
 )
 
 echo "Ad-hoc signed app archive: $artifact_dir/$artifact_base.app.zip"

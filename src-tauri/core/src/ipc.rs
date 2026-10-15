@@ -98,6 +98,13 @@ impl Server {
                 json!({"protocolVersion": PROTOCOL_VERSION, "engineVersion": env!("CARGO_PKG_VERSION")}),
             ),
             "load_config" => value(self.engine.load_config()?),
+            "verify_update_artifact" => {
+                crate::updates::verify_artifact(
+                    std::path::Path::new(string(params, "path")?),
+                    string(params, "signature")?,
+                )?;
+                value(())
+            }
             "save_config" => value(self.engine.save_config(config(params)?)?),
             "discover_environment" => value(self.engine.discover_environment()?),
             "list_content" => value(self.engine.list_content(&config(params)?)?),

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Spice Route",
-  "version": "1.6.7",
+  "version": "1.6.8",
   "identifier": "com.spiceroute.codexsync",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -26,9 +26,17 @@
     }
   },
   "bundle": {
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico", "icons/icon.icns"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "shortDescription": "Move Codex sessions safely between your computers",
     "longDescription": "Spice Route creates verified and recoverable Codex session handoffs using an existing Google Drive, OneDrive, or iCloud folder.",
     "category": "DeveloperTool",
@@ -37,6 +45,15 @@
       "nsis": {
         "installMode": "currentUser"
       }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/desigrit/project-spice-route/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhGQTkzOUExQ0QzQTNDNTcKUldSWFBEck5vVG1wanlrcUY3QnMzRThtemEzUXpNSjVSMUNQelY3STZqSXlMdzQ0MFdodHdNbFYK"
     }
   }
 }

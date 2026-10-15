@@ -9,6 +9,10 @@ SetCompressorDictSize 16
 !include "LogicLib.nsh"
 !include "x64.nsh"
 !include "WinVer.nsh"
+!include "FileFunc.nsh"
+
+Var UpdatePid
+Var NoRestart
 
 !ifndef VERSION
   !error "Build with scripts/build-native-windows.ps1. VERSION is required."
@@ -118,29 +122,90 @@ Function .onInit
       Abort
     ${EndIf}
   ${EndIf}
+  ; An in-app update starts this installer before the app exits. Wait for a
+  ; graceful shutdown. Never terminate an active app or sync engine.
+  ${GetParameters} $0
+  StrCpy $NoRestart ""
+  ${GetOptions} $0 "/NO_RESTART" $1
+  ${IfNot} ${Errors}
+    StrCpy $NoRestart "1"
+  ${EndIf}
+  ClearErrors
+  ${GetOptions} $0 "/UPDATE_PID=" $UpdatePid
+  ${IfNot} ${Errors}
+    IntOp $UpdatePid $UpdatePid + 0
+    ${If} $UpdatePid > 0
+      System::Call 'kernel32::OpenProcess(i 0x100000, i 0, i $UpdatePid) p.r0'
+      ${If} $0 != 0
+        System::Call 'kernel32::WaitForSingleObject(p r0, i 30000) i.r1'
+        System::Call 'kernel32::CloseHandle(p r0)'
+        ${If} $1 != 0
+          MessageBox MB_OK|MB_ICONSTOP "Spice Route has not finished closing. Wait for the handoff to finish, then try the update again."
+          SetErrorLevel 2
+          Abort
+        ${EndIf}
+      ${EndIf}
+    ${Else}
+      StrCpy $UpdatePid ""
+    ${EndIf}
+  ${EndIf}
   !insertmacro RequireAppClosed "SpiceRoute.exe"
   !insertmacro RequireAppClosed "SpiceRoute.Engine.exe"
+  ; All staging and rollback paths are fixed children of the checked install
+  ; directory. Refuse junctions before any recursive removal or rename.
+  System::Call 'kernel32::GetFileAttributesW(w "$INSTDIR\app-update") i.r0'
+  ${If} $0 != -1
+    IntOp $1 $0 & 0x400
+    ${If} $1 != 0
+      Abort "The update folder is a filesystem link. No files were installed."
+    ${EndIf}
+  ${EndIf}
+  System::Call 'kernel32::GetFileAttributesW(w "$INSTDIR\app-previous") i.r0'
+  ${If} $0 != -1
+    IntOp $1 $0 & 0x400
+    ${If} $1 != 0
+      Abort "The previous app folder is a filesystem link. No files were installed."
+    ${EndIf}
+  ${EndIf}
 FunctionEnd
 
 Section "Spice Route"
   SetShellVarContext current
   SetRegView 64
-  ; Replace the complete versioned app payload so obsolete runtime files from
-  ; an earlier build cannot be loaded beside the current ARM64 or x64 binaries.
-  ${If} ${FileExists} "$INSTDIR\app\*.*"
-    ClearErrors
-    RMDir /r "$INSTDIR\app"
-    ${If} ${Errors}
-      MessageBox MB_OK|MB_ICONSTOP "The previous app files could not be replaced. Close Spice Route and run this installer again."
-      Abort
-    ${EndIf}
+  ; Recover an interrupted rename before beginning a new installation.
+  ${IfNot} ${FileExists} "$INSTDIR\app\SpiceRoute.exe"
+  ${AndIf} ${FileExists} "$INSTDIR\app-previous\SpiceRoute.exe"
+    Rename "$INSTDIR\app-previous" "$INSTDIR\app"
+    IfErrors installation_failed
   ${EndIf}
-  SetOutPath "$INSTDIR\app"
+  ClearErrors
+  ${If} ${FileExists} "$INSTDIR\app-update\*.*"
+    RMDir /r "$INSTDIR\app-update"
+    IfErrors installation_failed
+  ${EndIf}
+  ; Extract the complete new payload first. A disk or extraction failure must
+  ; leave the currently installed app intact.
+  SetOutPath "$INSTDIR\app-update"
   SetOverwrite on
   ClearErrors
   File /r "${PUBLISH_DIR}\*"
   IfErrors installation_failed
   SetOutPath "$INSTDIR"
+  ClearErrors
+  ${If} ${FileExists} "$INSTDIR\app-previous\*.*"
+    RMDir /r "$INSTDIR\app-previous"
+    IfErrors installation_failed
+  ${EndIf}
+  ${If} ${FileExists} "$INSTDIR\app\*.*"
+    Rename "$INSTDIR\app" "$INSTDIR\app-previous"
+    IfErrors installation_failed
+  ${EndIf}
+  ClearErrors
+  Rename "$INSTDIR\app-update" "$INSTDIR\app"
+  ${If} ${Errors}
+    Rename "$INSTDIR\app-previous" "$INSTDIR\app"
+    Goto installation_failed
+  ${EndIf}
   FileOpen $0 "$INSTDIR\.spice-route-installed" w
   FileWrite $0 "${PRODUCT_MARKER}"
   FileClose $0
@@ -159,9 +224,16 @@ Section "Spice Route"
   WriteRegDWORD HKCU "${UNINSTALL_KEY}" "EstimatedSize" ${ESTIMATED_SIZE_KB}
   Goto installation_complete
 installation_failed:
-  MessageBox MB_OK|MB_ICONSTOP "The app files could not be installed. Close Spice Route and run this installer again."
+  SetErrorLevel 2
+  MessageBox MB_OK|MB_ICONSTOP "The update could not be installed. Check free disk space, close Spice Route, and run the installer again."
   Abort
 installation_complete:
+  RMDir /r "$INSTDIR\app-previous"
+  ${If} $UpdatePid != ""
+  ${AndIf} $NoRestart != "1"
+    SetOutPath "$INSTDIR\app"
+    Exec '"$INSTDIR\app\SpiceRoute.exe"'
+  ${EndIf}
 SectionEnd
 
 Function un.onInit

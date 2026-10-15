@@ -6,7 +6,11 @@ on:
       version:
         description: Release version, without a leading v
         required: true
-        default: 1.6.7
+        default: 1.6.8
+      publish:
+        description: Publish a GitHub release and update feed after all checks pass
+        type: boolean
+        default: false
   push:
     tags:
       - "v*"
@@ -140,6 +144,12 @@ jobs:
       - name: Test frontend
         run: npm test
 
+      - name: Test Windows updater without opening the app
+        run: dotnet run --project native/tests/AppUpdates/AppUpdates.csproj --configuration Release
+
+      - name: Test update feed generation
+        run: node --test scripts/check-update-manifest.mjs
+
       - name: Build frontend
         run: npm run build
 
@@ -198,6 +208,15 @@ jobs:
           $engine = Join-Path $installRoot 'app\SpiceRoute.Engine.exe'
           $uninstaller = Join-Path $installRoot 'uninstall.exe'
           try {
+            # Exercise replacement and waiting for a graceful exit without opening
+            # an interactive app on the runner. The normal startup probe follows.
+            $obsolete = Join-Path $installRoot 'app/obsolete-update-test.txt'
+            Set-Content -LiteralPath $obsolete -Value 'Must be removed by the replacement payload.'
+            $exiting = Start-Process -FilePath 'pwsh' -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 3') -WindowStyle Hidden -PassThru
+            $upgrade = Start-Process -FilePath $installer.FullName -ArgumentList @('/S', "/UPDATE_PID=$($exiting.Id)", '/NO_RESTART') -WindowStyle Hidden -PassThru -Wait
+            if ($upgrade.ExitCode -ne 0) { throw "The in-app upgrade path returned $($upgrade.ExitCode)." }
+            if (-not $exiting.HasExited) { throw 'The updater did not wait for its parent to exit.' }
+            if (Test-Path -LiteralPath $obsolete) { throw 'The updater left obsolete application files in place.' }
             foreach ($file in @($app, $engine, $uninstaller)) {
               if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "The installed package is missing $file." }
             }
@@ -217,7 +236,17 @@ jobs:
             }
           }
 
-      - name: Upload unsigned Windows installer
+      - name: Sign Windows update package
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { throw 'The update signing key is not configured.' }
+          npx --no-install tauri signer sign "artifacts/Spice-Route-$env:SPICE_ROUTE_VERSION-windows-${{ matrix.architecture }}-setup.exe"
+          if ($LASTEXITCODE -ne 0) { throw 'Update signing failed.' }
+
+      - name: Upload Windows installer and update signature
         uses: actions/upload-artifact@v4
         with:
           name: spice-route-${{ env.SPICE_ROUTE_VERSION }}-windows-${{ matrix.architecture }}-unsigned
@@ -226,6 +255,7 @@ jobs:
           path: |
             artifacts/Spice-Route-${{ env.SPICE_ROUTE_VERSION }}-windows-${{ matrix.architecture }}-setup.exe
             artifacts/Spice-Route-${{ env.SPICE_ROUTE_VERSION }}-windows-${{ matrix.architecture }}-setup.exe.sha256
+            artifacts/Spice-Route-${{ env.SPICE_ROUTE_VERSION }}-windows-${{ matrix.architecture }}-setup.exe.sig
 
   macos:
     name: macOS ${{ matrix.label }}
@@ -275,6 +305,9 @@ jobs:
         run: cargo clippy --release --manifest-path src-tauri/core/Cargo.toml --target ${{ matrix.target }} --all-targets -- -D warnings
 
       - name: Build ad-hoc signed app and DMG
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         run: >-
           bash ./scripts/build-macos.sh
           ${{ matrix.target }}
@@ -288,3 +321,43 @@ jobs:
           if-no-files-found: error
           retention-days: 90
           path: artifacts/macos-${{ matrix.artifact_arch }}/
+
+  publish:
+    name: Publish stable update
+    needs: [metadata, windows, macos]
+    if: github.ref_type == 'tag' || inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Download Windows release packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: spice-route-${{ needs.metadata.outputs.version }}-windows-*-unsigned
+          path: release
+          merge-multiple: true
+      - name: Download Mac release packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: spice-route-${{ needs.metadata.outputs.version }}-macos-*-adhoc
+          path: release
+          merge-multiple: true
+      - name: Create complete update feed
+        run: node scripts/create-update-manifest.mjs release '${{ needs.metadata.outputs.version }}'
+      - name: Publish packages together
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          tag="v$RELEASE_VERSION"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists. Published update packages must stay immutable." >&2
+            exit 1
+          fi
+          gh release create "$tag" --draft --target "$GITHUB_SHA" --title "Spice Route $RELEASE_VERSION" --notes-file "docs/releases/$RELEASE_VERSION.md"
+          gh release upload "$tag" release/*
+          gh release edit "$tag" --draft=false --latest

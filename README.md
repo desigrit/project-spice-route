@@ -8,7 +8,9 @@
 
 Spice Route is a desktop app that carries the chats and project work you choose through a folder synced by OneDrive, Google Drive, or iCloud Drive. Bring a whole project, including its files and Git history, or take just the conversations. Your cloud app handles sign-in and delivery.
 
-[Windows x64](artifacts/Spice-Route-1.6.7-windows-x64-setup.exe) · [Windows ARM64](artifacts/Spice-Route-1.6.7-windows-arm64-setup.exe) · [Mac, Apple Silicon](artifacts/macos-apple-silicon/Spice-Route-1.6.7-macos-apple-silicon.dmg)
+[Windows x64](https://github.com/desigrit/project-spice-route/releases/download/v1.6.8/Spice-Route-1.6.8-windows-x64-setup.exe) · [Windows ARM64](https://github.com/desigrit/project-spice-route/releases/download/v1.6.8/Spice-Route-1.6.8-windows-arm64-setup.exe) · [Mac, Apple Silicon](https://github.com/desigrit/project-spice-route/releases/download/v1.6.8/Spice-Route-1.6.8-macos-apple-silicon.dmg)
+
+Already on 1.6.8 or later? Find the next version in **Settings > Updates**, then choose **Install and restart**.
 
 ![Overview showing this computer beside the latest handoff visible in the sync folder](docs/images/native-overview-light.png)
 

@@ -1,0 +1,1 @@
+Spice Route update signature verification fixture.

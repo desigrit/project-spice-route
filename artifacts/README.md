@@ -1,19 +1,19 @@
 # Desktop packages
 
-Spice Route 1.6.7 supports Codex database layout 59/8 and preserves its new history metadata when transferring to older supported layouts. Windows x64, Windows ARM64, and Apple Silicon share the same sync engine.
+Spice Route 1.6.8 adds **Settings > Updates**. Install this version once, then check for future releases and choose **Install and restart** inside the app. Windows x64, Windows ARM64, and Apple Silicon share the same sync engine, including Codex database layout 59/8 support.
 
-- [Windows x64](Spice-Route-1.6.7-windows-x64-setup.exe), for Intel and AMD computers
-- [Windows ARM64](Spice-Route-1.6.7-windows-arm64-setup.exe), for Windows on Arm computers
-- [macOS Apple Silicon](macos-apple-silicon/Spice-Route-1.6.7-macos-apple-silicon.dmg), for M-series Macs
+- [Windows x64](https://github.com/desigrit/project-spice-route/releases/download/v1.6.8/Spice-Route-1.6.8-windows-x64-setup.exe), for Intel and AMD computers
+- [Windows ARM64](https://github.com/desigrit/project-spice-route/releases/download/v1.6.8/Spice-Route-1.6.8-windows-arm64-setup.exe), for Windows on Arm computers
+- [macOS Apple Silicon](https://github.com/desigrit/project-spice-route/releases/download/v1.6.8/Spice-Route-1.6.8-macos-apple-silicon.dmg), for M-series Macs
 - [Archived macOS Intel 1.5.2](macos-intel/Spice-Route-1.5.2-macos-intel.dmg), the final Intel Mac release
 
 The installers reject the wrong native architecture instead of starting an incompatible app and failing later. The installer replaces the complete installed payload during an upgrade, validates the packaged C++ runtime architecture, and keeps a startup error page open with the bounded diagnostic log path. It also enables Push and Pull across Codex patch-runtime differences when the database still matches a complete tested storage profile.
 
-The adjacent `.sha256` file records the installer's SHA-256 checksum. Compare it with the output of:
+GitHub release assets include `.sha256` files recording each Windows installer's SHA-256 checksum. Compare them with the output of:
 
 ```powershell
-Get-FileHash .\Spice-Route-1.6.7-windows-x64-setup.exe -Algorithm SHA256
-Get-FileHash .\Spice-Route-1.6.7-windows-arm64-setup.exe -Algorithm SHA256
+Get-FileHash .\Spice-Route-1.6.8-windows-x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Spice-Route-1.6.8-windows-arm64-setup.exe -Algorithm SHA256
 ```
 
 These are unsigned testing installers. They install for the current Windows user and do not require Node.js, Rust, or development scripts. Each Windows package bundles .NET, WinUI, and the matching VC runtime. Git is needed when syncing Git repositories.

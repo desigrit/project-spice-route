@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { Button, Dropdown, Option, Switch, Popover, PopoverTrigger, PopoverSurface, Menu, MenuTrigger, MenuPopover, MenuList, MenuItem } from "@fluentui/react-components";
 import { AppTheme } from "./fluent-theme";
 import { usePageConfirmation } from "./use-page-confirmation";
+import { UpdatesSection } from "./UpdatesSection";
 import boatMark from "./assets/boat-mark.png";
 import { open, save as saveFile } from "@tauri-apps/plugin-dialog";
 import {
@@ -59,7 +60,7 @@ const navItems: Array<{ id: Page; label: string; icon: typeof Route }> = [
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
-const appVersion = "1.6.7";
+const appVersion = "1.6.8";
 
 type BusyState = { label: string; operationId?: string } | null;
 type EstimateState = "pending" | "ready" | "unavailable";
@@ -80,6 +81,7 @@ export default function App() {
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const [busy, setBusy] = useState<BusyState>({ label: "Inspecting Codex…" });
+  const [updateBusy, setUpdateBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const confirmation = usePageConfirmation(page);
@@ -325,6 +327,7 @@ export default function App() {
               key={id}
               className={page === id || (page === "diagnostics" && id === "recovery") ? "nav-item active" : "nav-item"}
               onClick={() => setPage(id)}
+              disabled={updateBusy}
               aria-label={label}
               title={label}
               aria-current={page === id || (page === "diagnostics" && id === "recovery") ? "page" : undefined}
@@ -353,7 +356,7 @@ export default function App() {
             <p className="eyebrow">{page === "selection" ? "Sync policy" : page === "diagnostics" ? "Recovery tools" : page}</p>
             <h1>{page === "diagnostics" ? "Diagnostics" : navItems.find((item) => item.id === page)?.label}</h1>
           </div>
-          {page !== "selection" && <Button className="icon-button" onClick={() => void refresh(config)} aria-label="Refresh">
+          {page !== "selection" && <Button className="icon-button" disabled={updateBusy} onClick={() => void refresh(config)} aria-label="Refresh">
             <RefreshCw size={18} />
           </Button>}
         </header>
@@ -411,7 +414,7 @@ export default function App() {
           }} />
         )}
         {page === "settings" && (
-          <SettingsScreen config={config} catalog={catalog} environment={environment} onSave={(next) => void save(next, "Settings saved.")} onResetCloudHistory={() => void beginCloudCleanup()} />
+          <SettingsScreen config={config} catalog={catalog} environment={environment} onSave={(next) => void save(next, "Settings saved.")} onResetCloudHistory={() => void beginCloudCleanup()} busy={Boolean(busy)} updateBusy={updateBusy} onUpdateBusy={setUpdateBusy} />
         )}
       </main>
 
@@ -867,7 +870,7 @@ export function DiagnosticsScreen({ config, onBack }: { config: AppConfig; onBac
   );
 }
 
-export function SettingsScreen({ config, catalog, environment, onSave, onResetCloudHistory }: { config: AppConfig; catalog?: ContentCatalog | null; environment: EnvironmentDiscovery; onSave: (config: AppConfig) => void; onResetCloudHistory: () => void }) {
+export function SettingsScreen({ config, catalog, environment, onSave, onResetCloudHistory, busy = false, updateBusy = false, onUpdateBusy }: { config: AppConfig; catalog?: ContentCatalog | null; environment: EnvironmentDiscovery; onSave: (config: AppConfig) => void; onResetCloudHistory: () => void; busy?: boolean; updateBusy?: boolean; onUpdateBusy?: (busy: boolean) => void }) {
   const [draft, setDraft] = useState(config);
   useEffect(() => setDraft(config), [config]);
   const updateDefaultMode = (mode: ProjectMode) => setDraft((current) => {
@@ -885,7 +888,7 @@ export function SettingsScreen({ config, catalog, environment, onSave, onResetCl
   };
   return (
     <div className="page-stack">
-      <section className="panel settings-form">
+      <section className="panel settings-form" inert={updateBusy}>
         <div className="form-section"><p className="eyebrow">Device</p><h2>This computer</h2></div>
         <TextField label="Device name" value={draft.deviceName} onChange={(value) => setDraft({ ...draft, deviceName: value })} help="Shown beside snapshots on your other computers." />
         <div className="form-section divider"><p className="eyebrow">Local folders</p><h2>Where Codex work lives</h2><p className="section-help">These locations have different roles and stay on this device.</p></div>
@@ -912,6 +915,7 @@ export function SettingsScreen({ config, catalog, environment, onSave, onResetCl
         <span className={environment.compatibility?.supported ? "compat-icon ok" : "compat-icon warning"}>{environment.compatibility?.supported ? <Check size={20} /> : <CircleAlert size={20} />}</span>
         <div><strong>{environment.compatibility?.supported ? "Codex format supported" : "Restore compatibility blocked"}</strong><p>{environment.compatibility?.explanation || "Finish setup to inspect the Codex data format."}</p><code>{environment.compatibility?.adapter || "No adapter"}</code></div>
       </section>
+      <UpdatesSection version={appVersion} dirty={JSON.stringify(draft) !== JSON.stringify(config)} busy={busy} onBusyChange={onUpdateBusy} />
     </div>
   );
 }

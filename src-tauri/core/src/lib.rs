@@ -24,5 +24,6 @@ mod schema55_tests;
 pub mod settings;
 #[path = "../../src/snapshot.rs"]
 pub mod snapshot;
+pub mod updates;
 #[path = "../../src/util.rs"]
 pub mod util;

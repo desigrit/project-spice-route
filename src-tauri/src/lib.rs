@@ -217,6 +217,8 @@ async fn restore_recovery(engine: State<'_, Arc<Engine>>, recovery_id: String) -
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let data_dir = app.path().app_local_data_dir()?;
             let engine = Engine::new(data_dir)

@@ -162,6 +162,23 @@ internal static class VisualProbe
                         await CheckButtonStatesAsync(root, themeName, outputDirectory, checks);
                     if (page == "selection")
                         await CheckSelectionAsync(root, themeName, size.Name, outputDirectory, checks);
+                    if (page == "settings")
+                    {
+                        var scroll = Descendants(root).OfType<ScrollViewer>().First(view =>
+                            view.Content is StackPanel panel && panel.Children.OfType<AppUpdatesRow>().Any());
+                        scroll.ChangeView(null, scroll.ScrollableHeight, null, true);
+                        await SettleAsync(root);
+                        var updateRow = Descendants(root).OfType<AppUpdatesRow>().Single();
+                        var updateButton = Descendants(updateRow).OfType<Button>().First(button => button.Visibility == Visibility.Visible);
+                        var updateName = $"{themeName}-{size.Name}-settings-updates.png";
+                        var updateImage = await CaptureAsync(root, outputDirectory, updateName);
+                        captures.Add(new JsonObject { ["file"] = updateName, ["width"] = updateImage.Width, ["height"] = updateImage.Height });
+                        checks.Add(new JsonObject {
+                            ["check"] = $"{themeName} {size.Name} Settings updates fit and keep the check action available",
+                            ["passed"] = updateButton.IsEnabled && updateButton.ActualWidth >= 140 && updateRow.ActualWidth >= updateButton.ActualWidth + 160 && updateButton.ActualHeight >= 30,
+                            ["rowWidth"] = updateRow.ActualWidth, ["buttonWidth"] = updateButton.ActualWidth
+                        });
+                    }
                     if (page == "review")
                         await CheckReviewAsync(window, themeName, size.Name, outputDirectory, checks);
                     if (page == "diagnostics")

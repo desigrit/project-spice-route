@@ -19,6 +19,7 @@ public sealed class SettingsPage : Page
     private readonly DispatcherTimer _savedTimer = new() { Interval = TimeSpan.FromSeconds(4) };
     private bool _policyChanged;
     private bool _dirty;
+    private readonly AppUpdatesRow _updates;
 
     public SettingsPage(SpiceRouteContext context)
     {
@@ -87,6 +88,13 @@ public sealed class SettingsPage : Page
         var reset = Ui.DangerButton("Reset");
         reset.Click += async (_, _) => await ResetCloudAsync();
         AddRow(maintenance, SettingRow("\uE74D", "Cloud history", "Remove shared snapshots and stored content. Local work stays here.", reset));
+        _updates = new AppUpdatesRow(context, () => _dirty, working =>
+        {
+            foreach (var child in form.Children.Where(child => child != _updates))
+                EnableControls(child, !working);
+            _save.IsEnabled = _discard.IsEnabled = !working && _dirty;
+        });
+        form.Children.Add(_updates);
         var scroll = new ScrollViewer { Content = form, HorizontalContentAlignment = HorizontalAlignment.Left, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
         content.Children.Add(scroll);
 
@@ -111,6 +119,12 @@ public sealed class SettingsPage : Page
     }
 
     private JsonObject Selection => NativePageUi.EnsureObject(_draft, "selection");
+    private static void EnableControls(DependencyObject parent, bool enabled)
+    {
+        if (parent is Control control) { control.IsEnabled = enabled; return; }
+        for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+            EnableControls(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i), enabled);
+    }
     private void FreezeExistingProjects()
     {
         var legacy = !Wire.Bool(Selection, "projectModesInitialized");
@@ -135,6 +149,7 @@ public sealed class SettingsPage : Page
     {
         _savedTimer.Stop();
         _dirty = true; _save.IsEnabled = true; _discard.IsEnabled = true; _policyChanged |= policy; _saved.Text = "Unsaved changes";
+        _updates?.SettingsChanged();
     }
     internal static StackPanel Section(StackPanel form, string title)
     {
@@ -246,6 +261,7 @@ public sealed class SettingsPage : Page
             if (_policyChanged) Selection["revision"] = Guid.NewGuid().ToString();
             await _context.SaveConfigAsync((JsonObject)_draft.DeepClone());
             _dirty = false; _policyChanged = false; _discard.IsEnabled = false; _feedback.IsOpen = false; _saved.Text = "Settings saved.";
+            _updates.SettingsChanged();
             _savedTimer.Stop(); _savedTimer.Start();
         }
         catch (Exception error) { _save.IsEnabled = true; NativePageUi.Error(_feedback, error); }
