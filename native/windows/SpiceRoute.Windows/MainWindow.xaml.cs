@@ -32,7 +32,7 @@ public sealed partial class MainWindow : Window
         noticeTimer.Tick += (_, _) => { Notice.IsOpen = false; noticeTimer.Stop(); };
         AppWindow.Closing += (_, args) =>
         {
-            if (!context.IsBusy) return;
+            if (!context.IsBusy || context.UpdateReadyToRestart) return;
             args.Cancel = true;
             ShowMessage("An operation is running. Wait for it to finish, or cancel the handoff at a safe checkpoint, before closing Spice Route.", true);
         };

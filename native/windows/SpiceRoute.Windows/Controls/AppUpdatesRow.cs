@@ -110,6 +110,7 @@ public sealed class AppUpdatesRow : Grid
             // The installer waits for this process to exit. Finish engine shutdown
             // before closing the window, so its files and profile lock are released.
             await _context.Engine.DisposeAsync();
+            _context.UpdateReadyToRestart = true;
             _context.Window.Close();
         }
         catch (Exception error) { _status.Text = FriendlyError(error, operation.IsCancellationRequested); }

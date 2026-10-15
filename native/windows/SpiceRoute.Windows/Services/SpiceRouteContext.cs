@@ -26,6 +26,7 @@ public sealed class SpiceRouteContext
             BusyChanged?.Invoke();
         }
     }
+    internal bool UpdateReadyToRestart { get; set; }
     public string ReviewDirection { get; set; } = "push";
     public string? ReviewSnapshotId { get; set; }
     public event Action? StateChanged;
