@@ -71,8 +71,8 @@ export function UpdatesSection({ version, dirty, busy = false, onBusyChange }: P
     <div className="updates-copy"><h2 id="updates-title">Updates</h2><span>Spice Route {version}</span></div>
     <div className="updates-actions">
       {update.current && phase !== "checking"
-        ? <Button className="primary-button" disabled={busy || working || dirty} onClick={() => void install()}><ArrowDownToLine size={16} />{phase === "installed" ? "Restart" : "Install and restart"}</Button>
-        : <Button disabled={busy || working} onClick={() => void checkForUpdates()}><RefreshCw size={16} className={phase === "checking" ? "spin" : undefined} />Check for updates</Button>}
+        ? <Button className="primary-button" icon={<ArrowDownToLine size={16} />} disabled={busy || working || dirty} onClick={() => void install()}>{phase === "installed" ? "Restart" : "Install and restart"}</Button>
+        : <Button icon={<RefreshCw size={16} className={phase === "checking" ? "spin" : undefined} />} disabled={busy || working} onClick={() => void checkForUpdates()}>Check for updates</Button>}
       {phase === "downloading" && <progress aria-label="Update download progress" max={100} value={percent ?? undefined} />}
       <p role="status">{dirty && phase === "available" ? "Save your settings before installing." : message}</p>
     </div>
