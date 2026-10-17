@@ -6,7 +6,7 @@ on:
       version:
         description: Release version, without a leading v
         required: true
-        default: 1.6.8
+        default: 1.6.9
       publish:
         description: Publish a GitHub release and update feed after all checks pass
         type: boolean

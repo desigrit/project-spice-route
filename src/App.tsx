@@ -60,7 +60,7 @@ const navItems: Array<{ id: Page; label: string; icon: typeof Route }> = [
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
-const appVersion = "1.6.8";
+const appVersion = "1.6.9";
 
 type BusyState = { label: string; operationId?: string } | null;
 type EstimateState = "pending" | "ready" | "unavailable";

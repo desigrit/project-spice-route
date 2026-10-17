@@ -19,7 +19,7 @@ fn create_home(home: &Path, migration: i64) {
         home,
         migration,
         match migration {
-            59 => 8,
+            59..=61 => 8,
             57 => 7,
             _ => 6,
         },
@@ -396,6 +396,22 @@ fn supported_schema_transfer_matrix_preserves_records_images_selection_and_desti
         (54, 59),
         (59, 52),
         (52, 59),
+        (60, 60),
+        (60, 59),
+        (59, 60),
+        (61, 61),
+        (61, 60),
+        (60, 61),
+        (61, 59),
+        (59, 61),
+        (61, 57),
+        (57, 61),
+        (61, 55),
+        (55, 61),
+        (61, 54),
+        (54, 61),
+        (61, 52),
+        (52, 61),
     ] {
         let source = tempdir().unwrap();
         let destination = tempdir().unwrap();
@@ -460,7 +476,7 @@ fn supported_schema_transfer_matrix_preserves_records_images_selection_and_desti
         assert_eq!(
             compatibility_after.history_migration,
             Some(match destination_version {
-                59 => 8,
+                59..=61 => 8,
                 57 => 7,
                 _ => 6,
             })
@@ -951,8 +967,19 @@ fn schema57_history6_retains_newer_timing_fields_across_a_later_push() {
 }
 
 #[test]
-fn schema59_known_pairs_match_on_both_platforms_and_still_reject_schema_drift() {
-    for (state_version, history_version) in [(59, 8), (59, 7), (59, 6), (57, 8)] {
+fn incremental_schema_pairs_match_on_both_platforms_and_still_reject_schema_drift() {
+    for (state_version, history_version) in [
+        (59, 8),
+        (59, 7),
+        (59, 6),
+        (57, 8),
+        (60, 8),
+        (60, 7),
+        (60, 6),
+        (61, 8),
+        (61, 7),
+        (61, 6),
+    ] {
         let windows = tempdir().unwrap();
         let mac = tempdir().unwrap();
         create_home_pair(windows.path(), state_version, history_version);
@@ -979,6 +1006,172 @@ fn schema59_known_pairs_match_on_both_platforms_and_still_reject_schema_drift() 
         .execute_batch("DROP INDEX idx_thread_attachments_identity_thread;")
         .unwrap();
     assert!(!codex::inspect(home.path()).unwrap().supported);
+}
+
+fn seed_local_thread_metadata(home: &Path, migration: i64, device: &str, ids: &[&str]) {
+    let state = Connection::open(home.join("state_5.sqlite")).unwrap();
+    for id in ids {
+        let mut record = vec![0, 255, 1];
+        record.extend_from_slice(format!("{device} private diagnostics for {id}").as_bytes());
+        state
+            .execute(
+                "INSERT INTO guardian_review_feedback(id,thread_id,record) VALUES(?1,?2,?3)",
+                params![format!("{device}-{id}"), id, record],
+            )
+            .unwrap();
+        if migration >= 61 {
+            let unread = match *id {
+                "local" => None,
+                "excluded" => Some(""),
+                _ => Some("local-turn"),
+            };
+            state.execute(
+                "INSERT INTO thread_read_receipts(thread_id,first_unread_turn,revision,last_published_turn) VALUES(?1,?2,?3,?4)",
+                params![id, unread, format!("{device}-{id}-revision"), format!("{device}-terminal-event")],
+            ).unwrap();
+        }
+    }
+}
+
+fn local_thread_metadata(home: &Path, migration: i64, omit: &str) -> Value {
+    let state = Connection::open(home.join("state_5.sqlite")).unwrap();
+    let mut query = state.prepare("SELECT id,thread_id,record FROM guardian_review_feedback WHERE thread_id != ?1 ORDER BY id").unwrap();
+    let feedback: Vec<(String, String, Vec<u8>)> = query
+        .query_map([omit], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let mut output = json!({ "feedback": feedback });
+    if migration >= 61 {
+        let mut query = state.prepare("SELECT thread_id,first_unread_turn,revision,last_published_turn FROM thread_read_receipts WHERE thread_id != ?1 ORDER BY thread_id").unwrap();
+        let receipts: Vec<(String, Option<String>, String, Option<String>)> = query
+            .query_map([omit], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        output["receipts"] = json!(receipts);
+    }
+    output
+}
+
+#[test]
+fn schema61_local_diagnostics_and_read_state_survive_imports_but_follow_chat_deletion() {
+    for source_version in [59, 61] {
+        let source = tempdir().unwrap();
+        create_home(source.path(), source_version);
+        for id in ["portable", "excluded"] {
+            seed_thread(source.path(), source_version, id);
+        }
+        let before = capture(source.path(), &["excluded"]).manifest.threads[0]
+            .fingerprint
+            .clone();
+        if source_version >= 60 {
+            seed_local_thread_metadata(
+                source.path(),
+                source_version,
+                "source",
+                &["portable", "excluded"],
+            );
+        }
+        let captured = capture(source.path(), &["excluded"]);
+        assert_eq!(captured.manifest.threads.len(), 1);
+        assert_eq!(
+            captured.manifest.threads[0].fingerprint, before,
+            "Local diagnostics and read events must not create chat conflicts"
+        );
+        for table in ["guardian_review_feedback", "thread_read_receipts"] {
+            assert!(!captured.manifest.threads[0].state_rows.contains_key(table));
+        }
+        for state_version in [60, 61] {
+            for history_version in [6, 7, 8] {
+                let destination = tempdir().unwrap();
+                create_home_pair(destination.path(), state_version, history_version);
+                for id in ["portable", "local", "excluded", "removed"] {
+                    seed_thread(destination.path(), state_version, id);
+                }
+                seed_local_thread_metadata(
+                    destination.path(),
+                    state_version,
+                    "destination",
+                    &["portable", "local", "excluded", "removed"],
+                );
+                let before = local_thread_metadata(destination.path(), state_version, "");
+                let remaining = local_thread_metadata(destination.path(), state_version, "removed");
+                for _ in 0..2 {
+                    restore(destination.path(), &captured, &[]);
+                }
+                assert_eq!(local_thread_metadata(destination.path(), state_version, ""), before, "Preserve all local metadata during {source_version} -> {state_version}/{history_version}");
+                restore(destination.path(), &captured, &["removed"]);
+                assert_eq!(
+                    local_thread_metadata(destination.path(), state_version, ""),
+                    remaining,
+                    "Only the deleted chat's metadata should be removed"
+                );
+                let state = Connection::open(destination.path().join("state_5.sqlite")).unwrap();
+                let count: i64 = state
+                    .query_row("SELECT count(*) FROM threads WHERE id='removed'", [], |r| {
+                        r.get(0)
+                    })
+                    .unwrap();
+                assert_eq!(count, 0);
+                let mut check = state.prepare("PRAGMA foreign_key_check").unwrap();
+                assert!(
+                    !check.exists([]).unwrap(),
+                    "Deleting a chat must not leave Guardian feedback orphans"
+                );
+                assert_restored_content(destination.path(), state_version);
+            }
+        }
+    }
+}
+
+#[test]
+fn schema61_rejects_imported_local_tables_and_rolls_back_deletion_metadata_on_error() {
+    let source = tempdir().unwrap();
+    let destination = tempdir().unwrap();
+    create_home(source.path(), 61);
+    create_home(destination.path(), 61);
+    seed_thread(source.path(), 61, "portable");
+    for id in ["portable", "removed", "local"] {
+        seed_thread(destination.path(), 61, id);
+    }
+    seed_local_thread_metadata(
+        destination.path(),
+        61,
+        "destination",
+        &["portable", "removed", "local"],
+    );
+    let before = local_thread_metadata(destination.path(), 61, "");
+    let captured = capture(source.path(), &[]);
+    for table in ["guardian_review_feedback", "thread_read_receipts"] {
+        let mut forged = captured.manifest.clone();
+        let rows = forged.threads[0].state_rows["threads"].clone();
+        forged.threads[0].state_rows.insert(table.into(), rows);
+        let error =
+            apply_rows(destination.path(), &forged, &["removed"], &HashMap::new()).unwrap_err();
+        assert!(error.to_string().contains("Unknown source table"));
+        assert_eq!(local_thread_metadata(destination.path(), 61, ""), before);
+    }
+    // A constraint failure after deletions started must roll back the new local
+    // tables along with the existing thread and history rows.
+    let mut invalid = captured.manifest.clone();
+    invalid.threads[0].state_rows.get_mut("threads").unwrap()[0]
+        .values
+        .insert("title".into(), SqlValue::Null);
+    let error =
+        apply_rows(destination.path(), &invalid, &["removed"], &HashMap::new()).unwrap_err();
+    assert!(error.to_string().contains("NOT NULL constraint failed"));
+    assert_eq!(local_thread_metadata(destination.path(), 61, ""), before);
+    let state = Connection::open(destination.path().join("state_5.sqlite")).unwrap();
+    let count: i64 = state
+        .query_row("SELECT count(*) FROM threads WHERE id='removed'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    assert_eq!(count, 1);
+    codex::verify_databases(destination.path()).unwrap();
 }
 
 #[test]

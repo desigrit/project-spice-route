@@ -21,7 +21,7 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-pub const ADAPTER_NAME: &str = "codex-state-v5.52-54-55-57-59/history-v1.6-7-8";
+pub const ADAPTER_NAME: &str = "codex-state-v5.52-54-55-57-59-60-61/history-v1.6-7-8";
 pub const REFERENCE_CODEX_BUILDS: &[&str] = &["0.153.4", "0.154.0-alpha.6.2", "0.155.0-alpha.9.2"];
 const LOCAL_ONLY_THREAD_COLUMNS: &[&str] = &["sandbox_policy", "approval_mode", "agent_path"];
 const SAFE_IMPORTED_SANDBOX_POLICY: &str =
@@ -35,6 +35,14 @@ const STATE_THREAD_TABLES: &[(&str, &str)] = &[
     ("thread_artifacts", "thread_id"),
     ("thread_dynamic_tools", "thread_id"),
     ("thread_spawn_edges", "child_thread_id"),
+];
+// Local review diagnostics and unread-event revisions are not portable chat
+// history. Preserve them during imports, and never put them in snapshot rows.
+// Only actual chat deletion removes them. Foreign keys are disabled while
+// applying a bundle, so the Guardian cascade must be handled explicitly.
+const LOCAL_ONLY_THREAD_TABLES: &[(&str, i64)] = &[
+    ("guardian_review_feedback", 60),
+    ("thread_read_receipts", 61),
 ];
 const HISTORY_THREAD_TABLES: &[(&str, &str)] = &[
     ("thread_items", "thread_id"),
@@ -2028,6 +2036,17 @@ pub fn apply_bundle(
                 )?;
             }
             state.execute("DELETE FROM thread_spawn_edges WHERE parent_thread_id = ?1 OR child_thread_id = ?1", [thread_id])?;
+            for (table, introduced) in LOCAL_ONLY_THREAD_TABLES {
+                if compatibility
+                    .state_migration
+                    .is_some_and(|version| version >= *introduced)
+                {
+                    state.execute(
+                        &format!("DELETE FROM \"{table}\" WHERE thread_id = ?1"),
+                        [thread_id],
+                    )?;
+                }
+            }
             state.execute("DELETE FROM threads WHERE id = ?1", [thread_id])?;
         }
         for project_id in deleted_projects {
@@ -3142,7 +3161,7 @@ mod tests {
 
     #[test]
     fn schema_fingerprints_are_identical_across_windows_and_macos_line_endings() {
-        for migration in [52, 54, 55, 57, 59] {
+        for migration in [52, 54, 55, 57, 59, 60, 61] {
             let crlf_home = tempdir().unwrap();
             create_profile_schema_with_line_endings(crlf_home.path(), migration, false);
             let lf_home = tempdir().unwrap();

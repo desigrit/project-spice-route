@@ -1,6 +1,12 @@
-# Compatibility plan: Codex database migrations 52, 54, 55, 57, and 59
+# Compatibility plan: Codex database migrations 52, 54, 55, 57, 59, 60, and 61
 
 ## Scope and evidence
+
+Spice Route 1.6.9 adds the exact 61/8 layout inspected read-only on Windows with Codex desktop 26.1013.3656. State migration 60 adds `guardian_review_feedback`, which holds local review diagnostic records. Migration 61 adds `thread_read_receipts`, which tracks local read/unread state and event revisions. The history database is unchanged from 59/8. No existing tables, columns, indexes, or triggers changed. The normalized 61/8 fingerprint is `fba185af594b9b126028abd3758897fa20df98f69d35b7317995f3469b65de51`. The sanitized fixtures contain SQL definitions only.
+
+The new tables stay local. Incoming chat updates preserve their existing destination records, and neither table contributes to portable chat fingerprints. An actual chat deletion removes its related rows in the same staged transaction, including Guardian feedback whose foreign-key cascade would otherwise be disabled during restoration. Failed imports roll those deletions back. Codex's [review feedback migration](https://github.com/openai/codex/blob/main/codex-rs/state/migrations/0060_guardian_review_feedback.sql), [read-state migration](https://github.com/openai/codex/blob/main/codex-rs/state/migrations/0061_thread_read_state.sql), and [read-state implementation](https://github.com/openai/codex/blob/main/codex-rs/state/src/runtime/thread_read_state.rs) explain their local purpose.
+
+Profiles 60/6, 60/7, 60/8, 61/6, 61/7, and 61/8 combine these known state layouts with independently migrated history files. Disposable-profile tests check complete layouts, line-ending normalization, migration completion, selected export, excluded chats, repeated imports, local metadata preservation, deletion, and transaction rollback. They also exercise transfers between 61 and older supported formats, including retained timing and root-turn values. Unknown layouts still block writes. Use 1.6.9 on all computers exchanging these new profiles.
 
 The original schema fixtures come from desktop 26.903.71938 with runtime 0.153.4 and state/history migrations 52/6, and desktop 26.908.40834 with runtime 0.154.0-alpha.6.2 and migrations 54/6. These definitions differ only by nullable `threads.originator TEXT` and `threads.daybreak_enabled BOOLEAN`.
 

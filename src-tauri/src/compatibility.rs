@@ -117,6 +117,62 @@ pub const PROFILES: &[Profile] = &[
         schema: include_str!("fixtures/schema-57.json"),
         history_schema: Some(include_str!("fixtures/schema-59.json")),
     },
+    // State 60 adds local Guardian diagnostics. State 61 adds local read
+    // receipts. Conversation storage and history 8 are unchanged from 59/8.
+    Profile {
+        state: 60,
+        history: 8,
+        runtime: "",
+        fingerprint: "74e915cddf102cbd90310ca41b3b55d4fe272383bb83865bde2eeff41d4401fc",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-60.json"),
+        history_schema: None,
+    },
+    Profile {
+        state: 60,
+        history: 7,
+        runtime: "",
+        fingerprint: "7611bb444f229bbcd82f84fc8062a86f787e04d163b9a34a3e06124ff5b84a3c",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-60.json"),
+        history_schema: Some(include_str!("fixtures/schema-57.json")),
+    },
+    Profile {
+        state: 60,
+        history: 6,
+        runtime: "",
+        fingerprint: "9e92a2aca39025318acceeed3699f8528290c5ca5d16493bde61ea34bcea9a80",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-60.json"),
+        history_schema: Some(include_str!("fixtures/schema-55.json")),
+    },
+    Profile {
+        state: 61,
+        history: 8,
+        runtime: "",
+        fingerprint: "fba185af594b9b126028abd3758897fa20df98f69d35b7317995f3469b65de51",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-61.json"),
+        history_schema: None,
+    },
+    Profile {
+        state: 61,
+        history: 7,
+        runtime: "",
+        fingerprint: "4da5f5f580e16e81e2aa115d4f10526c39960100531a4f15e4f5940e20a9a428",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-61.json"),
+        history_schema: Some(include_str!("fixtures/schema-57.json")),
+    },
+    Profile {
+        state: 61,
+        history: 6,
+        runtime: "",
+        fingerprint: "d4308fae01590ea7f3e7c98917f324dcea89ab8b35e99f54c79b35873e46585d",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-61.json"),
+        history_schema: Some(include_str!("fixtures/schema-55.json")),
+    },
 ];
 
 pub fn profile(info: &CompatibilityInfo) -> Option<&'static Profile> {
