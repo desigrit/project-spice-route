@@ -204,7 +204,7 @@ jobs:
         with:
           name: spice-route-${{ env.SPICE_ROUTE_VERSION }}-winui-sample-screens
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 3
           path: visual-probe-captures/
 
       - name: Test installed native package
@@ -264,7 +264,7 @@ jobs:
         with:
           name: spice-route-${{ env.SPICE_ROUTE_VERSION }}-windows-${{ matrix.architecture }}-unsigned
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 7
           path: |
             artifacts/Spice-Route-${{ env.SPICE_ROUTE_VERSION }}-windows-${{ matrix.architecture }}-setup.exe
             artifacts/Spice-Route-${{ env.SPICE_ROUTE_VERSION }}-windows-${{ matrix.architecture }}-setup.exe.sha256
@@ -337,7 +337,7 @@ jobs:
         with:
           name: spice-route-${{ env.SPICE_ROUTE_VERSION }}-macos-${{ matrix.artifact_arch }}-adhoc
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 7
           path: artifacts/macos-${{ matrix.artifact_arch }}/
 
   publish:
