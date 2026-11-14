@@ -1,0 +1,64 @@
+name: Actions storage maintenance
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 7 * * *'
+  workflow_run:
+    workflows: ["Desktop builds"]
+    types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/prune-actions-storage*'
+      - 'scripts/archive-store-package*'
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - 'scripts/prune-actions-storage*'
+      - 'scripts/archive-store-package*'
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: actions-storage-maintenance
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # workflow_run must never execute code from the triggering PR.
+          ref: ${{ github.event_name == 'pull_request' && github.ref || github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test scripts/prune-actions-storage.test.mjs 
+
+  cleanup:
+    needs: verify
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Remove superseded build artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/prune-actions-storage.mjs --apply
