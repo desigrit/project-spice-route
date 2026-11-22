@@ -2291,6 +2291,15 @@ pub fn apply_bundle(
                     [thread_id],
                 )?;
             }
+            if compatibility
+                .state_migration
+                .is_some_and(|version| version >= 63)
+            {
+                state.execute(
+                    "DELETE FROM session_model_ids WHERE session_id = ?1",
+                    [thread_id],
+                )?;
+            }
             state.execute("DELETE FROM threads WHERE id = ?1", [thread_id])?;
         }
         for project_id in deleted_projects {
