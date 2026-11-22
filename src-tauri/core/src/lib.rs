@@ -13,10 +13,13 @@ pub mod ipc;
 pub mod models;
 #[path = "../../src/platform.rs"]
 pub mod platform;
+#[path = "../../src/pull_runtime.rs"]
+pub mod pull_runtime;
 #[path = "../../src/recovery.rs"]
 pub mod recovery;
 #[path = "../../src/retained_history.rs"]
 pub mod retained_history;
+pub mod rule_updates;
 #[cfg(test)]
 #[path = "../../src/schema55_tests.rs"]
 mod schema55_tests;

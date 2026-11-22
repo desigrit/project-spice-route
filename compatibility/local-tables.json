@@ -1,0 +1,19 @@
+{
+  "kind": "spice-route-local-tables",
+  "format": 1,
+  "revision": 1,
+  "tables": [
+    {
+      "database": "state_5.sqlite",
+      "name": "guardian_review_feedback",
+      "createSha256": "d9669354767b39d81057697ebcad1a6c0eac1e3c970952397935e412dc6a4b26",
+      "deleteByThread": "thread_id"
+    },
+    {
+      "database": "state_5.sqlite",
+      "name": "thread_read_receipts",
+      "createSha256": "8b5831ff8d846d3d5a733952e31f7ce2ab01cdd0b3f3738a016c79c578d2cca1",
+      "deleteByThread": "thread_id"
+    }
+  ]
+}

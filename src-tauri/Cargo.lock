@@ -3338,7 +3338,7 @@ dependencies = [
 
 [[package]]
 name = "spice-route"
-version = "1.6.9"
+version = "1.7.0"
 dependencies = [
  "serde_json",
  "spice-route-core",
@@ -3351,7 +3351,7 @@ dependencies = [
 
 [[package]]
 name = "spice-route-core"
-version = "1.6.9"
+version = "1.7.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -3362,6 +3362,7 @@ dependencies = [
  "hostname",
  "minisign-verify",
  "rusqlite",
+ "semver",
  "serde",
  "serde_json",
  "sha2",

@@ -8,9 +8,11 @@
 
 Spice Route is a desktop app that carries the chats and project work you choose through a folder synced by OneDrive, Google Drive, or iCloud Drive. Bring a whole project, including its files and Git history, or take just the conversations. Your cloud app handles sign-in and delivery.
 
-[Windows x64](https://github.com/desigrit/project-spice-route/releases/download/v1.6.9/Spice-Route-1.6.9-windows-x64-setup.exe) · [Windows ARM64](https://github.com/desigrit/project-spice-route/releases/download/v1.6.9/Spice-Route-1.6.9-windows-arm64-setup.exe) · [Mac, Apple Silicon](https://github.com/desigrit/project-spice-route/releases/download/v1.6.9/Spice-Route-1.6.9-macos-apple-silicon.dmg)
+[Windows x64](https://github.com/desigrit/project-spice-route/releases/download/v1.7.0/Spice-Route-1.7.0-windows-x64-setup.exe) · [Windows ARM64](https://github.com/desigrit/project-spice-route/releases/download/v1.7.0/Spice-Route-1.7.0-windows-arm64-setup.exe) · [Mac, Apple Silicon](https://github.com/desigrit/project-spice-route/releases/download/v1.7.0/Spice-Route-1.7.0-macos-apple-silicon.dmg)
 
 Already on 1.6.8 or later? Find the next version in **Settings > Updates**, then choose **Install and restart**.
+
+Update Spice Route on both computers before your first 1.7 handoff. Pull checks whether the receiving Codex runtime can open the selected chats.
 
 ![Overview showing this computer beside the latest handoff visible in the sync folder](docs/images/native-overview-light.png)
 

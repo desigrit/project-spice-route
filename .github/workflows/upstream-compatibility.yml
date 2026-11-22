@@ -1,0 +1,33 @@
+name: Check upstream Codex migrations
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '31 8 * * 1'
+
+permissions:
+  contents: read
+jobs:
+  round-trip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/artifacts/
+          sparse-checkout-cone-mode: false
+      - uses: actions/checkout@v4
+        with:
+          repository: openai/codex
+          path: upstream
+          persist-credentials: false
+          sparse-checkout: |
+            codex-rs/state/migrations
+            codex-rs/state/thread_history_migrations
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Apply upstream migrations to the disposable baseline
+        run: python3 scripts/probe-codex-migrations.py upstream/codex-rs/state "$RUNNER_TEMP/spice-route-probe"
+      - name: Export, restore twice, continue and return a selected chat
+        run: SPICE_ROUTE_MIGRATION_PROBE="$RUNNER_TEMP/spice-route-probe" cargo test --locked --release --manifest-path src-tauri/core/Cargo.toml upcoming_codex_migrations_round_trip -- --ignored --nocapture

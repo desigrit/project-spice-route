@@ -21,7 +21,7 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-pub const ADAPTER_NAME: &str = "codex-state-v5.52-54-55-57-59-60-61/history-v1.6-7-8";
+pub const ADAPTER_NAME: &str = "codex-state-v5/history-v1/adaptive-1";
 pub const REFERENCE_CODEX_BUILDS: &[&str] = &["0.153.4", "0.154.0-alpha.6.2", "0.155.0-alpha.9.2"];
 const LOCAL_ONLY_THREAD_COLUMNS: &[&str] = &["sandbox_policy", "approval_mode", "agent_path"];
 const SAFE_IMPORTED_SANDBOX_POLICY: &str =
@@ -140,6 +140,7 @@ pub fn inspect(home: &Path) -> Result<CompatibilityInfo> {
             state_migration: None,
             history_migration: None,
             schema_fingerprint: String::new(),
+            schema_extensions: None,
             explanation: "Codex has not created both thread databases yet. Open and fully quit Codex once, then refresh.".to_string(),
         });
     }
@@ -176,26 +177,33 @@ pub fn inspect(home: &Path) -> Result<CompatibilityInfo> {
         )
         .copied()
         .collect();
-    let profile = crate::compatibility::profile(&CompatibilityInfo {
+    let mut info = CompatibilityInfo {
         supported: false,
         adapter: ADAPTER_NAME.to_string(),
         state_migration,
         history_migration,
         schema_fingerprint: fingerprint.clone(),
+        schema_extensions: None,
         explanation: String::new(),
-    });
-    let supported = if let Some(profile) = profile {
-        missing.is_empty()
-            && complete_schema_signature(&state)?
-                == crate::compatibility::expected_layout(profile, "state_5.sqlite")
+    };
+    let profile = crate::compatibility::profile(&info);
+    // Failed ledger entries are never eligible for adaptation.
+    let complete =
+        missing.is_empty() && migrations_succeeded(&state)? && migrations_succeeded(&history)?;
+    let supported = if !complete {
+        false
+    } else if let Some(profile) = profile {
+        complete_schema_signature(&state)?
+            == crate::compatibility::expected_layout(profile, "state_5.sqlite")
             && complete_schema_signature(&history)?
                 == crate::compatibility::expected_layout(profile, "thread_history_1.sqlite")
-            && migrations_succeeded(&state)?
-            && migrations_succeeded(&history)?
     } else {
-        false
+        info.schema_extensions = crate::compatibility::adaptive::detect(&state, &history, &info)?;
+        info.schema_extensions.is_some()
     };
-    let explanation = if supported {
+    let explanation = if info.schema_extensions.is_some() {
+        format!("Database schema {}/{} has compatible additions. The selected content is checked during review.", state_migration.unwrap_or_default(), history_migration.unwrap_or_default())
+    } else if supported {
         format!("Database schema {}/{} matches a tested storage profile, including indexes and triggers.", state_migration.unwrap_or_default(), history_migration.unwrap_or_default())
     } else if !crate::compatibility::PROFILES
         .iter()
@@ -218,6 +226,7 @@ pub fn inspect(home: &Path) -> Result<CompatibilityInfo> {
         state_migration,
         history_migration,
         schema_fingerprint: fingerprint,
+        schema_extensions: info.schema_extensions,
         explanation,
     })
 }
@@ -253,7 +262,7 @@ pub fn with_build_gate(
     });
     compatibility.explanation = match build {
         Some(build) if profile.runtime.is_empty() => format!(
-            "{} Codex runtime {} is recorded for diagnostics; the complete database storage profile is validated.",
+            "{} Codex runtime {}. Pull checks whether this device can open the selected handoff.",
             compatibility.explanation, build
         ),
         Some(build) if build == profile.runtime => format!(
@@ -261,11 +270,11 @@ pub fn with_build_gate(
             compatibility.explanation, build
         ),
         Some(build) => format!(
-            "{} Codex runtime {} differs from reference build {}, but the complete database storage profile is validated. Push and Pull remain available.",
+            "{} Codex runtime {} differs from reference build {}. Push is available. Pull checks the selected handoff.",
             compatibility.explanation, build, profile.runtime
         ),
         None => format!(
-            "{} The Codex runtime could not be identified, but the complete database storage profile is validated. Push and Pull remain available.",
+            "{} The Codex runtime could not be identified. Push is available. Pull requires the Codex version on this device.",
             compatibility.explanation
         ),
     };
@@ -278,6 +287,14 @@ pub fn validate_snapshot_source(manifest: &SnapshotManifest) -> Result<()> {
     info.supported = crate::compatibility::profile(&info).is_some();
     if !info.supported {
         return Err(SpiceError::UnsupportedCodex("The snapshot's database profile is unknown to this Spice Route release. Update Spice Route before importing it.".into()));
+    }
+    if let Some(extensions) = &info.schema_extensions {
+        let fields = extensions.columns();
+        for thread in &manifest.threads {
+            for (table, rows) in thread.state_rows.iter().chain(&thread.history_rows) {
+                reject_unclassified_fields(&fields, table, rows)?;
+            }
+        }
     }
     let info = with_build_gate(info, manifest.codex_version.as_deref());
     if !info.supported {
@@ -306,6 +323,14 @@ pub fn transfer_issues(
             {
                 fields.push(format!("threads.{column}"));
             }
+        }
+        if destination.state_migration.is_some_and(|v| v < 62) && thread.state_rows.get("threads")
+            .into_iter().flatten().any(|row| row_string(row, "attached_thread_parent_id").is_some()) {
+            fields.push("threads.attached_thread_parent_id".into());
+        }
+        if destination.state_migration.is_some_and(|v| v < 63) && thread.state_rows.get("session_model_ids")
+            .is_some_and(|rows| !rows.is_empty()) {
+            fields.push("session_model_ids".into());
         }
         (!fields.is_empty()).then(|| format!(
             "Chat '{}' contains values in newer Codex fields ({}). This device's database {}/{} cannot preserve them. Update Codex on this device to a tested compatible version, or exclude this chat on the source. Nothing has been changed.",
@@ -426,7 +451,7 @@ fn table_exists(connection: &Connection, name: &str) -> bool {
 }
 
 fn schema_signature(connection: &Connection) -> Result<String> {
-    let mut statement = connection.prepare("SELECT name, coalesce(sql, '') FROM sqlite_master WHERE type IN ('table','index') AND name NOT LIKE 'sqlite_%' ORDER BY type, name")?;
+    let mut statement = connection.prepare("SELECT name, coalesce(sql, '') FROM sqlite_master WHERE type IN ('table','index') AND substr(name,1,7) <> 'sqlite_' ORDER BY type, name")?;
     let rows = statement.query_map([], |row| {
         Ok(format!(
             "{}:{}",
@@ -438,7 +463,7 @@ fn schema_signature(connection: &Connection) -> Result<String> {
 }
 
 fn complete_schema_signature(connection: &Connection) -> Result<String> {
-    let mut statement = connection.prepare("SELECT type, name, coalesce(sql, '') FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name")?;
+    let mut statement = connection.prepare("SELECT type, name, coalesce(sql, '') FROM sqlite_master WHERE substr(name,1,7) <> 'sqlite_' ORDER BY type, name")?;
     let rows = statement.query_map([], |row| {
         Ok(format!(
             "{}:{}:{}",
@@ -1001,6 +1026,18 @@ fn thread_parents(state: &Connection) -> Result<HashMap<String, String>> {
             parents.insert(child, parent);
         }
     }
+    if table_columns(state, "threads")?
+        .iter()
+        .any(|c| c == "attached_thread_parent_id")
+    {
+        let mut stmt = state.prepare("SELECT id, attached_thread_parent_id FROM threads WHERE attached_thread_parent_id IS NOT NULL")?;
+        for pair in stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })? {
+            let (child, parent) = pair?;
+            parents.insert(child, parent);
+        }
+    }
     Ok(parents)
 }
 
@@ -1048,7 +1085,13 @@ pub fn selection_excluded_thread_ids(
             .find(|row| row_string(row, "child_thread_id") == Some(thread.id.as_str()))
             .and_then(|row| row_string(row, "parent_thread_id"))
             .map(str::to_string);
-        if let Some(parent) = edge_parent.or(source_parent) {
+        let attached_parent = thread
+            .state_rows
+            .get("threads")
+            .and_then(|rows| rows.first())
+            .and_then(|row| row_string(row, "attached_thread_parent_id"))
+            .map(str::to_owned);
+        if let Some(parent) = attached_parent.or(edge_parent).or(source_parent) {
             parents.insert(thread.id.clone(), parent);
         }
     }
@@ -1066,13 +1109,119 @@ pub fn selection_excluded_thread_ids(
     excluded
 }
 
+fn classify_extension_values(
+    columns: &BTreeMap<String, Vec<String>>,
+    table: &str,
+    rows: &mut [DatabaseRow],
+    title: &str,
+    publishing: bool,
+) -> Result<()> {
+    let Some(fields) = columns.get(table) else {
+        return Ok(());
+    };
+    for row in rows {
+        for field in fields {
+            match row.values.get(field) {
+                Some(SqlValue::Null) => {row.values.remove(field);}
+                Some(_) if publishing => return Err(SpiceError::UnsupportedCodex(format!(
+                    "Chat '{title}' uses the new Codex field {table}.{field}. Its transfer rules are unknown. Exclude this chat or update Spice Route before pushing."
+                ))),
+                // Pull compares populated local fields so changed metadata can protect
+                // a chat from an automatic deletion. Those values never enter a handoff.
+                _ => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+fn reject_unclassified_fields(
+    columns: &BTreeMap<String, Vec<String>>,
+    table: &str,
+    rows: &[DatabaseRow],
+) -> Result<()> {
+    if let Some(fields) = columns.get(table) {
+        if rows
+            .iter()
+            .any(|row| fields.iter().any(|field| row.values.contains_key(field)))
+        {
+            return Err(SpiceError::UnsupportedCodex(format!("The handoff includes an unclassified column in {table}. Update Spice Route before pulling.")));
+        }
+    }
+    Ok(())
+}
+
+fn protected_history_message(title: &str, table: &str, field: &str) -> String {
+    format!("Chat '{title}' has local data in {table}.{field}. Replacing its history would discard that value. Keep the local chat or exclude it from this handoff.")
+}
+
+pub(crate) fn protected_history_warnings(
+    current: &SnapshotManifest,
+    incoming: &SnapshotManifest,
+    changes: &[crate::models::ChangePreview],
+) -> Vec<String> {
+    let Some(ext) = &current.compatibility.schema_extensions else {
+        return vec![];
+    };
+    let fields = ext.columns();
+    let changed: HashSet<&str> = changes
+        .iter()
+        .filter(|c| {
+            matches!(
+                c.action,
+                crate::models::ChangeAction::Update
+                    | crate::models::ChangeAction::Conflict
+                    | crate::models::ChangeAction::Add
+            )
+        })
+        .filter_map(|c| c.key.strip_prefix("thread:"))
+        .collect();
+    let incoming_ids: HashSet<_> = incoming.threads.iter().map(|t| t.id.as_str()).collect();
+    let mut warnings = Vec::new();
+    for thread in current
+        .threads
+        .iter()
+        .filter(|t| changed.contains(t.id.as_str()) && incoming_ids.contains(t.id.as_str()))
+    {
+        for (table, rows) in &thread.history_rows {
+            if let Some(field) = fields.get(table).and_then(|fields| {
+                fields.iter().find(|f| {
+                    rows.iter().any(|r| {
+                        r.values
+                            .get(*f)
+                            .is_some_and(|v| !matches!(v, SqlValue::Null))
+                    })
+                })
+            }) {
+                warnings.push(protected_history_message(&thread.title, table, field));
+            }
+        }
+    }
+    warnings
+}
+
 pub fn export_selected(
     home: &Path,
     db_dir: &Path,
     selection: &SelectionRules,
     projectless_root: &Path,
 ) -> Result<CodexExport> {
+    export_for_capture(home, db_dir, selection, projectless_root, true)
+}
+
+pub(crate) fn export_for_capture(
+    home: &Path,
+    db_dir: &Path,
+    selection: &SelectionRules,
+    projectless_root: &Path,
+    publishing: bool,
+) -> Result<CodexExport> {
     let compatibility = inspect(db_dir)?;
+    let extra_fields = compatibility
+        .schema_extensions
+        .as_ref()
+        .map(crate::compatibility::SchemaExtensions::columns)
+        .unwrap_or_default();
     if !compatibility.supported {
         return Err(SpiceError::UnsupportedCodex(
             compatibility.explanation.clone(),
@@ -1151,6 +1300,7 @@ pub fn export_selected(
         for (table, key) in STATE_THREAD_TABLES {
             let storage_table = state_storage_table(table, compatibility.state_migration);
             let mut rows = query_rows_eq(&state, storage_table, key, &summary.id)?;
+            classify_extension_values(&extra_fields, table, &mut rows, &summary.title, publishing)?;
             if *table == "thread_artifacts"
                 && compatibility
                     .state_migration
@@ -1180,10 +1330,9 @@ pub fn export_selected(
         }
         let mut history_rows = BTreeMap::new();
         for (table, key) in HISTORY_THREAD_TABLES {
-            history_rows.insert(
-                (*table).to_string(),
-                query_rows_eq(&history, table, key, &summary.id)?,
-            );
+            let mut rows = query_rows_eq(&history, table, key, &summary.id)?;
+            classify_extension_values(&extra_fields, table, &mut rows, &summary.title, publishing)?;
+            history_rows.insert((*table).to_string(), rows);
         }
         let rollout = state_rows
             .get("threads")
@@ -1280,6 +1429,16 @@ pub fn export_selected(
                 kind: PendingFileKind::Attachment,
             });
         }
+        if table_exists(&state, "session_model_ids") {
+            let aliases = query_rows(
+                &state,
+                "SELECT * FROM session_model_ids WHERE session_id = ?1 ORDER BY kind, ordinal",
+                [summary.id.as_str()],
+            )?;
+            if !aliases.is_empty() {
+                state_rows.insert("session_model_ids".into(), aliases);
+            }
+        }
         scrub_local_thread_fields(&mut state_rows);
         let fingerprint = hash_thread_rows(&state_rows, &history_rows)?;
         threads.push(ThreadExport {
@@ -1290,6 +1449,7 @@ pub fn export_selected(
             archived: summary.archived,
             source_cwd: summary.cwd.clone(),
             rollout_relative_path,
+            basic_text_rollout: false,
             projectless_relative_root,
             attachments,
             state_rows,
@@ -1527,6 +1687,7 @@ fn hash_thread_rows(
                 "daybreak_enabled",
                 "creator_user_id",
                 "creator_account_id",
+                "attached_thread_parent_id",
             ] {
                 if matches!(row.values.get(column), Some(SqlValue::Null)) {
                     row.values.remove(column);
@@ -1576,7 +1737,12 @@ fn collect_local_image_paths(
 ) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     let mut seen = HashSet::new();
-    for rows in state.values().chain(history.values()) {
+    for rows in state
+        .iter()
+        .filter(|(table, _)| table.as_str() != "session_model_ids")
+        .map(|(_, rows)| rows)
+        .chain(history.values())
+    {
         for row in rows {
             for value in row.values.values() {
                 let SqlValue::Text(text) = value else {
@@ -1646,9 +1812,14 @@ fn collect_rollout_local_image_paths(path: &Path) -> Result<Vec<PathBuf>> {
 }
 
 pub fn portable_rollout_fingerprint(path: &Path) -> Result<String> {
+    Ok(inspect_rollout(path)?.0)
+}
+
+pub(crate) fn inspect_rollout(path: &Path) -> Result<(String, bool)> {
     let mut reader = BufReader::new(File::open(path)?);
     let mut hasher = Sha256::new();
     let mut line = String::new();
+    let mut basic_text = true;
     loop {
         line.clear();
         if reader.read_line(&mut line)? == 0 {
@@ -1656,14 +1827,16 @@ pub fn portable_rollout_fingerprint(path: &Path) -> Result<String> {
         }
         let content = line.trim_end_matches(['\r', '\n']);
         if let Ok(mut json) = serde_json::from_str::<JsonValue>(content) {
+            basic_text = basic_text && crate::pull_runtime::basic_rollout_line(&json);
             normalize_local_images_in_json(&mut json, None);
             hasher.update(json.to_string().as_bytes());
         } else {
+            basic_text = false;
             hasher.update(content.as_bytes());
         }
         hasher.update(b"\n");
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok((format!("{:x}", hasher.finalize()), basic_text))
 }
 
 pub fn rewrite_rollout_local_image_paths(
@@ -1716,7 +1889,10 @@ pub fn rewrite_rollout_local_image_paths(
 }
 
 fn normalize_local_image_paths_in_rows(tables: &mut BTreeMap<String, Vec<DatabaseRow>>) {
-    for rows in tables.values_mut() {
+    for (table, rows) in tables.iter_mut() {
+        if table == "session_model_ids" {
+            continue;
+        }
         for row in rows {
             for value in row.values.values_mut() {
                 let SqlValue::Text(text) = value else {
@@ -1777,7 +1953,10 @@ fn rewrite_local_image_paths_in_rows(
     if replacements.is_empty() {
         return;
     }
-    for table_rows in rows.values_mut() {
+    for (table, table_rows) in rows.iter_mut() {
+        if table == "session_model_ids" {
+            continue;
+        }
         for row in table_rows {
             for value in row.values.values_mut() {
                 let SqlValue::Text(text) = value else {
@@ -1945,6 +2124,17 @@ pub fn apply_bundle(
     }
     let state = Connection::open(staged_home.join("state_5.sqlite"))?;
     let history = Connection::open(staged_home.join("thread_history_1.sqlite"))?;
+    let protected_fields = compatibility
+        .schema_extensions
+        .as_ref()
+        .map(crate::compatibility::SchemaExtensions::columns)
+        .unwrap_or_default();
+    let local_deletions = compatibility
+        .schema_extensions
+        .as_ref()
+        .map(crate::compatibility::SchemaExtensions::local_deletions)
+        .transpose()?
+        .unwrap_or_default();
     // Preflight every selected row before even the staged databases are mutated.
     for thread in manifest
         .threads
@@ -1952,6 +2142,27 @@ pub fn apply_bundle(
         .filter(|thread| incoming_threads.contains(&thread.id))
     {
         for (table, rows) in &thread.state_rows {
+            if table == "session_model_ids" {
+                if !table_exists(&state, table)
+                    || !crate::compatibility::profile(&manifest.compatibility)
+                        .is_some_and(|p| p.state >= 63)
+                {
+                    return Err(SpiceError::UnsupportedCodex(format!(
+                        "Chat '{}' requires Codex session aliases on both devices.",
+                        thread.title
+                    )));
+                }
+                if rows
+                    .iter()
+                    .any(|row| row_string(row, "session_id") != Some(&thread.id))
+                {
+                    return Err(SpiceError::CorruptSnapshot(
+                        "A session alias belongs to a different chat.".into(),
+                    ));
+                }
+                validate_row_columns(&state, table, rows)?;
+                continue;
+            }
             if !STATE_THREAD_TABLES.iter().any(|(name, _)| name == table)
                 && table != "thread_sections"
             {
@@ -1960,10 +2171,33 @@ pub fn apply_bundle(
                 )));
             }
             let storage_table = state_storage_table(table, compatibility.state_migration);
+            reject_unclassified_fields(&protected_fields, table, rows)?;
             let storage_rows = state_rows_for_storage(table, rows, compatibility.state_migration)?;
             validate_row_columns(&state, storage_table, &storage_rows)?;
         }
+        // History child rows are replaced as a set. A destination-only value would
+        // disappear on reinsertion, even if the source omitted its column.
+        for (table, fields) in protected_fields
+            .iter()
+            .filter(|(table, _)| table.as_str() != "threads")
+        {
+            for field in fields {
+                let sql = format!(
+                    "SELECT EXISTS(SELECT 1 FROM \"{}\" WHERE thread_id=?1 AND \"{}\" IS NOT NULL)",
+                    safe_identifier(table)?,
+                    safe_identifier(field)?
+                );
+                if history.query_row(&sql, [&thread.id], |r| r.get::<_, bool>(0))? {
+                    return Err(SpiceError::UnsupportedCodex(protected_history_message(
+                        &thread.title,
+                        table,
+                        field,
+                    )));
+                }
+            }
+        }
         for (table, rows) in &thread.history_rows {
+            reject_unclassified_fields(&protected_fields, table, rows)?;
             if !HISTORY_THREAD_TABLES.iter().any(|(name, _)| name == table) {
                 return Err(SpiceError::UnsupportedCodex(format!(
                     "Unknown source history table: {table}"
@@ -2046,6 +2280,16 @@ pub fn apply_bundle(
                         [thread_id],
                     )?;
                 }
+            }
+            for (table, column) in &local_deletions {
+                state.execute(
+                    &format!(
+                        "DELETE FROM \"{}\" WHERE \"{}\" = ?1",
+                        safe_identifier(table)?,
+                        safe_identifier(column)?
+                    ),
+                    [thread_id],
+                )?;
             }
             state.execute("DELETE FROM threads WHERE id = ?1", [thread_id])?;
         }
@@ -2149,6 +2393,9 @@ pub fn apply_bundle(
                 row.values.insert("cwd".to_string(), SqlValue::Text(cwd));
             }
             upsert_rows(&state, "threads", &thread_rows, None)?;
+            if let Some(aliases) = state_rows.get("session_model_ids") {
+                merge_session_aliases(&state, thread, aliases)?;
+            }
             for table in [
                 "thread_artifacts",
                 "thread_dynamic_tools",
@@ -2190,6 +2437,12 @@ pub fn apply_bundle(
                     None,
                 )?;
             }
+        }
+        if compatibility
+            .state_migration
+            .is_some_and(|version| version >= 62)
+        {
+            validate_attached_parents(&state, incoming_threads, deleted_threads)?;
         }
         state.execute_batch("COMMIT;")?;
         history.execute_batch("COMMIT;")?;
@@ -2333,6 +2586,79 @@ fn upsert_rows(
     Ok(())
 }
 
+// Codex omits attached children from its top-level chat listing. The link has
+// no SQLite foreign key, so verify it after all upserts and before either commit.
+fn validate_attached_parents(
+    state: &Connection,
+    incoming_threads: &HashSet<String>,
+    deleted_threads: &HashSet<String>,
+) -> Result<()> {
+    let mut retained_child = state.prepare(
+        "SELECT 1 FROM threads AS child WHERE child.attached_thread_parent_id = ?1
+         AND NOT EXISTS (SELECT 1 FROM threads WHERE id = ?1) LIMIT 1",
+    )?;
+    for id in deleted_threads {
+        if retained_child.exists([id])? {
+            return Err(SpiceError::User(format!(
+                "This Pull would remove parent chat {id} while an attached chat still needs it. Keep the parent chat on this computer."
+            )));
+        }
+    }
+    let mut missing_parent = state.prepare(
+        "SELECT child.attached_thread_parent_id FROM threads AS child
+         WHERE child.id = ?1 AND child.attached_thread_parent_id IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM threads WHERE id = child.attached_thread_parent_id)",
+    )?;
+    for id in incoming_threads {
+        if let Some(parent) = missing_parent
+            .query_row([id], |row| row.get::<_, String>(0))
+            .optional()?
+        {
+            return Err(SpiceError::User(format!(
+                "Chat {id} needs parent chat {parent} on this computer. Include the parent in the handoff and Pull again."
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Aliases are shared by a session's workers. Already-issued names must keep their
+/// original seed and ordinal, including names used only by destination workers.
+fn merge_session_aliases(
+    state: &Connection,
+    thread: &ThreadExport,
+    rows: &[DatabaseRow],
+) -> Result<()> {
+    let mut insert = state.prepare("INSERT INTO session_model_ids(session_id,kind,external_key,ordinal,initial_state) VALUES (?1,?2,?3,?4,?5) ON CONFLICT DO NOTHING")?;
+    let mut identical = state.prepare("SELECT 1 FROM session_model_ids WHERE session_id=?1 AND kind=?2 AND external_key=?3 AND ordinal=?4 AND initial_state IS ?5")?;
+    for row in rows {
+        let fields = [
+            "session_id",
+            "kind",
+            "external_key",
+            "ordinal",
+            "initial_state",
+        ];
+        let values = fields
+            .iter()
+            .map(|col| {
+                row.values
+                    .get(*col)
+                    .ok_or_else(|| {
+                        SpiceError::CorruptSnapshot(format!("Missing alias field {col}."))
+                    })
+                    .and_then(sql_value)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if insert.execute(params_from_iter(&values))? == 0
+            && !identical.exists(params_from_iter(&values))?
+        {
+            return Err(SpiceError::User(format!("Chat '{}' has different session aliases on these devices. Keep the local chat or exclude it on the source before pulling.", thread.title)));
+        }
+    }
+    Ok(())
+}
+
 fn validate_row_columns(connection: &Connection, table: &str, rows: &[DatabaseRow]) -> Result<()> {
     let available: HashSet<_> = table_columns(connection, table)?.into_iter().collect();
     for row in rows {
@@ -2345,6 +2671,7 @@ fn validate_row_columns(connection: &Connection, table: &str, rows: &[DatabaseRo
                             | "daybreak_enabled"
                             | "creator_user_id"
                             | "creator_account_id"
+                            | "attached_thread_parent_id"
                     )
                     || table == "thread_items"
                         && matches!(column.as_str(), "started_at_ms" | "completed_at_ms")
@@ -3117,6 +3444,7 @@ fn merge_session_index(
 
 #[cfg(test)]
 mod tests {
+    include!("adaptive_schema_tests.rs");
     use super::*;
     use crate::snapshot::{self, ObjectStore};
     use crate::util::read_json;
@@ -3913,6 +4241,7 @@ mod tests {
                 state_migration: Some(57),
                 history_migration: Some(6),
                 schema_fingerprint: "fixture".to_string(),
+                schema_extensions: None,
                 explanation: String::new(),
             },
             codex_version: None,
@@ -3924,6 +4253,7 @@ mod tests {
                 archived: false,
                 source_cwd: incoming_root.to_string_lossy().into_owned(),
                 rollout_relative_path: None,
+                basic_text_rollout: false,
                 projectless_relative_root: None,
                 attachments: Vec::new(),
                 state_rows: BTreeMap::new(),
@@ -4675,6 +5005,7 @@ mod tests {
             state_migration: Some(52),
             history_migration: Some(6),
             schema_fingerprint: crate::compatibility::PROFILES[0].fingerprint.to_string(),
+            schema_extensions: None,
             explanation: "schema supported".to_string(),
         };
         let reference = with_build_gate(compatibility.clone(), Some("codex-cli 0.153.4"));
@@ -4686,7 +5017,9 @@ mod tests {
         let newer = with_build_gate(compatibility.clone(), Some("codex-cli 0.153.5"));
         assert!(newer.supported);
         assert!(newer.explanation.contains("differs from reference build"));
-        assert!(newer.explanation.contains("Push and Pull remain available"));
+        assert!(newer
+            .explanation
+            .contains("Pull checks the selected handoff"));
 
         let unknown = with_build_gate(compatibility, None);
         assert!(unknown.supported);

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^\d+\.\d+\.\d+$')]
-    [string]$Version = '1.6.9',
+    [string]$Version = '1.7.0',
     [ValidateSet('x64', 'arm64')]
     [string]$Architecture = 'x64',
     [string]$EnginePath,

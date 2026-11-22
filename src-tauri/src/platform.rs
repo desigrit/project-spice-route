@@ -344,6 +344,28 @@ pub fn request_codex_close() -> Result<bool> {
 }
 
 pub fn find_codex_executable() -> Option<PathBuf> {
+    find_desktop_runtime().or_else(|| {
+        let command = if cfg!(windows) { "where" } else { "which" };
+        hidden_command(command)
+            .arg("codex")
+            .output()
+            .ok()
+            .filter(|out| out.status.success())
+            .and_then(|out| {
+                String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .map(PathBuf::from)
+                    .find(|path| path.is_file())
+            })
+    })
+}
+
+/// A standalone CLI found on PATH may differ from the desktop app's reader.
+pub fn desktop_runtime_version() -> Option<String> {
+    codex_version(find_desktop_runtime().as_deref())
+}
+
+fn find_desktop_runtime() -> Option<PathBuf> {
     if let Some(path) = env::var_os("CODEX_INSTALL_DIR")
         .map(PathBuf::from)
         .and_then(|path| codex_executable_in(&path))
@@ -363,21 +385,7 @@ pub fn find_codex_executable() -> Option<PathBuf> {
     }
     // Once Codex is closed for a transfer, still prefer its installed bundled runtime.
     // A separately installed CLI on PATH can be an older or different build.
-    if let Some(path) = installed_codex_cli() {
-        return Some(path);
-    }
-    let command = if cfg!(windows) { "where" } else { "which" };
-    hidden_command(command)
-        .arg("codex")
-        .output()
-        .ok()
-        .filter(|out| out.status.success())
-        .and_then(|out| {
-            String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .map(PathBuf::from)
-                .find(|path| path.is_file())
-        })
+    installed_codex_cli()
 }
 
 fn is_bundled_codex_cli(path: &Path) -> bool {
@@ -387,6 +395,8 @@ fn is_bundled_codex_cli(path: &Path) -> bool {
         .to_ascii_lowercase();
     (normalized.contains("/openai/codex/bin/")
         && (normalized.ends_with("/codex.exe") || normalized.ends_with("/codex")))
+        || (normalized.contains("/windowsapps/openai.codex_")
+            && normalized.ends_with("/app/resources/codex.exe"))
         || (normalized.contains("/codex.app/contents/resources/")
             && (normalized.ends_with("/codex")
                 || normalized.ends_with("/bin/codex")
@@ -396,6 +406,9 @@ fn is_bundled_codex_cli(path: &Path) -> bool {
 fn installed_codex_cli() -> Option<PathBuf> {
     #[cfg(windows)]
     {
+        if let Some(executable) = registered_desktop_runtime() {
+            return Some(executable);
+        }
         let root = PathBuf::from(env::var_os("LOCALAPPDATA")?).join("OpenAI/Codex/bin");
         let mut candidates: Vec<_> = std::fs::read_dir(root)
             .ok()?
@@ -415,12 +428,75 @@ fn installed_codex_cli() -> Option<PathBuf> {
         let home = dirs::home_dir()?;
         macos_installed_codex_candidates(&home)
             .into_iter()
-            .find(|path| path.is_file())
+            .find(|path| is_bundled_codex_cli(path) && path.is_file())
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
         None
     }
+}
+
+/// Query Windows for the registered app package even after the desktop app exits.
+/// Querying its registration avoids guessing from cached runtime modification times.
+#[cfg(windows)]
+fn registered_desktop_runtime() -> Option<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use std::ptr::null_mut;
+    use windows_sys::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS};
+    use windows_sys::Win32::Storage::Packaging::Appx::{
+        GetPackagePathByFullName, GetPackagesByPackageFamily,
+    };
+
+    let family: Vec<u16> = "OpenAI.Codex_2p2nqsd0c76g0"
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let (mut count, mut length) = (0, 0);
+    // Both APIs document a size query followed by a call with caller-owned buffers.
+    unsafe {
+        if GetPackagesByPackageFamily(
+            family.as_ptr(),
+            &mut count,
+            null_mut(),
+            &mut length,
+            null_mut(),
+        ) != ERROR_INSUFFICIENT_BUFFER
+            || !(1..=64).contains(&count)
+            || !(1..=65536).contains(&length)
+        {
+            return None;
+        }
+        let mut names = vec![null_mut(); count as usize];
+        let mut buffer = vec![0u16; length as usize];
+        if GetPackagesByPackageFamily(
+            family.as_ptr(),
+            &mut count,
+            names.as_mut_ptr(),
+            &mut length,
+            buffer.as_mut_ptr(),
+        ) != ERROR_SUCCESS
+        {
+            return None;
+        }
+        for name in names.into_iter().take(count as usize) {
+            let mut chars = 0;
+            if GetPackagePathByFullName(name, &mut chars, null_mut()) != ERROR_INSUFFICIENT_BUFFER
+                || !(2..=32768).contains(&chars)
+            {
+                continue;
+            }
+            let mut path = vec![0u16; chars as usize];
+            if GetPackagePathByFullName(name, &mut chars, path.as_mut_ptr()) == ERROR_SUCCESS {
+                let root = PathBuf::from(OsString::from_wide(&path[..chars as usize - 1]));
+                let executable = root.join("app/resources/codex.exe");
+                if executable.is_file() {
+                    return Some(executable);
+                }
+            }
+        }
+    }
+    None
 }
 
 #[cfg(any(target_os = "macos", test))]

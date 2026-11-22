@@ -1,4 +1,14 @@
-# Compatibility plan: Codex database migrations 52, 54, 55, 57, 59, 60, and 61
+# Codex database compatibility
+
+## Adaptive compatibility in 1.7
+
+Push records the source runtime and transcript compatibility information in handoff format 3. Pull reads formats 1 through 3, checks the receiving runtime and handoff contents before downloading objects, and checks again on execution. Unfamiliar events require a compatible producer runtime. Source and destination keep their native databases.
+
+The engine tests both database layouts independently against a known pair. A later migration can be accepted when its differences consist of recognized additions. Simple non-unique indexes and supported unconstrained nullable columns qualify. A change to a required key, constraint or trigger needs review. The receiver validates the source schema description locally. Signed rules can classify additional device-local tables by their exact definition and describe their deletion behavior. Existing chats remain available offline using the bundled and cached rules.
+
+State migrations 62 through 64 add attached-chat parent IDs, session-scoped model aliases and listing indexes. History migration 9 adds realtime lookup indexes. The schema fixtures contain only database definitions. Aliases travel with their owning session. Imports preserve additional local aliases, and stop if the two devices have issued different meanings for the same alias. A selected chat using an attached-parent link or alias requires a destination that can represent it.
+
+The upstream compatibility workflow checks Codex's published migrations weekly using disposable databases. It restores a selected chat twice, appends a turn and returns it to the previous layout. Inspect a failing run before expanding the built-in rules or publishing a new signed classification.
 
 ## Scope and evidence
 

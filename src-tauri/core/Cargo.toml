@@ -1,11 +1,12 @@
 [package]
 name = "spice-route-core"
-version = "1.6.9"
+version = "1.7.0"
 description = "Portable Codex snapshot, compatibility, and recovery engine"
 edition = "2021"
 rust-version = "1.77.2"
 
 [dependencies]
+semver = "1"
 minisign-verify = "0.3"
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
@@ -28,6 +29,7 @@ zstd = "0.13"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
+  "Win32_Storage_Packaging_Appx",
   "Win32_System_Threading",
   "Win32_UI_WindowsAndMessaging"
 ] }

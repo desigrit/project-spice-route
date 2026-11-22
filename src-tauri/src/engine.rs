@@ -83,6 +83,7 @@ impl Engine {
             fs::remove_dir_all(&previews)?;
         }
         fs::create_dir_all(&previews)?;
+        crate::rule_updates::initialize(&data_dir);
         Ok(Self {
             data_dir,
             operations: Mutex::new(HashMap::new()),
@@ -105,6 +106,7 @@ impl Engine {
     }
 
     pub fn discover_environment(&self) -> Result<EnvironmentDiscovery> {
+        crate::rule_updates::refresh_if_due(&self.data_dir);
         let config = self
             .load_config()
             .unwrap_or_else(|_| settings::default_config());
@@ -510,7 +512,7 @@ impl Engine {
         snapshot_id: Option<&str>,
         log: &mut PullLog,
     ) -> Result<OperationPreview> {
-        self.validate_operation(config)?;
+        let reader = self.validate_operation(config)?;
         ensure_disk_space(
             &self.data_dir,
             MIN_OPERATION_HEADROOM,
@@ -526,8 +528,10 @@ impl Engine {
         };
         log.source(&incoming);
         log.phase("previewInspectingSource");
-        snapshot::inspect_manifest(config, &incoming)?;
+        log.destination_version(reader.as_deref());
         codex::validate_snapshot_source(&incoming)?;
+        crate::pull_runtime::check(&incoming, reader.as_deref())?;
+        snapshot::inspect_manifest(config, &incoming)?;
         let operation_id = Uuid::new_v4().to_string();
         let stage = self.preview_directory(&operation_id)?;
         let current = self.capture_local(config, &stage, None)?;
@@ -551,6 +555,9 @@ impl Engine {
         let changes = diff_for_pull(config, &incoming, &current, baseline.as_ref())?;
         let local_fingerprint = pull_local_fingerprint(config, &current, &incoming)?;
         let mut warnings = incoming.warnings.clone();
+        warnings.extend(codex::protected_history_warnings(
+            &current, &incoming, &changes,
+        ));
         warnings.extend(codex::transfer_warnings(&incoming, &current.compatibility));
         if let Some(base) = &baseline {
             for project in base.projects.iter().filter(|project| {
@@ -736,7 +743,7 @@ impl Engine {
         resolutions: &[ConflictResolution],
         log: &mut PullLog,
     ) -> Result<OperationResult> {
-        self.validate_operation(config)?;
+        let reader = self.validate_operation(config)?;
         let prepared = self.prepared(operation_id, Direction::Pull)?;
         validate_prepared(config, &prepared)?;
         check_cancel(&prepared.cancel)?;
@@ -757,8 +764,11 @@ impl Engine {
                 .ok_or_else(|| SpiceError::User("Pull preview has no snapshot.".to_string()))?;
             let incoming = snapshot::load_manifest(config, incoming_id)?;
             log.source(&incoming);
-            log.phase("verifyingSourceObjects");
+            log.destination_version(reader.as_deref());
+            log.phase("checkingReader");
             codex::validate_snapshot_source(&incoming)?;
+            crate::pull_runtime::check(&incoming, reader.as_deref())?;
+            log.phase("verifyingSourceObjects");
             set_progress(
                 &prepared,
                 OperationPhase::Verifying,
@@ -936,10 +946,14 @@ impl Engine {
                     });
                 let staged = staged_home.join(&relative);
                 cloud_store.materialize_cancellable(object, &staged, Some(&prepared.cancel))?;
-                rollout_fingerprints.insert(
-                    thread.id.clone(),
-                    codex::portable_rollout_fingerprint(&staged)?,
-                );
+                let (fingerprint, basic_text) = codex::inspect_rollout(&staged)?;
+                if thread.basic_text_rollout && !basic_text {
+                    return Err(SpiceError::CorruptSnapshot(format!(
+                        "The transcript for '{}' differs from its declared reader requirements.",
+                        thread.title
+                    )));
+                }
+                rollout_fingerprints.insert(thread.id.clone(), fingerprint);
                 let live = live_home.join(&relative);
                 rollout_paths.insert(thread.id.clone(), path_string(&live));
                 staged_rollouts.push((thread.id.clone(), staged, live));
@@ -1385,7 +1399,7 @@ impl Engine {
         })
     }
 
-    fn validate_operation(&self, config: &AppConfig) -> Result<()> {
+    fn validate_operation(&self, config: &AppConfig) -> Result<Option<String>> {
         settings::validate_config(config)?;
         if self.data_dir.join("cloud-cleanup.json").is_file() {
             return Err(SpiceError::User("A cloud-history cleanup was interrupted. Open Settings and run Reset cloud history again.".to_string()));
@@ -1393,14 +1407,15 @@ impl Engine {
         if recovery::has_pending(&self.data_dir) {
             return Err(SpiceError::PendingRecovery);
         }
+        let version = platform::desktop_runtime_version();
         let compatibility = codex::with_build_gate(
             codex::inspect(Path::new(&config.codex_home))?,
-            platform::codex_version(platform::find_codex_executable().as_deref()).as_deref(),
+            version.as_deref(),
         );
         if !compatibility.supported {
             return Err(SpiceError::UnsupportedCodex(compatibility.explanation));
         }
-        Ok(())
+        Ok(version)
     }
 
     fn capture_local(
@@ -1443,11 +1458,12 @@ impl Engine {
         if let Some(flag) = cancel {
             check_cancel(flag)?;
         }
-        let mut export = codex::export_selected(
+        let mut export = codex::export_for_capture(
             Path::new(&config.codex_home),
             &db_dir,
             &config.selection,
             Path::new(&config.projectless_root),
+            matches!(purpose, CapturePurpose::Push),
         )?;
         let local_state = settings::load_local_state(&self.data_dir)?;
         let retained =
@@ -1464,7 +1480,7 @@ impl Engine {
             cancel,
             matches!(purpose, CapturePurpose::Push),
         )?;
-        let version = platform::codex_version(platform::find_codex_executable().as_deref());
+        let version = platform::desktop_runtime_version();
         manifest.compatibility = codex::with_build_gate(manifest.compatibility, version.as_deref());
         manifest.codex_version = version;
         if !manifest.compatibility.supported {
@@ -3469,6 +3485,7 @@ mod tests {
                 state_migration: None,
                 history_migration: None,
                 schema_fingerprint: "test".into(),
+                schema_extensions: None,
                 explanation: "test".into(),
             },
             codex_version: None,
@@ -3495,6 +3512,7 @@ mod tests {
             archived: false,
             source_cwd: String::new(),
             rollout_relative_path: None,
+            basic_text_rollout: false,
             projectless_relative_root: None,
             attachments: Vec::new(),
             state_rows: BTreeMap::from([(
@@ -3513,6 +3531,86 @@ mod tests {
         manifest.id = id.to_string();
         manifest.created_at = format!("2026-09-18T12:00:0{}Z", id.len() % 10);
         manifest
+    }
+
+    #[test]
+    fn pull_checks_runtime_direction_and_actual_selected_content() {
+        use crate::pull_runtime::check;
+        let mut snapshot = review_manifest();
+        snapshot.codex_version = Some("codex-cli 0.170.1-alpha.10.2".into());
+        let mut chat = review_thread("A chat", "fingerprint", None);
+        chat.rollout_relative_path = Some("sessions/a.jsonl".into());
+        chat.basic_text_rollout = true;
+        chat.history_rows.insert(
+            "thread_items".into(),
+            vec![DatabaseRow {
+                values: BTreeMap::from([
+                    ("item_type".into(), SqlValue::Text("message".into())),
+                    (
+                        "item_json".into(),
+                        SqlValue::Text(r#"{"text":"hello"}"#.into()),
+                    ),
+                ]),
+            }],
+        );
+        snapshot.threads.push(chat);
+        assert!(check(&snapshot, Some("codex-cli 0.160.0")).is_ok());
+        assert!(check(&snapshot, Some("0.99.0")).is_err());
+        assert!(check(&snapshot, Some("unknown")).is_err());
+        snapshot.schema_version = 2;
+        assert!(check(&snapshot, Some("0.160.0")).is_err());
+        assert!(check(&snapshot, Some("0.170.1")).is_ok());
+        snapshot.schema_version = 3;
+        snapshot.threads[0]
+            .history_rows
+            .get_mut("thread_items")
+            .unwrap()[0]
+            .values
+            .insert(
+                "item_json".into(),
+                SqlValue::Text(
+                    r#"{"type":"message","content":[{"type":"future_format"}],"role":"user"}"#
+                        .into(),
+                ),
+            );
+        let error = check(&snapshot, Some("0.170.1-alpha.9"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("A chat") && error.contains("0.170.1-alpha.10.2"));
+        assert!(check(&snapshot, Some("0.170.1-alpha.11")).is_ok());
+        assert!(check(&snapshot, Some("0.170.1+other-host")).is_ok());
+        snapshot.threads[0].state_rows.get_mut("threads").unwrap()[0]
+            .values
+            .insert("cli_version".into(), SqlValue::Text("0.171.0".into()));
+        assert!(check(&snapshot, Some("0.170.1"))
+            .unwrap_err()
+            .to_string()
+            .contains("0.171.0"));
+        assert!(check(&snapshot, Some("0.171.2")).is_ok());
+        assert!(check(&snapshot, Some("1.0.0-alpha.1")).is_err());
+        snapshot.codex_version = None;
+        assert!(check(&snapshot, Some("0.170.1"))
+            .unwrap_err()
+            .to_string()
+            .contains("fresh Push"));
+    }
+
+    #[test]
+    fn captured_transcript_evidence_identifies_new_events_and_malformed_lines() {
+        let stage = tempfile::tempdir().unwrap();
+        let path = stage.path().join("messages.jsonl");
+        let plain = r#"{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello"}]}}"#;
+        std::fs::write(&path, plain).unwrap();
+        let (fingerprint, basic_text) = codex::inspect_rollout(&path).unwrap();
+        assert!(basic_text);
+        assert_eq!(
+            codex::portable_rollout_fingerprint(&path).unwrap(),
+            fingerprint
+        );
+        for unknown in [r#"{"type":"new_rollout_event"}"#, "{"] {
+            std::fs::write(&path, format!("{plain}\n{unknown}")).unwrap();
+            assert!(!codex::inspect_rollout(&path).unwrap().1);
+        }
     }
 
     #[test]
@@ -3841,6 +3939,7 @@ mod tests {
                     state_migration: None,
                     history_migration: None,
                     schema_fingerprint: "test".into(),
+                    schema_extensions: None,
                     explanation: "test".into(),
                 },
                 threads: vec![],
@@ -4080,6 +4179,7 @@ mod tests {
                 state_migration: Some(1),
                 history_migration: Some(1),
                 schema_fingerprint: "test".to_string(),
+                schema_extensions: None,
                 explanation: "test".to_string(),
             },
             codex_version: Some("test".to_string()),
@@ -4178,6 +4278,7 @@ mod tests {
                     state_migration: Some(1),
                     history_migration: Some(1),
                     schema_fingerprint: "test".to_string(),
+                    schema_extensions: None,
                     explanation: "test".to_string(),
                 },
                 codex_version: Some("test".to_string()),

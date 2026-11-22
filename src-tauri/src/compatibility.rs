@@ -1,5 +1,8 @@
 //! Explicit storage profiles. Fixtures are schema metadata, never personal databases.
+#[path = "adaptive_schema.rs"]
+pub(crate) mod adaptive;
 use crate::models::CompatibilityInfo;
+pub use adaptive::SchemaExtensions;
 use serde_json::Value;
 
 pub struct Profile {
@@ -173,10 +176,76 @@ pub const PROFILES: &[Profile] = &[
         schema: include_str!("fixtures/schema-61.json"),
         history_schema: Some(include_str!("fixtures/schema-55.json")),
     },
+    Profile {
+        state: 62,
+        history: 8,
+        runtime: "",
+        fingerprint: "6b8c51d296f1966b37303418f916084502d8c5f4f0fc5e4dca4cd2e6ab30ce16",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-62.json"),
+        history_schema: Some(include_str!("fixtures/schema-61.json")),
+    },
+    Profile {
+        state: 62,
+        history: 9,
+        runtime: "",
+        fingerprint: "eedf4c8254c8189a8e0d96a7429e4e791d25ebbf4426d4d1578fcb1dfb57c94b",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-62.json"),
+        history_schema: None,
+    },
+    Profile {
+        state: 63,
+        history: 8,
+        runtime: "",
+        fingerprint: "8e827de008f5c8a478b4d50a073bbd4f7acb47553850582fe132f1df6639c437",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-63.json"),
+        history_schema: Some(include_str!("fixtures/schema-61.json")),
+    },
+    Profile {
+        state: 63,
+        history: 9,
+        runtime: "",
+        fingerprint: "e8cfad1082ebb3c1e7e42b2b32862031f3f5ced9611ccc6e41ce1962ba0c1c55",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-63.json"),
+        history_schema: None,
+    },
+    Profile {
+        state: 64,
+        history: 8,
+        runtime: "",
+        fingerprint: "bdd3aad41b0b977d306d79077121a3f8208e9704a3278e0a096dfb9e7f1fd54e",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-64.json"),
+        history_schema: Some(include_str!("fixtures/schema-61.json")),
+    },
+    Profile {
+        state: 64,
+        history: 9,
+        runtime: "",
+        fingerprint: "9521ad54c400dc349d0532cf251fb2dc48347248fe4afc152e50b681a220f963",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-64.json"),
+        history_schema: None,
+    },
+    Profile {
+        state: 61,
+        history: 9,
+        runtime: "",
+        fingerprint: "256bac9ec98b6bb8d46d911298f60bc93c6ae85c9d54fa7e137dfa5a3164a8d6",
+        legacy_fingerprints: &[],
+        schema: include_str!("fixtures/schema-61.json"),
+        history_schema: Some(include_str!("fixtures/schema-64.json")),
+    },
 ];
 
 pub fn profile(info: &CompatibilityInfo) -> Option<&'static Profile> {
-    PROFILES.iter().find(|profile| profile.matches(info))
+    match &info.schema_extensions {
+        Some(extensions) => extensions.validate(info),
+        None => PROFILES.iter().find(|profile| profile.matches(info)),
+    }
 }
 
 pub(crate) fn normalize_schema_sql(sql: &str) -> String {
@@ -216,6 +285,7 @@ mod tests {
                     state_migration: Some(expected.state),
                     history_migration: Some(expected.history),
                     schema_fingerprint: (*fingerprint).into(),
+                    schema_extensions: None,
                     explanation: String::new(),
                 };
                 assert_eq!(

@@ -1,0 +1,86 @@
+name: Publish compatibility rules
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [compatibility/local-tables.json]
+
+permissions:
+  contents: read
+concurrency:
+  group: stable-compatibility-rules
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            /*
+            !/artifacts/
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci --ignore-scripts
+      - name: Test compatibility engine
+        run: cargo test --locked --manifest-path src-tauri/core/Cargo.toml --release
+      - name: Sign reviewed rule data
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY"
+          npx --no-install tauri signer sign compatibility/local-tables.json
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const payload = readFileSync('compatibility/local-tables.json').toString('base64');
+          const signature = readFileSync('compatibility/local-tables.json.sig', 'utf8').trim();
+          writeFileSync('compatibility-rules.json', JSON.stringify({payload, signature}) + '\n');
+          JS
+      - name: Verify and publish single signed envelope
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify() {
+            cargo run --quiet --locked --release --manifest-path src-tauri/core/Cargo.toml --example verify_compatibility_feed -- "$1"
+          }
+          revision="$(verify compatibility-rules.json)"
+          tag=compat-rules-v1
+          if gh release view "$tag" >/dev/null 2>&1; then
+            mkdir previous
+            if gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq compatibility-rules.json; then
+              gh release download "$tag" -p compatibility-rules.json -D previous
+              prior="$(verify previous/compatibility-rules.json)"
+              if (( revision < prior )); then
+                echo 'Refusing to publish an older rules revision.' >&2
+                exit 1
+              fi
+              if (( revision == prior )); then
+                node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          const payload = path => JSON.parse(readFileSync(path)).payload;
+          if (payload('compatibility-rules.json') !== payload('previous/compatibility-rules.json')) {
+            throw new Error('A changed rule set needs a new revision.');
+          }
+          JS
+                exit 0
+              fi
+            fi
+          else
+            gh release create "$tag" --target "$GITHUB_SHA" --prerelease --latest=false --title 'Compatibility rules' --notes 'Reviewed compatibility rules for Spice Route desktop.'
+          fi
+          gh release upload "$tag" compatibility-rules.json --clobber
+          mkdir published
+          gh release download "$tag" -p compatibility-rules.json -D published
+          cmp compatibility-rules.json published/compatibility-rules.json
+          verify published/compatibility-rules.json

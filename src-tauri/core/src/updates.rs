@@ -11,22 +11,10 @@ pub fn verify_artifact(path: &Path, signature: &str) -> Result<()> {
 }
 
 fn verify_with_key(path: &Path, signature: &str, public_key: &str) -> Result<()> {
-    let invalid = || {
-        SpiceError::User(
-            "The update signature could not be verified. Download a fresh update and try again."
-                .into(),
-        )
-    };
-    if signature.len() > 4096 {
-        return Err(invalid());
-    }
-    let key = STANDARD.decode(public_key.trim()).map_err(|_| invalid())?;
-    let key = PublicKey::decode(std::str::from_utf8(&key).map_err(|_| invalid())?)
-        .map_err(|_| invalid())?;
-    let signature = STANDARD.decode(signature.trim()).map_err(|_| invalid())?;
-    let signature = Signature::decode(std::str::from_utf8(&signature).map_err(|_| invalid())?)
-        .map_err(|_| invalid())?;
-    let mut verifier = key.verify_stream(&signature).map_err(|_| invalid())?;
+    let (key, signature) = signature_parts(signature, public_key)?;
+    let mut verifier = key
+        .verify_stream(&signature)
+        .map_err(|_| invalid_signature())?;
     let mut file = File::open(path)?;
     if !file.metadata()?.is_file() || file.metadata()?.len() > 512 * 1024 * 1024 {
         return Err("The update package has an unexpected size or type.".into());
@@ -39,7 +27,33 @@ fn verify_with_key(path: &Path, signature: &str, public_key: &str) -> Result<()>
         }
         verifier.update(&buffer[..read]);
     }
-    verifier.finalize().map_err(|_| invalid())
+    verifier.finalize().map_err(|_| invalid_signature())
+}
+
+pub(crate) fn verify_signed_bytes(bytes: &[u8], signature: &str) -> Result<()> {
+    let (key, signature) = signature_parts(signature, PUBLIC_KEY)?;
+    key.verify(bytes, &signature, false)
+        .map_err(|_| invalid_signature())
+}
+
+fn invalid_signature() -> SpiceError {
+    SpiceError::User(
+        "The update signature could not be verified. Download a fresh update and try again.".into(),
+    )
+}
+
+fn signature_parts(signature: &str, public_key: &str) -> Result<(PublicKey, Signature)> {
+    let invalid = invalid_signature;
+    if signature.len() > 4096 {
+        return Err(invalid());
+    }
+    let key = STANDARD.decode(public_key.trim()).map_err(|_| invalid())?;
+    let key = PublicKey::decode(std::str::from_utf8(&key).map_err(|_| invalid())?)
+        .map_err(|_| invalid())?;
+    let signature = STANDARD.decode(signature.trim()).map_err(|_| invalid())?;
+    let signature = Signature::decode(std::str::from_utf8(&signature).map_err(|_| invalid())?)
+        .map_err(|_| invalid())?;
+    Ok((key, signature))
 }
 
 #[cfg(test)]

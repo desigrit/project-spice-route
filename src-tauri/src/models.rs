@@ -131,6 +131,8 @@ pub struct CompatibilityInfo {
     pub state_migration: Option<i64>,
     pub history_migration: Option<i64>,
     pub schema_fingerprint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_extensions: Option<crate::compatibility::SchemaExtensions>,
     pub explanation: String,
 }
 
@@ -452,6 +454,9 @@ pub struct ThreadExport {
     pub archived: bool,
     pub source_cwd: String,
     pub rollout_relative_path: Option<String>,
+    /// Set only after every line of this transcript matched the basic text reader.
+    #[serde(default)]
+    pub basic_text_rollout: bool,
     pub projectless_relative_root: Option<String>,
     #[serde(default)]
     pub attachments: Vec<AttachmentReference>,

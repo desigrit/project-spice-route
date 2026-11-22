@@ -20,10 +20,19 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 use walkdir::{DirEntry, WalkDir};
 
-pub const SNAPSHOT_SCHEMA: u32 = 2;
+pub const SNAPSHOT_SCHEMA: u32 = 3;
 
 fn supported_snapshot_schema(version: u32) -> bool {
-    matches!(version, 1 | 2)
+    (1..=SNAPSHOT_SCHEMA).contains(&version)
+}
+
+fn require_supported_format(version: u32) -> Result<()> {
+    if supported_snapshot_schema(version) {
+        return Ok(());
+    }
+    Err(SpiceError::UnsupportedCodex(format!(
+        "Snapshot format {version} requires a newer Spice Route version. This release reads formats 1 through {SNAPSHOT_SCHEMA}."
+    )))
 }
 
 pub struct ObjectStore {
@@ -706,7 +715,7 @@ pub fn build_manifest_cancellable(
         }
         match pending.kind {
             PendingFileKind::Rollout => {
-                let rollout_fingerprint = codex::portable_rollout_fingerprint(&pending.source)?;
+                let (rollout_fingerprint, basic_text) = codex::inspect_rollout(&pending.source)?;
                 let object = store.put_file_cancellable(
                     &pending.source,
                     pending.logical_path,
@@ -719,6 +728,7 @@ pub fn build_manifest_cancellable(
                     .iter_mut()
                     .find(|thread| thread.id == pending.owner_id)
                 {
+                    thread.basic_text_rollout = basic_text;
                     thread.fingerprint = sha256_bytes(
                         format!("{}:{rollout_fingerprint}", thread.fingerprint).as_bytes(),
                     );
@@ -1579,9 +1589,8 @@ pub fn list_manifests(config: &AppConfig) -> Result<Vec<SnapshotManifest>> {
                 path.display()
             ))
         })?;
-        if !supported_snapshot_schema(manifest.schema_version)
-            || path.file_stem().and_then(|value| value.to_str()) != Some(&manifest.id)
-        {
+        require_supported_format(manifest.schema_version)?;
+        if path.file_stem().and_then(|value| value.to_str()) != Some(&manifest.id) {
             return Err(SpiceError::CorruptSnapshot(format!(
                 "Manifest identity or format mismatch in {}",
                 path.display()
@@ -1603,7 +1612,8 @@ pub fn load_manifest(config: &AppConfig, id: &str) -> Result<SnapshotManifest> {
         .join("snapshots")
         .join(format!("{id}.json"));
     let manifest: SnapshotManifest = read_json(&path)?;
-    if manifest.id != id || !supported_snapshot_schema(manifest.schema_version) {
+    require_supported_format(manifest.schema_version)?;
+    if manifest.id != id {
         return Err(SpiceError::CorruptSnapshot(format!(
             "Manifest identity mismatch for {id}"
         )));
@@ -1649,9 +1659,7 @@ fn validate_manifest(
     observer: Option<ContentObserver<'_>>,
 ) -> Result<SnapshotSummary> {
     let mut progress = ContentReporter::new(&manifest.objects, observer);
-    if !supported_snapshot_schema(manifest.schema_version) {
-        return Err(SpiceError::UnsupportedCodex(format!("Snapshot format {} requires a newer Spice Route version. This release reads formats 1 and 2.", manifest.schema_version)));
-    }
+    require_supported_format(manifest.schema_version)?;
     let store = ObjectStore {
         root: cloud_store_root(config).join("objects"),
         preview_only: false,
@@ -2119,6 +2127,7 @@ mod tests {
                 state_migration: Some(1),
                 history_migration: Some(1),
                 schema_fingerprint: "test".to_string(),
+                schema_extensions: None,
                 explanation: "test".to_string(),
             },
             codex_version: Some("test".to_string()),
@@ -2378,7 +2387,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_existing_format_one_and_new_format_two_without_republishing_ancestors() {
+    fn reads_formats_one_two_and_three_without_republishing_ancestors() {
         let root = tempdir().unwrap();
         let mut config = settings::default_config();
         config.cloud_root = root.path().to_string_lossy().into_owned();
@@ -2386,14 +2395,18 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let mut old = manifest("old", None, &[], &config);
         old.schema_version = 1;
-        let new = manifest("new", Some("old"), &[], &config);
+        let mut middle = manifest("middle", Some("old"), &[], &config);
+        middle.schema_version = 2;
+        let new = manifest("new", Some("middle"), &[], &config);
+        crate::util::write_json(&directory.join("middle.json"), &middle).unwrap();
         crate::util::write_json(&directory.join("old.json"), &old).unwrap();
         crate::util::write_json(&directory.join("new.json"), &new).unwrap();
         let old_bytes = fs::read(directory.join("old.json")).unwrap();
         assert_eq!(load_manifest(&config, "old").unwrap().schema_version, 1);
-        assert_eq!(list_manifests(&config).unwrap().len(), 2);
+        assert_eq!(list_manifests(&config).unwrap().len(), 3);
         assert_eq!(head_manifests(&config).unwrap()[0].id, "new");
         verify_manifest(&config, &old).unwrap();
+        verify_manifest(&config, &middle).unwrap();
         verify_manifest(&config, &new).unwrap();
         assert_eq!(fs::read(directory.join("old.json")).unwrap(), old_bytes);
         let mut unknown = new;
@@ -2437,6 +2450,7 @@ mod tests {
                 archived: false,
                 source_cwd: original.path().to_string_lossy().into_owned(),
                 rollout_relative_path: None,
+                basic_text_rollout: false,
                 projectless_relative_root: None,
                 attachments: vec![crate::models::AttachmentReference {
                     source_path: original

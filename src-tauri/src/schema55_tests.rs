@@ -1264,6 +1264,208 @@ fn schema59_root_and_timing_metadata_round_trip_through_every_supported_profile(
 }
 
 #[test]
+fn attached_chats_and_model_aliases_follow_the_selected_session() {
+    let source = tempdir().unwrap();
+    let dest = tempdir().unwrap();
+    let old = tempdir().unwrap();
+    create_home_pair(source.path(), 64, 9);
+    create_home_pair(dest.path(), 63, 8);
+    create_home_pair(old.path(), 61, 8);
+    for id in ["portable", "child", "excluded"] {
+        seed_thread(source.path(), 64, id);
+    }
+    let db = Connection::open(source.path().join("state_5.sqlite")).unwrap();
+    db.execute_batch(
+        "UPDATE threads SET attached_thread_parent_id='portable' WHERE id='child';
+        INSERT INTO session_model_ids VALUES('portable','agent','key',0,'original seed');
+        INSERT INTO session_model_ids VALUES('excluded','agent','other',0,'excluded seed');",
+    )
+    .unwrap();
+    let excluding_parent = capture(source.path(), &["portable", "excluded"]);
+    assert!(excluding_parent.manifest.threads.is_empty());
+    let handoff = capture(source.path(), &["excluded"]);
+    assert_eq!(handoff.manifest.threads.len(), 2);
+    assert!(!serde_json::to_string(&handoff.manifest)
+        .unwrap()
+        .contains("excluded seed"));
+    let old_issues =
+        codex::transfer_issues(&handoff.manifest, &codex::inspect(old.path()).unwrap());
+    assert!(old_issues
+        .iter()
+        .any(|issue| issue.contains("session_model_ids")));
+    assert!(old_issues
+        .iter()
+        .any(|issue| issue.contains("attached_thread_parent_id")));
+    restore(dest.path(), &handoff, &[]);
+    let local = Connection::open(dest.path().join("state_5.sqlite")).unwrap();
+    local
+        .execute_batch(
+            "INSERT INTO session_model_ids VALUES('portable','agent','dest-only',1,NULL);",
+        )
+        .unwrap();
+    restore(dest.path(), &handoff, &[]);
+    let keys: String = local
+        .query_row(
+            "SELECT group_concat(external_key, ',' ORDER BY ordinal) FROM session_model_ids",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(keys, "key,dest-only");
+    local
+        .execute_batch("UPDATE session_model_ids SET initial_state='local seed' WHERE ordinal=0;")
+        .unwrap();
+    assert!(
+        apply_rows(dest.path(), &handoff.manifest, &[], &HashMap::new())
+            .unwrap_err()
+            .to_string()
+            .contains("different session aliases")
+    );
+    let seed: String = local
+        .query_row(
+            "SELECT initial_state FROM session_model_ids WHERE ordinal=0",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(seed, "local seed");
+    let mut wrong_owner = handoff.manifest.clone();
+    let aliases = wrong_owner
+        .threads
+        .iter_mut()
+        .find_map(|t| t.state_rows.get_mut("session_model_ids"))
+        .unwrap();
+    aliases[0]
+        .values
+        .insert("session_id".into(), SqlValue::Text("unrelated".into()));
+    assert!(apply_rows(dest.path(), &wrong_owner, &[], &HashMap::new())
+        .unwrap_err()
+        .to_string()
+        .contains("different chat"));
+}
+
+#[test]
+fn deleting_a_parent_preserves_its_retained_child_and_session_aliases() {
+    let source = tempdir().unwrap();
+    let destination = tempdir().unwrap();
+    create_home_pair(source.path(), 64, 9);
+    create_home_pair(destination.path(), 64, 9);
+    seed_thread(source.path(), 64, "portable");
+    for id in ["parent", "local-child", "unrelated-orphan"] {
+        seed_thread(destination.path(), 64, id);
+    }
+    let state = Connection::open(destination.path().join("state_5.sqlite")).unwrap();
+    state.execute_batch("UPDATE threads SET attached_thread_parent_id='parent' WHERE id='local-child';
+        UPDATE threads SET attached_thread_parent_id='historically-absent' WHERE id='unrelated-orphan';
+        INSERT INTO session_model_ids VALUES('parent','worker','key',0,'seed');").unwrap();
+    let handoff = capture(source.path(), &[]);
+    let error = apply_rows(
+        destination.path(),
+        &handoff.manifest,
+        &["parent"],
+        &HashMap::new(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("attached chat still needs it"));
+    let rows: i64 = state
+        .query_row(
+            "SELECT count(*) FROM threads WHERE id IN ('parent','local-child')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(rows, 2);
+    let seed: String = state
+        .query_row(
+            "SELECT initial_state FROM session_model_ids WHERE session_id='parent'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(seed, "seed");
+    apply_rows(
+        destination.path(),
+        &handoff.manifest,
+        &["parent", "local-child"],
+        &HashMap::new(),
+    )
+    .unwrap();
+    assert!(!state
+        .prepare("SELECT 1 FROM session_model_ids WHERE session_id='parent'")
+        .unwrap()
+        .exists([])
+        .unwrap());
+    assert!(state
+        .prepare("SELECT 1 FROM threads WHERE id='unrelated-orphan'")
+        .unwrap()
+        .exists([])
+        .unwrap());
+}
+
+#[test]
+fn importing_an_attached_child_requires_its_parent_in_the_final_state() {
+    let source = tempdir().unwrap();
+    let destination = tempdir().unwrap();
+    create_home_pair(source.path(), 64, 9);
+    create_home_pair(destination.path(), 64, 9);
+    for id in ["parent", "child"] {
+        seed_thread(source.path(), 64, id);
+    }
+    let db = Connection::open(source.path().join("state_5.sqlite")).unwrap();
+    db.execute(
+        "UPDATE threads SET attached_thread_parent_id='parent' WHERE id='child'",
+        [],
+    )
+    .unwrap();
+    let handoff = capture(source.path(), &[]);
+    let mut child_only = handoff.manifest.clone();
+    child_only.threads.retain(|thread| thread.id == "child");
+    let error = apply_rows(destination.path(), &child_only, &[], &HashMap::new()).unwrap_err();
+    assert!(error.to_string().contains("needs parent chat parent"));
+    let local = Connection::open(destination.path().join("state_5.sqlite")).unwrap();
+    assert!(!local
+        .prepare("SELECT 1 FROM threads WHERE id='child'")
+        .unwrap()
+        .exists([])
+        .unwrap());
+    seed_thread(destination.path(), 64, "parent");
+    apply_rows(destination.path(), &child_only, &[], &HashMap::new()).unwrap();
+    assert!(local
+        .prepare("SELECT 1 FROM threads WHERE id='child' AND attached_thread_parent_id='parent'")
+        .unwrap()
+        .exists([])
+        .unwrap());
+}
+
+/// The migration-monitor workflow supplies two disposable databases produced by
+/// applying upstream SQL to a tested baseline with synthetic data.
+#[test]
+#[ignore = "requires a disposable upstream migration probe"]
+fn upcoming_codex_migrations_round_trip() {
+    let root = PathBuf::from(std::env::var_os("SPICE_ROUTE_MIGRATION_PROBE").unwrap());
+    let probe = codex::inspect(&root).unwrap();
+    assert!(probe.supported, "{}", probe.explanation);
+    let previous = tempdir().unwrap();
+    create_home_pair(previous.path(), 64, 9);
+    seed_thread(previous.path(), 64, "portable");
+    seed_thread(previous.path(), 64, "excluded");
+    let captured = capture(previous.path(), &["excluded"]);
+    restore(&root, &captured, &[]);
+    restore(&root, &captured, &[]);
+    let recaptured = capture(&root, &[]);
+    assert_eq!(recaptured.manifest.threads.len(), 1);
+    assert_eq!(
+        captured.manifest.threads[0].fingerprint,
+        recaptured.manifest.threads[0].fingerprint
+    );
+    let history = Connection::open(root.join("thread_history_1.sqlite")).unwrap();
+    history.execute("INSERT INTO thread_turns(thread_id,turn_id,rollout_ordinal,status) VALUES('portable','continued',2,'completed')", []).unwrap();
+    restore(previous.path(), &capture(&root, &[]), &[]);
+    let returned = Connection::open(previous.path().join("thread_history_1.sqlite")).unwrap();
+    assert_eq!(returned.query_row("SELECT count(*) FROM thread_turns WHERE thread_id='portable' AND turn_id='continued'", [], |r| r.get::<_,i64>(0)).unwrap(), 1);
+}
+
+#[test]
 fn schema59_root_retention_checks_identity_and_prevents_unprotected_imports() {
     let source = tempdir().unwrap();
     let destination = tempdir().unwrap();
